@@ -85,6 +85,12 @@ LED_GLOW_ALPHA = 170
 
 # A part being dragged draws above the others.
 DRAGGED_COMPONENT_Z_VALUE = 2
+# A part waiting to be placed (a "ghost", make_pending): see-through,
+# above everything, cyan where it may go and red where it may not. Cyan,
+# not green, so a ghost lying on a wire (WIRE_COLOR #7bd88f) stands out.
+PENDING_OPACITY = 0.6
+PENDING_Z_VALUE = 3
+PENDING_ALLOWED_COLOR = "#4dd0e1"
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -423,6 +429,9 @@ class ComponentItem(QGraphicsItem):
         self.is_dragging = False
         # True while a drag hovers a spot where the drop would be refused.
         self.is_drop_refused = False
+        # For a ghost (make_pending): True where it may be placed, False
+        # where not. None for a placed part.
+        self.pending_allowed = None
 
         self.refresh_from_component()
 
@@ -492,6 +501,29 @@ class ComponentItem(QGraphicsItem):
         if is_drop_refused != self.is_drop_refused:
             self.is_drop_refused = is_drop_refused
             self.update()
+
+    def make_pending(self, is_allowed):
+        """
+        Show this item as a part waiting to be placed (a ghost).
+
+        The ghost is see-through, drawn above every part, has no label or
+        tooltip and takes no clicks or selection, so a click goes to the
+        grid point under it. It is drawn cyan where the part may be
+        placed and red where it would be refused, all over (an LED's
+        triangle too).
+
+        :param is_allowed: True if the part may be placed here.
+        :type is_allowed: bool
+        :returns: None
+        """
+        self.setOpacity(PENDING_OPACITY)
+        self.setZValue(PENDING_Z_VALUE)
+        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setFlag(self.ItemIsSelectable, False)
+        self.setToolTip("")
+        self.label_item.setVisible(False)
+        self.pending_allowed = bool(is_allowed)
+        self.update()
 
     def cancel_drag(self):
         """
@@ -987,7 +1019,12 @@ class ComponentItem(QGraphicsItem):
         if self.is_lit:
             self.paint_glow(painter)
 
-        if self.is_drop_refused:
+        if self.pending_allowed is not None:
+            color = QColor(
+                PENDING_ALLOWED_COLOR if self.pending_allowed
+                else REFUSED_DROP_COLOR
+            )
+        elif self.is_drop_refused:
             color = QColor(REFUSED_DROP_COLOR)
         elif self.isSelected():
             color = QColor(SELECTED_COLOR)
@@ -1003,8 +1040,11 @@ class ComponentItem(QGraphicsItem):
         # A lit LED's triangle (and its arrowheads) take the LED's color.
         # A dark LED stays the symbol color even when selected, so a
         # selected LED can't be mistaken for a lit yellow one; its outline
-        # still shows the selection.
-        if self.is_lit:
+        # still shows the selection. A ghost (make_pending) is tinted
+        # all over, an LED's triangle included.
+        if self.pending_allowed is not None:
+            fill_color = color
+        elif self.is_lit:
             fill_color = self.get_lit_color()
         elif self.component.kind == "led":
             fill_color = QColor(SYMBOL_COLOR)

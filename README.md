@@ -68,6 +68,12 @@ Using it
 - Node > Toggle Signal Pickoff marks the selected point green.
 - Use the Grid Configuration panel to change the rows and columns, then
   click Apply Grid Configuration.
+- Placing a part: click a grid point, pick the part in the Components
+  panel and press Place at Selected Point. The part appears
+  see-through at that point: the arrow keys or W/A/S/D point it right,
+  down, left or up (cyan where it fits, red where it would clash),
+  clicking another grid point moves it, Enter or a right-click places
+  it, and Esc cancels.
 - Ctrl + mouse wheel zooms. View > Fit Grid fits the grid to the window.
 - File > Save Project / Open Project stores the grid as a .json file.
 

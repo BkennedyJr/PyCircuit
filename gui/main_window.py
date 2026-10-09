@@ -157,6 +157,18 @@ class MainWindow(QMainWindow):
             self.handle_component_move_refused
         )
         self.connection_grid_scene.wire_added.connect(self.handle_wire_added)
+        self.connection_grid_scene.pending_placement_changed.connect(
+            self.handle_pending_placement_changed
+        )
+        self.connection_grid_scene.pending_placement_committed.connect(
+            self.handle_pending_placement_committed
+        )
+        self.connection_grid_scene.pending_placement_refused.connect(
+            self.handle_pending_placement_refused
+        )
+        self.connection_grid_scene.pending_placement_cancelled.connect(
+            self.handle_pending_placement_cancelled
+        )
         self.connection_grid_scene.wire_refused.connect(
             self.handle_wire_refused
         )
@@ -340,8 +352,9 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self.component_panel_widget = ComponentPanelWidget(self)
+        # Place shows the part as a ghost first (Billie, Oct 9 12:07).
         self.component_panel_widget.place_requested.connect(
-            self.place_component
+            self.start_pending_placement
         )
         self.component_panel_widget.rotate_requested.connect(
             self.rotate_selected_component
@@ -693,11 +706,118 @@ class MainWindow(QMainWindow):
         """
         self.is_project_modified = True
         self.update_window_title()
+        pending_status = self.connection_grid_scene.get_pending_status()
+
+        if pending_status is not None:
+            # A part still waits to be placed: keep its "Placing ..." text
+            # (with the up-to-date fits / can't-go-here wording) in view.
+            self.statusBar().showMessage(f"{status_message} {pending_status}")
+            return
+
         self.statusBar().showMessage(status_message, 5000)
 
-    def place_component(self, kind, value_text, parameter_texts=None):
+    def start_pending_placement(self, kind, value_text, parameter_texts=None):
         """
-        Place a new part with its anchor on the selected grid point.
+        Show a new part as a ghost on the selected grid point (Place).
+
+        The part is not placed yet: the arrow keys or W/A/S/D turn it,
+        clicking another grid point moves it, Enter or a right-click
+        places it and Esc cancels it (see ConnectionGridScene). Wire mode
+        is turned off so a click moves the ghost instead of drawing.
+
+        :param kind: Component kind, for example "resistor".
+        :type kind: str
+        :param value_text: Value as typed, for example "4k7".
+        :type value_text: str
+        :param parameter_texts: Extra settings as typed, or None.
+        :type parameter_texts: dict or None
+        :returns: None
+        """
+        if self.selected_connection_point_identifier is None:
+            self.show_error_message(
+                "No Connection Point Selected",
+                "A part is placed on the selected connection point, and no "
+                "point is selected.",
+                "Click a grid point first, then place the part."
+            )
+            return
+
+        if self.wire_mode_action.isChecked():
+            self.set_wire_mode(False)
+
+        try:
+            self.connection_grid_scene.start_pending_placement(
+                kind,
+                value_text,
+                parameter_texts,
+                self.selected_connection_point_identifier
+            )
+        except ComponentError as error:
+            self.statusBar().showMessage(f"Part not placed: {error}", 10000)
+            self.show_error_message(
+                "Part Not Placed",
+                str(error),
+                "Check the value and settings, then press Place again."
+            )
+            return
+
+        # The placing keys work while the grid view has focus.
+        self.connection_grid_view.setFocus(Qt.OtherFocusReason)
+
+    def handle_pending_placement_changed(self, status_text):
+        """
+        Show where the waiting part is and whether it may go there.
+
+        :param status_text: Text from the scene.
+        :type status_text: str
+        :returns: None
+        """
+        # No timeout: it stays while the part waits.
+        self.statusBar().showMessage(status_text)
+
+    def handle_pending_placement_committed(self, reference):
+        """
+        Finish placing a part that was waiting (Enter or right-click).
+
+        :param reference: The new part.
+        :type reference: str
+        :returns: None
+        """
+        component = self.component_collection.get_component(reference)
+        self.finish_placing_component(component)
+
+    def handle_pending_placement_refused(self, message):
+        """
+        Say why the waiting part can't go here; it keeps waiting.
+
+        :param message: Refusal with the free directions at this point.
+        :type message: str
+        :returns: None
+        """
+        self.statusBar().showMessage(f"Part not placed: {message}")
+        self.show_error_message(
+            "Part Not Placed",
+            message,
+            "Turn it with the arrow keys or W/A/S/D, click another grid "
+            "point, or press Esc to cancel."
+        )
+        self.connection_grid_view.setFocus(Qt.OtherFocusReason)
+
+    def handle_pending_placement_cancelled(self):
+        """
+        Report that the waiting part was dropped (Esc).
+
+        :returns: None
+        """
+        self.statusBar().showMessage("Placing cancelled.", 3000)
+
+    def place_component(self, kind, value_text, parameter_texts=None,
+                        rotation=0):
+        """
+        Place a new part on the selected grid point at once (no ghost).
+
+        Place in the panel goes through start_pending_placement instead;
+        this is the direct path used by scripts and tests.
 
         :param kind: Component kind, for example "resistor".
         :type kind: str
@@ -706,6 +826,8 @@ class MainWindow(QMainWindow):
         :param parameter_texts: Extra settings as typed, for example
             {"frequency": "50"} for an AC source.
         :type parameter_texts: dict or None
+        :param rotation: Rotation in degrees.
+        :type rotation: int
         :returns: None
         """
         if self.selected_connection_point_identifier is None:
@@ -728,7 +850,8 @@ class MainWindow(QMainWindow):
                 connection_point.column_number,
                 value_text,
                 self.connection_grid,
-                parameter_texts=parameter_texts
+                rotation,
+                parameter_texts
             )
 
         except ComponentError as error:
@@ -741,6 +864,16 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self.finish_placing_component(component)
+
+    def finish_placing_component(self, component):
+        """
+        Show a part that was just stored, select it and report it.
+
+        :param component: The new part.
+        :type component: core.components.Component
+        :returns: None
+        """
         # The rebuild drops the selection; select the new part so it can be
         # rotated (R) or edited at once.
         self.connection_grid_scene.rebuild_component_items()
@@ -751,8 +884,11 @@ class MainWindow(QMainWindow):
         self.connection_grid_view.setFocus(Qt.OtherFocusReason)
 
         placed_text = component.label_text() or component.reference
+        anchor_identifier = ConnectionGrid.build_connection_point_identifier(
+            component.row_number, component.column_number
+        )
         self.mark_project_modified(
-            f"Placed {placed_text} at {connection_point.identifier}."
+            f"Placed {placed_text} at {anchor_identifier}."
         )
 
     def reveal_component(self, reference):
