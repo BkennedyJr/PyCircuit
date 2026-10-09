@@ -350,10 +350,12 @@ def test_tool_tip_lists_kind_reference_value_and_pin_nodes():
 
     # Anchor R4 C4 rotated 90: pin 1 on the anchor, pin 2 at R5 C4.
     assert tool_tip.splitlines() == [
-        "R1 (Resistor)",
+        "Kind: Resistor",
+        "Reference: R1",
         "Value: 4k7",
-        "1: NODE_R04_C04",
-        "2: NODE_R05_C04",
+        "Rotation: 90 deg",
+        "pin 1: NODE_R04_C04",
+        "pin 2: NODE_R05_C04",
     ]
 
 
@@ -361,7 +363,7 @@ def test_ground_tool_tip_has_no_value_line():
     tool_tip = make_item("ground", reference="GND1").toolTip()
 
     assert "Value" not in tool_tip
-    assert "gnd: NODE_R04_C04" in tool_tip
+    assert "pin gnd: NODE_R04_C04" in tool_tip
 
 
 def test_refresh_repaints_the_item_in_the_scene(qt_application):
@@ -586,19 +588,24 @@ def test_dc_source_tool_tip_names_the_voltage():
     tool_tip = make_item("dc_source", value_text="9").toolTip()
 
     assert tool_tip.splitlines() == [
-        "V1 (DC voltage source)",
+        "Kind: DC voltage source",
+        "Reference: V1",
         "Voltage: 9V",
-        "plus: NODE_R04_C04",
-        "minus: NODE_R05_C04",
+        "Rotation: 0 deg",
+        "pin plus: NODE_R04_C04",
+        "pin minus: NODE_R05_C04",
     ]
 
 
 def test_ac_source_tool_tip_and_label_show_the_frequency():
     item = make_item("ac_source")
 
-    assert item.toolTip().splitlines()[:3] == [
-        "V1 (AC voltage source)",
+    assert item.toolTip().splitlines()[:6] == [
+        "Kind: AC voltage source",
+        "Reference: V1",
         "Peak amplitude: 1V",
         "Frequency: 1kHz",
+        "Offset: 0V",
+        "Phase: 0deg",
     ]
     assert item.label_item.text() == "V1 1V 1kHz"

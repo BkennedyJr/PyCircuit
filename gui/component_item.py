@@ -52,9 +52,10 @@ from PyQt5.QtWidgets import (
 from core.components import (
     COMPONENT_DEFINITIONS,
     Component,
-    get_panel_parameter_definitions,
+    get_parameter_definitions,
 )
 from core.exceptions import ComponentError
+from core.wires import WireNets
 from gui.component_symbols import build_symbol_paths, get_body_rect
 
 BACKGROUND_COLOR = "#1f2933"
@@ -366,6 +367,7 @@ class ComponentItem(QGraphicsItem):
         self.label_side = LABEL_SIDES[0]
         self.label_offset = QPointF()
         self._bounding_rect = QRectF()
+        self.wire_nets = None
 
         # Selectable for the property panel, but never dragged by Qt: a
         # move must go through the collection's checked move (see the
@@ -674,35 +676,69 @@ class ComponentItem(QGraphicsItem):
 
     def build_tool_tip(self):
         """
-        Describe the part: kind, reference, value and the node under each pin.
+        Describe the part for its hover tooltip.
+
+        One line each for the kind, reference, value (or model), every
+        setting (hidden ones such as Offset too) and the rotation, then one
+        "pin <name>: <node>" line per pin. Once the scene has given the item
+        its wire nets (set_wire_nets), each pin line is followed by an
+        indented "net: ..." line (see core.wires.WireNets.describe).
 
         :returns: Multi-line tooltip text.
         :rtype: str
         """
         component = self.component
         definition = COMPONENT_DEFINITIONS[component.kind]
-        lines = [f"{component.reference} ({definition['display_name']})"]
+        lines = [
+            f"Kind: {definition['display_name']}",
+            f"Reference: {component.reference}",
+        ]
 
-        if definition["value_kind"] != "none":
+        if definition["value_kind"] == "model":
+            lines.append(f"Model: {component.value_text}")
+        elif definition["value_kind"] != "none":
             value_label = definition.get("value_label", "Value")
             value_unit = definition.get("value_unit", "")
             lines.append(f"{value_label}: {component.value_text}{value_unit}")
 
-        for parameter in get_panel_parameter_definitions(component.kind):
+        for parameter in get_parameter_definitions(component.kind):
             lines.append(
                 f"{parameter['display_name']}: "
                 f"{component.parameter_texts[parameter['name']]}"
                 f"{parameter['unit']}"
             )
 
+        lines.append(f"Rotation: {component.rotation} deg")
+
         pin_names = [name for name, unused_dx, unused_dy in
                      component.get_pin_offsets()]
         pin_identifiers = component.get_pin_identifiers()
 
         for pin_name, identifier in zip(pin_names, pin_identifiers):
-            lines.append(f"{pin_name}: {identifier}")
+            lines.append(f"pin {pin_name}: {identifier}")
+
+            if self.wire_nets is not None:
+                lines.append(f"  net: {self.wire_nets.describe(identifier)}")
 
         return "\n".join(lines)
+
+    def set_wire_nets(self, wire_nets):
+        """
+        Give the item the scene's wire nets and rebuild the tooltip.
+
+        :param wire_nets: Nets of the scene's wires, or None to leave the
+            net lines out.
+        :type wire_nets: core.wires.WireNets or None
+        :returns: None
+        :raises ComponentError: If wire_nets is neither None nor WireNets.
+        """
+        if wire_nets is not None and not isinstance(wire_nets, WireNets):
+            raise ComponentError(
+                f"set_wire_nets needs WireNets or None, not {wire_nets!r}."
+            )
+
+        self.wire_nets = wire_nets
+        self.setToolTip(self.build_tool_tip())
 
     def boundingRect(self):
         """

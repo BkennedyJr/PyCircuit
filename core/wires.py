@@ -19,6 +19,7 @@ from core.exceptions import ComponentError
 WIRE_REFERENCE_PREFIX = "W"
 
 _WIRE_REFERENCE_PATTERN = re.compile(r"W[1-9][0-9]{0,5}")
+_POINT_IDENTIFIER_PATTERN = re.compile(r"NODE_R[0-9]{2,}_C[0-9]{2,}")
 
 
 def _validate_connection_grid(connection_grid):
@@ -360,3 +361,180 @@ class WireCollection:
             del self.wires_by_reference[reference]
 
         return removed_references
+
+
+class WireNets:
+    """
+    Which grid points the wires join, for the part tooltips.
+
+    Wires connect only their two ends (see the module docstring), so two
+    wires that share an end point are one net. This is a light stand-in
+    for M2's NetMap: it knows only wires and the points ground pins sit
+    on, not the parts. A net with a ground point is SPICE node "0".
+
+    :param wire_collection: Wires to group.
+    :type wire_collection: WireCollection
+    :param ground_identifiers: Points that a ground pin sits on.
+    :type ground_identifiers: iterable of str
+    :raises ComponentError: If an argument has the wrong type.
+    """
+
+    def __init__(self, wire_collection, ground_identifiers=()):
+        if not isinstance(wire_collection, WireCollection):
+            raise ComponentError(
+                f"Expected a WireCollection, not "
+                f"{type(wire_collection).__name__}."
+            )
+
+        ground_identifiers = tuple(ground_identifiers)
+
+        for identifier in ground_identifiers:
+            _validate_identifier(identifier)
+
+        self._ground_identifiers = frozenset(ground_identifiers)
+        self._parent_by_point = {}
+        self._point_by_identifier = {}
+
+        for wire in wire_collection.get_wires():
+            for identifier, point in (
+                    (wire.start_identifier, wire.start_point),
+                    (wire.end_identifier, wire.end_point)):
+                self._point_by_identifier[identifier] = point
+                self._parent_by_point.setdefault(identifier, identifier)
+
+            self._union(wire.start_identifier, wire.end_identifier)
+
+        self._points_by_root = {}
+        self._wires_by_root = {}
+
+        for identifier in self._parent_by_point:
+            self._points_by_root.setdefault(
+                self._find(identifier), []
+            ).append(identifier)
+
+        for wire in wire_collection.get_wires():
+            self._wires_by_root.setdefault(
+                self._find(wire.start_identifier), []
+            ).append(wire.reference)
+
+    def _find(self, identifier):
+        """
+        Return the representative point of a group (path halving).
+
+        :rtype: str
+        """
+        parent_by_point = self._parent_by_point
+
+        while parent_by_point[identifier] != identifier:
+            parent_by_point[identifier] = parent_by_point[
+                parent_by_point[identifier]
+            ]
+            identifier = parent_by_point[identifier]
+
+        return identifier
+
+    def _union(self, first_identifier, second_identifier):
+        """
+        Join the groups of two points.
+
+        :returns: None
+        """
+        first_root = self._find(first_identifier)
+        second_root = self._find(second_identifier)
+
+        if first_root != second_root:
+            self._parent_by_point[second_root] = first_root
+
+    def get_points(self, identifier):
+        """
+        Return the points joined to one point by wires, in row-column order.
+
+        :param identifier: Connection-point identifier.
+        :type identifier: str
+        :returns: The joined identifiers, including this one; just this
+            one when no wire ends here.
+        :rtype: tuple
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        _validate_identifier(identifier)
+
+        if identifier not in self._parent_by_point:
+            return (identifier,)
+
+        return tuple(sorted(
+            self._points_by_root[self._find(identifier)],
+            key=self._point_by_identifier.__getitem__
+        ))
+
+    def get_wire_references(self, identifier):
+        """
+        Return the wires of the net through one point (W2 before W10).
+
+        :param identifier: Connection-point identifier.
+        :type identifier: str
+        :returns: Wire references; empty when no wire ends here.
+        :rtype: tuple
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        _validate_identifier(identifier)
+
+        if identifier not in self._parent_by_point:
+            return ()
+
+        return tuple(sorted(
+            self._wires_by_root[self._find(identifier)],
+            key=_wire_sort_key
+        ))
+
+    def is_ground(self, identifier):
+        """
+        Return whether the net through one point holds a ground pin.
+
+        :rtype: bool
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        return not self._ground_identifiers.isdisjoint(
+            self.get_points(identifier)
+        )
+
+    def describe(self, identifier):
+        """
+        Describe the net through one point, for a tooltip.
+
+        Examples: "NODE_R02_C02, NODE_R02_C05 via W1",
+        "0 (ground): NODE_R02_C05, NODE_R06_C05 via W1, W2", "0 (ground)"
+        (a ground pin on the point itself) and "no wires".
+
+        :param identifier: Connection-point identifier.
+        :type identifier: str
+        :rtype: str
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        wire_references = self.get_wire_references(identifier)
+        is_ground = self.is_ground(identifier)
+
+        if not wire_references:
+            return "0 (ground)" if is_ground else "no wires"
+
+        text = (
+            f"{', '.join(self.get_points(identifier))} via "
+            f"{', '.join(wire_references)}"
+        )
+
+        return f"0 (ground): {text}" if is_ground else text
+
+
+def _validate_identifier(identifier):
+    """
+    Confirm that a connection-point identifier was supplied.
+
+    :param identifier: Value to check, for example "NODE_R02_C03".
+    :returns: None
+    :raises ComponentError: If it is not a valid identifier.
+    """
+    if (not isinstance(identifier, str) or
+            not _POINT_IDENTIFIER_PATTERN.fullmatch(identifier)):
+        raise ComponentError(
+            f"Expected a grid point such as NODE_R02_C03, not "
+            f"{identifier!r}."
+        )

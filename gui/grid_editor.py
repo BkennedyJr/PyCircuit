@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
 from core.exceptions import ComponentError
+from core.wires import WireNets
 from gui.component_item import (
     LABEL_PATCH_PADDING,
     LABEL_SIDES,
@@ -359,6 +360,7 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.update_wire_nets()
         self.update_scene_extent()
 
     def refresh_component(self, reference):
@@ -384,6 +386,8 @@ class ConnectionGridScene(QGraphicsScene):
         # A turn or a longer value can change the best spot for the
         # neighbours' labels too, so lay out every label again.
         self.layout_component_labels()
+        # A moved ground pin can change which net is node 0.
+        self.update_wire_nets()
         self.update_scene_extent()
 
     def set_wire_collection(self, wire_collection):
@@ -418,6 +422,34 @@ class ConnectionGridScene(QGraphicsScene):
                 )
                 self.addItem(wire_item)
                 self.wire_items_by_reference[wire.reference] = wire_item
+
+        self.update_wire_nets()
+
+    def update_wire_nets(self):
+        """
+        Give every part item the current wire nets for its tooltip.
+
+        Without a wire collection the items get None and their tooltips
+        have no net lines.
+
+        :returns: None
+        """
+        wire_nets = None
+
+        if self.wire_collection is not None:
+            ground_identifiers = []
+
+            if self.component_collection is not None:
+                for component in self.component_collection.get_components():
+                    if component.kind == "ground":
+                        ground_identifiers.extend(
+                            component.get_pin_identifiers()
+                        )
+
+            wire_nets = WireNets(self.wire_collection, ground_identifiers)
+
+        for component_item in self.component_items_by_reference.values():
+            component_item.set_wire_nets(wire_nets)
 
     def set_wire_mode(self, is_wire_mode):
         """
