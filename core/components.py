@@ -10,6 +10,13 @@ builder, and the solver.
 Pin offsets are measured in grid steps from the part's anchor grid point.
 ``dx`` is the column offset and ``dy`` is the row offset; a positive ``dy``
 points down the screen, the same direction as Qt's y axis.
+
+Two-pin parts span one grid step: the anchor is the first pin, the second
+pin is on the neighbouring grid point, and the body sits halfway between
+them. ``body_center_half_steps`` gives the body centre from the anchor in
+half grid steps (so it stays a whole number that rotate_offset accepts):
+(1, 0) is half a step to the right. Transistors keep their anchor at the
+body centre with three pins around it; ground's single pin is its anchor.
 """
 
 import copy
@@ -34,56 +41,64 @@ COMPONENT_DEFINITIONS = {
     "resistor": {
         "display_name": "Resistor",
         "prefix": "R",
-        "pins": [("1", -1, 0), ("2", 1, 0)],
+        "pins": [("1", 0, 0), ("2", 1, 0)],
+        "body_center_half_steps": (1, 0),
         "value_kind": "positive",
         "default_value_text": "1k",
     },
     "capacitor": {
         "display_name": "Capacitor",
         "prefix": "C",
-        "pins": [("1", -1, 0), ("2", 1, 0)],
+        "pins": [("1", 0, 0), ("2", 1, 0)],
+        "body_center_half_steps": (1, 0),
         "value_kind": "positive",
         "default_value_text": "100n",
     },
     "capacitor_polarized": {
         "display_name": "Capacitor (polarized)",
         "prefix": "C",
-        "pins": [("plus", -1, 0), ("minus", 1, 0)],
+        "pins": [("plus", 0, 0), ("minus", 1, 0)],
+        "body_center_half_steps": (1, 0),
         "value_kind": "positive",
         "default_value_text": "10u",
     },
     "inductor": {
         "display_name": "Inductor",
         "prefix": "L",
-        "pins": [("1", -1, 0), ("2", 1, 0)],
+        "pins": [("1", 0, 0), ("2", 1, 0)],
+        "body_center_half_steps": (1, 0),
         "value_kind": "positive",
         "default_value_text": "10u",
     },
     "voltage_source": {
         "display_name": "Voltage source",
         "prefix": "V",
-        "pins": [("plus", 0, -1), ("minus", 0, 1)],
+        "pins": [("plus", 0, 0), ("minus", 0, 1)],
+        "body_center_half_steps": (0, 1),
         "value_kind": "any",
         "default_value_text": "5",
     },
     "current_source": {
         "display_name": "Current source",
         "prefix": "I",
-        "pins": [("in", 0, 1), ("out", 0, -1)],
+        "pins": [("in", 0, 0), ("out", 0, 1)],
+        "body_center_half_steps": (0, 1),
         "value_kind": "any",
         "default_value_text": "1m",
     },
     "diode": {
         "display_name": "Diode",
         "prefix": "D",
-        "pins": [("anode", -1, 0), ("cathode", 1, 0)],
+        "pins": [("anode", 0, 0), ("cathode", 1, 0)],
+        "body_center_half_steps": (1, 0),
         "value_kind": "model",
         "default_value_text": "1N4148",
     },
     "led": {
         "display_name": "LED",
         "prefix": "D",
-        "pins": [("anode", -1, 0), ("cathode", 1, 0)],
+        "pins": [("anode", 0, 0), ("cathode", 1, 0)],
+        "body_center_half_steps": (1, 0),
         "value_kind": "model",
         "default_value_text": "LED_RED",
     },
@@ -91,6 +106,7 @@ COMPONENT_DEFINITIONS = {
         "display_name": "NPN transistor",
         "prefix": "Q",
         "pins": [("base", -1, 0), ("collector", 0, -1), ("emitter", 0, 1)],
+        "body_center_half_steps": (0, 0),
         "value_kind": "model",
         "default_value_text": "2N3904",
     },
@@ -98,6 +114,7 @@ COMPONENT_DEFINITIONS = {
         "display_name": "PNP transistor",
         "prefix": "Q",
         "pins": [("base", -1, 0), ("emitter", 0, -1), ("collector", 0, 1)],
+        "body_center_half_steps": (0, 0),
         "value_kind": "model",
         "default_value_text": "2N3906",
     },
@@ -105,6 +122,7 @@ COMPONENT_DEFINITIONS = {
         "display_name": "Ground",
         "prefix": "GND",
         "pins": [("gnd", 0, 0)],
+        "body_center_half_steps": (0, 0),
         "value_kind": "none",
         "default_value_text": "",
     },
@@ -498,6 +516,33 @@ class Component:
             for unused_pin_name, row, column in self.get_pin_positions()
         ]
 
+    def get_body_center_offset(self):
+        """
+        Return the body centre from the anchor, after rotation.
+
+        :returns: (dx, dy) in grid steps; halves for two-pin parts, for
+            example (0.5, 0) for a resistor at 0 deg.
+        :rtype: tuple
+        """
+        half_dx, half_dy = COMPONENT_DEFINITIONS[self.kind][
+            "body_center_half_steps"
+        ]
+        rotated_dx, rotated_dy = rotate_offset(half_dx, half_dy, self.rotation)
+
+        return (rotated_dx / 2, rotated_dy / 2)
+
+    def get_body_center_position(self):
+        """
+        Return the body centre as a (row, column) grid position.
+
+        :returns: Row and column; a two-pin part's centre is halfway
+            between two grid points, for example (2, 2.5).
+        :rtype: tuple
+        """
+        dx, dy = self.get_body_center_offset()
+
+        return (self.row_number + dy, self.column_number + dx)
+
     def pins_fit_grid(self, row_count, column_count):
         """
         Return whether every pin lies on a grid of the given size.
@@ -586,10 +631,10 @@ class ComponentCollection:
     All placed components of one project, keyed by reference designator.
 
     The collection assigns references, refuses placements and rotations
-    that would put a pin outside the grid, exactly on top of an identical
-    part, or a part's centre (anchor) on another part's centre, and
-    removes parts that no longer fit after the grid shrinks. Parts may
-    still share pins: that is how they connect.
+    that would put a pin outside the grid or hide another part (the same
+    pin points, any kind, or the same body centre), and removes parts that
+    no longer fit after the grid shrinks. Parts may still share single
+    pins: that is how they connect.
     """
 
     def __init__(self):
@@ -660,26 +705,25 @@ class ComponentCollection:
         )
 
         self.ensure_pins_fit_grid(component, connection_grid)
-        self.ensure_not_identical_to_existing(component)
-        self.ensure_anchor_is_free(component)
+        self.ensure_no_overlap(component)
 
         self.components_by_reference[component.reference] = component
 
         return component
 
-    def find_identical_component(self, component):
+    def find_component_with_same_pins(self, component):
         """
-        Return a stored part that occupies exactly the same spot.
+        Return a stored part whose pins sit on exactly the same grid points.
 
-        Identical means the same kind on exactly the same grid points: the
-        same anchor and rotation, or a turn that lands on the same points
-        (a resistor at 0 and 180 deg). The two symbols would then be drawn
-        on top of each other and the lower one would be hidden. Parts that
-        only share some pins are not identical; that is how parts connect.
+        Any kind counts, and the pin order does not matter: a resistor
+        from R2 C2 to R2 C3 and a capacitor from R2 C3 to R2 C2 cover the
+        same two points. Their bodies would be drawn on top of each other
+        and the lower part would be hidden. Parts that share only some
+        pins are fine; that is how parts connect.
 
         :param component: Part to compare; it is skipped if it is stored.
         :type component: Component
-        :returns: The first identical part by reference, or None.
+        :returns: The first such part by reference, or None.
         :rtype: Component or None
         """
         grid_points = _get_pin_grid_points(component)
@@ -688,91 +732,80 @@ class ComponentCollection:
             if existing_component is component:
                 continue
 
-            if (existing_component.kind == component.kind and
-                    _get_pin_grid_points(existing_component) == grid_points):
+            if _get_pin_grid_points(existing_component) == grid_points:
                 return existing_component
 
         return None
 
-    def find_component_at_anchor(self, row_number, column_number, skip=None):
+    def find_component_with_body_center(self, component):
         """
-        Return the stored part whose centre (anchor) is at a grid point.
+        Return a stored part whose body centre is this part's body centre.
 
-        :param row_number: One-based grid row.
-        :type row_number: int
-        :param column_number: One-based grid column.
-        :type column_number: int
-        :param skip: Part to ignore, for example the part being checked.
-        :type skip: Component or None
+        Two-pin bodies sit halfway between their pins, so for them this
+        only repeats the pin check. It still matters for transistors (body
+        centre on a grid point between three pins) and ground: two of them
+        on one centre would overlap even with different pins.
+
+        :param component: Part to compare; it is skipped if it is stored.
+        :type component: Component
         :returns: The first such part by reference, or None.
         :rtype: Component or None
         """
+        body_center = component.get_body_center_position()
+
         for existing_component in self.get_components():
-            if existing_component is skip:
+            if existing_component is component:
                 continue
 
-            if (existing_component.row_number == row_number and
-                    existing_component.column_number == column_number):
+            if existing_component.get_body_center_position() == body_center:
                 return existing_component
 
         return None
 
-    def ensure_anchor_is_free(self, component):
+    def ensure_no_overlap(self, component):
         """
-        Raise a clear error when another part has its centre at this
-        part's centre, whatever the kinds.
+        Raise a clear error when a part would hide another one.
 
-        Two symbols on one centre overlap and the upper one hides the
-        lower one. Pins are never anchors (except ground's single pin), so
-        parts can still share pins and connect.
-
-        :param component: Part being placed or rotated.
+        :param component: Part being placed, rotated or moved.
         :type component: Component
         :returns: None
-        :raises ComponentError: If the anchor is already another part's.
+        :raises ComponentError: If another part has the same pin points,
+            or the same body centre.
         """
-        existing_component = self.find_component_at_anchor(
-            component.row_number,
-            component.column_number,
-            skip=component
-        )
+        existing_component = self.find_component_with_same_pins(component)
 
-        if existing_component is None:
-            return
+        if existing_component is not None:
+            existing_display_name = COMPONENT_DEFINITIONS[
+                existing_component.kind
+            ]["display_name"]
+            point_text = ", ".join(
+                ConnectionGrid.build_connection_point_identifier(row, column)
+                for row, column in sorted(
+                    _get_pin_grid_points(existing_component)
+                )
+            )
+            raise ComponentError(
+                f"{existing_component.reference} ({existing_display_name}) "
+                f"already connects exactly these grid points: {point_text}. "
+                "Pick other grid points or another rotation, or select "
+                f"{existing_component.reference} to edit it."
+            )
 
-        existing_display_name = COMPONENT_DEFINITIONS[
-            existing_component.kind
-        ]["display_name"]
-        raise ComponentError(
-            f"{existing_component.reference} ({existing_display_name}) "
-            f"already has its centre at row {component.row_number}, column "
-            f"{component.column_number}. Pick another grid point, or select "
-            f"{existing_component.reference} to edit it."
-        )
+        existing_component = self.find_component_with_body_center(component)
 
-    def ensure_not_identical_to_existing(self, component):
-        """
-        Raise a clear error when a part would sit exactly on another one.
-
-        :param component: Part being placed or rotated.
-        :type component: Component
-        :returns: None
-        :raises ComponentError: If an identical part is already there.
-        """
-        existing_component = self.find_identical_component(component)
-
-        if existing_component is None:
-            return
-
-        display_name = COMPONENT_DEFINITIONS[component.kind]["display_name"]
-        raise ComponentError(
-            f"{existing_component.reference} ({display_name} at row "
-            f"{existing_component.row_number}, column "
-            f"{existing_component.column_number}, "
-            f"{existing_component.rotation} deg) already sits on exactly "
-            "these grid points. Pick another grid point or rotation, or "
-            f"select {existing_component.reference} to edit it."
-        )
+        if existing_component is not None:
+            existing_display_name = COMPONENT_DEFINITIONS[
+                existing_component.kind
+            ]["display_name"]
+            center_row, center_column = (
+                component.get_body_center_position()
+            )
+            raise ComponentError(
+                f"{existing_component.reference} ({existing_display_name}) "
+                f"already has its centre at row {center_row:g}, column "
+                f"{center_column:g}. Pick another grid point, or select "
+                f"{existing_component.reference} to edit it."
+            )
 
     @staticmethod
     def ensure_pins_fit_grid(component, connection_grid):
@@ -854,8 +887,8 @@ class ComponentCollection:
         :returns: The new rotation in degrees.
         :rtype: int
         :raises ComponentError: If the part is unknown, a rotated pin
-            would leave the grid, the turn would put it exactly on an
-            identical part, or another part shares its centre. The old
+            would leave the grid, or the turn would put it on top of a
+            part with the same pin points or body centre. The old
             rotation is then kept.
         """
         _validate_connection_grid(connection_grid)
@@ -877,8 +910,7 @@ class ComponentCollection:
             ) from None
 
         try:
-            self.ensure_not_identical_to_existing(component)
-            self.ensure_anchor_is_free(component)
+            self.ensure_no_overlap(component)
         except ComponentError as error:
             component.rotation = old_rotation
             raise ComponentError(

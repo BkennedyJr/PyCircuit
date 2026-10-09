@@ -14,8 +14,10 @@ under the label stay clickable.
 
 Stacking (z values): label patches at LABEL_Z_VALUE (-0.5) are below the
 grid points (0), which are below the parts (1). So a label never hides a
-pin or a selected grid point, and the body still hides the dot under the
-part's center. A child item always stacks with its parent, so the label is
+pin or a selected grid point, and a transistor's body still hides the dot
+under its centre. One-step parts have their body between two grid points.
+The scene (ConnectionGridScene.layout_component_labels) may move a label to
+another candidate spot to keep it off neighbouring parts and labels. A child item always stacks with its parent, so the label is
 a separate top-level scene item: ComponentItem adds it to, and removes it
 from, the scene with itself and keeps it next to itself when moved.
 
@@ -26,7 +28,13 @@ module). The scene sets the item position.
 import math
 
 from PyQt5.QtCore import QPointF, QRectF, Qt
-from PyQt5.QtGui import QColor, QPainterPath, QPen, QTransform
+from PyQt5.QtGui import (
+    QColor,
+    QPainterPath,
+    QPainterPathStroker,
+    QPen,
+    QTransform,
+)
 from PyQt5.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
 from core.components import COMPONENT_DEFINITIONS, Component
@@ -52,6 +60,10 @@ LABEL_DOT_CLEARANCE = 9
 # toward wins; if every side has a pin, the label goes above.
 LABEL_SIDES = ("above", "right", "below", "left")
 
+# Label candidates for the scene's collision-aware layout: the normal spot
+# first, then moved along the side in half grid steps (up to 2 each way).
+LABEL_NUDGES = (0, -1, 1, -2, 2)
+
 
 def pin_direction(dx, dy):
     """
@@ -61,9 +73,9 @@ def pin_direction(dx, dy):
     (0, 0), like the ground pin, points nowhere.
 
     :param dx: Column offset in grid steps (positive is right).
-    :type dx: int
+    :type dx: int or float
     :param dy: Row offset in grid steps (positive is down).
-    :type dy: int
+    :type dy: int or float
     :returns: "above", "right", "below", "left", or None.
     :rtype: str or None
     """
@@ -76,29 +88,39 @@ def pin_direction(dx, dy):
     return "right" if dx > 0 else "left"
 
 
-def choose_label_side(pin_offsets):
+def choose_label_side(pin_offsets, body_center=(0, 0)):
     """
     Pick the first side in LABEL_SIDES that no pin points toward.
 
     :param pin_offsets: Rotated pins as (pin_name, dx, dy).
     :type pin_offsets: list
+    :param body_center: Rotated body centre (dx, dy) from the anchor.
+    :type body_center: tuple
     :returns: "above", "right", "below", or "left".
     :rtype: str
     """
-    return free_label_sides(pin_offsets)[0]
+    return free_label_sides(pin_offsets, body_center)[0]
 
 
-def free_label_sides(pin_offsets):
+def free_label_sides(pin_offsets, body_center=(0, 0)):
     """
     Return the sides in LABEL_SIDES order that no pin points toward.
 
+    Directions are taken from the body centre, not the anchor: a two-pin
+    part's anchor is its first pin, so from the anchor that pin would
+    point nowhere.
+
     :param pin_offsets: Rotated pins as (pin_name, dx, dy).
     :type pin_offsets: list
+    :param body_center: Rotated body centre (dx, dy) from the anchor.
+    :type body_center: tuple
     :returns: Free sides; ["above"] if every side has a pin.
     :rtype: list
     """
+    center_dx, center_dy = body_center
     blocked_sides = {
-        pin_direction(dx, dy) for unused_name, dx, dy in pin_offsets
+        pin_direction(dx - center_dx, dy - center_dy)
+        for unused_name, dx, dy in pin_offsets
     }
     free_sides = [side for side in LABEL_SIDES if side not in blocked_sides]
 
@@ -320,6 +342,9 @@ class ComponentItem(QGraphicsItem):
         self.stroke_path = QPainterPath()
         self.fill_path = QPainterPath()
         self.body_path = QPainterPath()
+        # Everything this part draws, as an area: the label layout keeps
+        # other labels' text off it.
+        self.obstacle_path = QPainterPath()
         self.label_side = LABEL_SIDES[0]
         self.label_offset = QPointF()
         self._bounding_rect = QRectF()
@@ -362,6 +387,15 @@ class ComponentItem(QGraphicsItem):
         self.fill_path = transform.map(fill_path)
         self.body_path = transform.map(body_path)
 
+        stroker = QPainterPathStroker()
+        stroker.setWidth(SYMBOL_PEN_WIDTH)
+        stroker.setCapStyle(Qt.RoundCap)
+        self.obstacle_path = (
+            stroker.createStroke(self.stroke_path)
+            .united(self.fill_path)
+            .united(self.body_path)
+        )
+
         self._bounding_rect = (
             self.stroke_path.boundingRect()
             .united(self.fill_path.boundingRect())
@@ -397,7 +431,10 @@ class ComponentItem(QGraphicsItem):
         self.label_item.setVisible(bool(label_text))
 
         text_rect = self.label_item.text_rect()
-        free_sides = free_label_sides(self.component.get_pin_offsets())
+        free_sides = free_label_sides(
+            self.component.get_pin_offsets(),
+            self.component.get_body_center_offset()
+        )
         placements = [
             (side, self.get_label_top_left(side, text_rect))
             for side in free_sides
@@ -413,6 +450,51 @@ class ComponentItem(QGraphicsItem):
                 break
 
         self.label_offset = top_left - text_rect.topLeft()
+        self.place_label()
+
+    def get_label_candidates(self):
+        """
+        Return every place the scene's label layout may put the text.
+
+        Each free side (no pin points to it) at its normal spot, then moved
+        along the side in half grid steps (LABEL_NUDGES): sideways for
+        above and below labels, up and down for right and left labels.
+
+        :returns: (side, nudge, top_left) tuples, with top_left in item
+            coordinates and nudge in half steps.
+        :rtype: list
+        """
+        text_rect = self.label_item.text_rect()
+        half_step = self.grid_spacing / 2.0
+        candidates = []
+
+        for side in free_label_sides(
+                self.component.get_pin_offsets(),
+                self.component.get_body_center_offset()):
+            normal_top_left = self.get_label_top_left(side, text_rect)
+
+            for nudge in LABEL_NUDGES:
+                if side in ("above", "below"):
+                    shift = QPointF(nudge * half_step, 0.0)
+                else:
+                    shift = QPointF(0.0, nudge * half_step)
+
+                candidates.append((side, nudge, normal_top_left + shift))
+
+        return candidates
+
+    def apply_label_placement(self, side, top_left):
+        """
+        Put the label text's top-left corner at a chosen spot.
+
+        :param side: Side the spot belongs to.
+        :type side: str
+        :param top_left: Text top-left corner in item coordinates.
+        :type top_left: QPointF
+        :returns: None
+        """
+        self.label_side = side
+        self.label_offset = top_left - self.label_item.text_rect().topLeft()
         self.place_label()
 
     def get_label_top_left(self, side, text_rect):

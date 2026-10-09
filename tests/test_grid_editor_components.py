@@ -403,16 +403,40 @@ def test_no_label_text_covers_any_grid_point_in_the_preview_layout():
         assert not any(text.intersects(dot_rect) for dot_rect in dot_rects)
 
 
-def test_part_body_still_hides_the_dot_under_its_center():
+def test_part_body_hides_the_guide_line_between_its_pins():
     _grid, _collection, scene = make_scene(
         8, 8, [("capacitor", 4, 4, "100n", 0)]
     )
     image = render(scene)
 
-    # Between the plates, at the R4 C4 point.
+    # Between the plates, halfway from R4 C4 to R4 C5, on the row line.
+    between = grid_point_to_scene_position(4, 4) + QPointF(30, 0)
+    assert pixel(image, scene, between) == BACKGROUND_COLOR
+
+
+def test_transistor_body_still_hides_the_dot_under_its_center():
+    _grid, _collection, scene = make_scene(
+        8, 8, [("npn", 4, 4, "2N3904", 0)]
+    )
+    image = render(scene)
+
+    # Inside the circle, just right of the base bar, at the R4 C4 point.
     assert pixel(image, scene, grid_point_to_scene_position(4, 4)) == (
         BACKGROUND_COLOR
     )
+
+
+def test_one_step_part_leaves_both_pin_dots_visible():
+    _grid, _collection, scene = make_scene(
+        8, 8, [("resistor", 4, 4, "1k", 0)]
+    )
+    image = render(scene)
+
+    # Sample each pin dot 5 px above its centre, off the lead: dot colour,
+    # not the body patch.
+    for column in (4, 5):
+        dot_point = grid_point_to_scene_position(4, column) + QPointF(0, -5)
+        assert pixel(image, scene, dot_point) != BACKGROUND_COLOR
 
 
 def test_label_patch_still_hides_the_guide_lines_behind_the_text():
@@ -434,3 +458,163 @@ def test_label_patch_still_hides_the_guide_lines_behind_the_text():
     assert pixel(image, scene, QPointF(column_x, patch.top() - 4)) != (
         BACKGROUND_COLOR
     )
+
+
+# --- Collision-aware label layout (one-step parts sit side by side) --------
+
+def text_scene_rect(component_item):
+    label = component_item.label_item
+
+    return label.mapRectToScene(label.text_rect())
+
+
+def text_crosses_a_part(scene, component_item):
+    text_rect = text_scene_rect(component_item)
+
+    return any(
+        other.obstacle_path.translated(other.pos()).intersects(text_rect)
+        for other in scene.component_items_by_reference.values()
+    )
+
+
+def assert_labels_readable(scene):
+    items = [
+        item for item in scene.component_items_by_reference.values()
+        if item.label_item.isVisible()
+    ]
+
+    for item in items:
+        assert not text_crosses_a_part(scene, item), item.component.reference
+
+    for index, item in enumerate(items):
+        for other in items[index + 1:]:
+            assert not label_scene_rect(item).intersects(
+                label_scene_rect(other)
+            ), (item.component.reference, other.component.reference)
+
+
+def test_neighbouring_horizontal_labels_do_not_overlap():
+    # The PR A preview case: R1 C2->C3 then D1 C3->C4 on one row.
+    _grid, _collection, scene = make_scene(
+        8, 8,
+        [("resistor", 2, 2, "4k7", 0), ("led", 2, 3, "LED_RED", 0)],
+    )
+
+    assert_labels_readable(scene)
+
+
+def test_a_row_of_parts_keeps_every_label_readable():
+    _grid, _collection, scene = make_scene(
+        8, 8,
+        [("resistor", 4, column, "100k", 0) for column in range(1, 8)],
+    )
+
+    assert_labels_readable(scene)
+
+
+def test_neighbouring_vertical_labels_do_not_cross_the_next_part():
+    # R1's right-hand label would run onto R2's lead one column over.
+    _grid, _collection, scene = make_scene(
+        8, 8,
+        [("resistor", 4, 4, "100k", 90), ("resistor", 4, 5, "100k", 90)],
+    )
+    first = scene.component_items_by_reference["R1"]
+
+    assert first.label_side == "left"
+    assert_labels_readable(scene)
+
+
+def test_a_lone_part_keeps_its_single_part_label_spot():
+    _grid, _collection, scene = make_scene(
+        8, 8, [("led", 4, 4, "LED_RED", 0)]
+    )
+    item = scene.component_items_by_reference["D1"]
+    layout_offset = QPointF(item.label_offset)
+    layout_side = item.label_side
+
+    item.refresh_label()
+
+    assert (item.label_side, item.label_offset) == (layout_side, layout_offset)
+    assert layout_side == "above"
+
+
+def test_refreshing_one_part_lays_out_its_neighbours_again():
+    _grid, collection, scene = make_scene(
+        8, 8,
+        [("resistor", 2, 2, "1k", 0), ("resistor", 2, 3, "1k", 0)],
+    )
+    assert_labels_readable(scene)
+
+    collection.set_component_value("R1", "100k")
+    scene.refresh_component("R1")
+
+    assert_labels_readable(scene)
+
+
+def test_layout_prefers_a_dot_to_crossing_a_part():
+    # Every candidate of R1's label touches a dot or crosses a neighbour;
+    # the chosen one must not cross a part.
+    _grid, _collection, scene = make_scene(
+        8, 8,
+        [
+            ("resistor", 4, 4, "100k", 0),
+            ("resistor", 3, 4, "100k", 0),
+            ("resistor", 5, 4, "100k", 0),
+            ("resistor", 4, 3, "100k", 90),
+            ("resistor", 4, 5, "100k", 90),
+        ],
+    )
+
+    for item in scene.component_items_by_reference.values():
+        assert not text_crosses_a_part(scene, item), item.component.reference
+
+
+def test_labels_are_still_readable_in_a_rendered_row():
+    # Pixel check: each label's patch shows the background between its
+    # glyphs, never a neighbour's yellow or symbol colour on top.
+    _grid, _collection, scene = make_scene(
+        8, 8,
+        [("resistor", 4, 3, "100k", 0), ("resistor", 4, 4, "100k", 0)],
+    )
+    image = render(scene)
+
+    for item in scene.component_items_by_reference.values():
+        patch = label_scene_rect(item)
+        assert pixel(image, scene, patch.topLeft() + QPointF(1, 1)) == (
+            BACKGROUND_COLOR
+        )
+
+
+def test_layout_scores_a_dot_above_moving_the_label(monkeypatch):
+    # Two hand-made candidates for a lone resistor: the normal spot touches
+    # the dot above the anchor; a spot two half-steps over touches nothing.
+    _grid, _collection, scene = make_scene(
+        8, 8, [("resistor", 4, 4, "1k", 0)]
+    )
+    item = scene.component_items_by_reference["R1"]
+    on_a_dot = QPointF(-20, -55)
+    clear = QPointF(10, -45)
+    monkeypatch.setattr(item, "get_label_candidates", lambda: [
+        ("above", 0, on_a_dot), ("above", 2, clear),
+    ])
+
+    scene.layout_component_labels()
+
+    assert text_scene_rect(item).topLeft() == item.pos() + clear
+
+
+def test_layout_scores_crossing_a_part_worse_than_a_dot(monkeypatch):
+    _grid, _collection, scene = make_scene(
+        8, 8, [("resistor", 4, 4, "1k", 0)]
+    )
+    item = scene.component_items_by_reference["R1"]
+    across_the_lead = QPointF(5, -7)
+    on_a_dot = QPointF(-20, -55)
+    monkeypatch.setattr(item, "get_label_candidates", lambda: [
+        ("above", 0, across_the_lead), ("below", 2, on_a_dot),
+    ])
+
+    scene.layout_component_labels()
+
+    assert text_scene_rect(item).topLeft() == item.pos() + on_a_dot
+    assert item.label_side == "below"
