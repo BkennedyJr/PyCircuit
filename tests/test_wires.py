@@ -32,7 +32,7 @@ def test_wire_keeps_its_ends():
 
 
 def test_wire_accepts_a_list_point():
-    assert Wire("W1", [3, 1], [1, 3]).start_point == (3, 1)
+    assert Wire("W1", [3, 1], [1, 1]).start_point == (3, 1)
 
 
 @pytest.mark.parametrize("reference", ["W0", "w1", "R1", "W", 1, None,
@@ -66,7 +66,7 @@ def test_wire_is_read_only():
 
 
 def test_fits_grid():
-    wire = Wire("W1", (2, 2), (6, 7))
+    wire = Wire("W1", (2, 7), (6, 7))
 
     assert wire.fits_grid(6, 7)
     assert not wire.fits_grid(5, 7)
@@ -85,10 +85,16 @@ def test_add_wire_numbers_from_w1(wires, grid):
     assert wires.get_wire("W2") is second
 
 
-def test_diagonal_wire_is_allowed(wires, grid):
-    wire = wires.add_wire("NODE_R01_C01", "NODE_R03_C04", grid)
+def test_diagonal_wire_is_refused(wires, grid):
+    with pytest.raises(ComponentError) as error:
+        wires.add_wire("NODE_R01_C01", "NODE_R03_C04", grid)
 
-    assert (wire.start_point, wire.end_point) == ((1, 1), (3, 4))
+    assert str(error.value) == (
+        "A wire from NODE_R01_C01 to NODE_R03_C04 would be diagonal. Wires "
+        "run along a row or a column: draw two straight wires that meet at "
+        "a corner."
+    )
+    assert wires.get_wires() == []
 
 
 def test_next_reference_reuses_the_lowest_free_number(wires, grid):
@@ -197,7 +203,7 @@ def test_remove_wires_outside_grid(wires, grid):
     wires.add_wire("NODE_R02_C02", "NODE_R02_C04", grid)
     wires.add_wire("NODE_R02_C04", "NODE_R08_C04", grid)
     wires.add_wire("NODE_R03_C03", "NODE_R03_C07", grid)
-    wires.add_wire("NODE_R06_C06", "NODE_R05_C05", grid)
+    wires.add_wire("NODE_R06_C06", "NODE_R05_C06", grid)
 
     grid.configure(6, 6)
 
