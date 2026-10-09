@@ -73,6 +73,7 @@ def test_plan_definitions_are_exact():
         "inductor": ("L", [("1", 0, 0), ("2", 1, 0)], "positive", "10u"),
         "dc_source": ("V", [("plus", 0, 0), ("minus", 0, 1)], "any", "5"),
         "ac_source": ("V", [("plus", 0, 0), ("minus", 0, 1)], "any", "1"),
+        "current_source": ("I", [("out", 0, 0), ("in", 0, 1)], "any", "1m"),
         "diode": (
             "D", [("anode", 0, 0), ("cathode", 1, 0)], "model", "1N4148"),
         "led": (
@@ -108,7 +109,7 @@ def test_body_centres_are_exact():
         "resistor": (1, 0), "capacitor": (1, 0),
         "capacitor_polarized": (1, 0), "inductor": (1, 0),
         "diode": (1, 0), "led": (1, 0),
-        "dc_source": (0, 1), "ac_source": (0, 1),
+        "dc_source": (0, 1), "ac_source": (0, 1), "current_source": (0, 1),
         "npn": (0, 0), "pnp": (0, 0), "ground": (0, 0),
     }
 
@@ -126,7 +127,8 @@ TWO_PIN_KINDS = [
 
 def test_every_two_pin_part_is_listed():
     assert TWO_PIN_KINDS == [
-        "ac_source", "capacitor", "capacitor_polarized", "dc_source",
+        "ac_source", "capacitor", "capacitor_polarized", "current_source",
+        "dc_source",
         "diode", "inductor", "led", "resistor",
     ]
 
@@ -623,8 +625,9 @@ def test_set_values_changes_nothing_on_error(value_text, parameter_texts):
     assert source.parameter_values["frequency"] == 1000.0
 
 
-def test_old_source_kinds_are_gone():
-    for kind in ("voltage_source", "current_source"):
+def test_old_voltage_source_kind_is_gone():
+    # The current source came back as its own kind (Billie, Oct 9).
+    for kind in ("voltage_source",):
         assert kind not in COMPONENT_DEFINITIONS
 
         with pytest.raises(ComponentError, match="Unknown component kind"):
@@ -646,6 +649,7 @@ def test_covered_half_steps_are_exact():
         "capacitor_polarized": [(1, 0)], "inductor": [(1, 0)],
         "diode": [(1, 0)], "led": [(1, 0)],
         "dc_source": [(0, 1)], "ac_source": [(0, 1)],
+        "current_source": [(0, 1)],
         "npn": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "pnp": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "ground": [(0, 1)],
