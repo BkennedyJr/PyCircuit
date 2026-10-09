@@ -57,12 +57,12 @@ def test_wires_sharing_an_end_are_one_net():
 
 def test_points_are_in_row_then_column_order():
     nets = WireNets(make_wires(
-        ("NODE_R10_C01", "NODE_R09_C12"),
+        ("NODE_R10_C12", "NODE_R09_C12"),
         ("NODE_R09_C12", "NODE_R09_C02"),
     ))
 
     assert nets.get_points("NODE_R09_C02") == (
-        "NODE_R09_C02", "NODE_R09_C12", "NODE_R10_C01"
+        "NODE_R09_C02", "NODE_R09_C12", "NODE_R10_C12"
     )
 
 

@@ -156,19 +156,25 @@ def test_rubber_band_line_follows_the_mouse(editor):
     assert preview.pen().style() == Qt.DashLine
     assert editor.wires.get_wires() == []
 
-    send_mouse(editor.view, QEvent.MouseButtonRelease, point(5, 4),
+    send_mouse(editor.view, QEvent.MouseButtonRelease, point(5, 3),
                Qt.LeftButton, Qt.NoButton)
 
-    assert wire_ends(editor) == [("NODE_R03_C03", "NODE_R05_C04")]
+    assert wire_ends(editor) == [("NODE_R03_C03", "NODE_R05_C03")]
     assert preview.scene() is None
 
 
-def test_diagonal_drag_makes_one_straight_wire(editor):
+def test_diagonal_drag_is_refused_with_a_message(editor):
     editor.scene.set_wire_mode(True)
 
     drag(editor.view, point(1, 1), point(4, 3))
 
-    assert wire_ends(editor) == [("NODE_R01_C01", "NODE_R04_C03")]
+    assert editor.wires.get_wires() == []
+    assert editor.refused == [(
+        "A wire from NODE_R01_C01 to NODE_R04_C03 would be diagonal. Wires "
+        "run along a row or a column: draw two straight wires that meet at "
+        "a corner."
+    )]
+    assert editor.scene.wire_preview_item is None
 
 
 def test_release_away_from_a_point_adds_nothing(editor):
