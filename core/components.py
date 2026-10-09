@@ -12,6 +12,7 @@ Pin offsets are measured in grid steps from the part's anchor grid point.
 points down the screen, the same direction as Qt's y axis.
 """
 
+import copy
 import re
 
 from core.connection_grid import MAXIMUM_GRID_DIMENSION, ConnectionGrid
@@ -124,13 +125,16 @@ def _is_plain_integer(candidate_value):
     )
 
 
-def get_component_definition(kind):
+def _lookup_component_definition(kind):
     """
-    Return the definition dictionary for one component kind.
+    Return the shared, read-only definition dictionary for one kind.
+
+    Internal code uses this to avoid copying. Callers outside this module
+    should use get_component_definition, which returns a private copy.
 
     :param kind: Component kind, for example "resistor".
     :type kind: str
-    :returns: Definition from COMPONENT_DEFINITIONS.
+    :returns: Definition from COMPONENT_DEFINITIONS (do not modify).
     :rtype: dict
     :raises ComponentError: If the kind is not a known component kind.
     """
@@ -141,6 +145,22 @@ def get_component_definition(kind):
         )
 
     return COMPONENT_DEFINITIONS[kind]
+
+
+def get_component_definition(kind):
+    """
+    Return a copy of the definition dictionary for one component kind.
+
+    The copy can be changed freely without affecting the shared
+    COMPONENT_DEFINITIONS table.
+
+    :param kind: Component kind, for example "resistor".
+    :type kind: str
+    :returns: Deep copy of the definition from COMPONENT_DEFINITIONS.
+    :rtype: dict
+    :raises ComponentError: If the kind is not a known component kind.
+    """
+    return copy.deepcopy(_lookup_component_definition(kind))
 
 
 def validate_rotation(rotation):
@@ -211,7 +231,7 @@ def validate_value_text(kind, value_text):
     :rtype: tuple
     :raises ComponentError: If the kind or the value is invalid.
     """
-    component_definition = get_component_definition(kind)
+    component_definition = _lookup_component_definition(kind)
     value_kind = component_definition["value_kind"]
     display_name = component_definition["display_name"]
 
@@ -289,7 +309,7 @@ class Component:
             row_number,
             column_number,
             rotation=0):
-        component_definition = get_component_definition(kind)
+        component_definition = _lookup_component_definition(kind)
 
         self.validate_reference(reference, component_definition)
         self.validate_anchor_number(row_number, "Row")

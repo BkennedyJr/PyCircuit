@@ -8,6 +8,7 @@ from core.components import (
     COMPONENT_DEFINITIONS,
     VALID_ROTATIONS,
     Component,
+    get_component_definition,
     rotate_offset,
     validate_value_text,
 )
@@ -194,6 +195,73 @@ def test_ground():
     assert ground.get_pin_identifiers() == ["NODE_R08_C01"]
     assert ground.label_text() == ""
     assert ground.value is None
+
+
+@pytest.mark.parametrize(
+    "rotation, expected_positions",
+    [
+        (0, [("in", 5, 4), ("out", 3, 4)]),
+        (90, [("in", 4, 3), ("out", 4, 5)]),
+        (180, [("in", 3, 4), ("out", 5, 4)]),
+        (270, [("in", 4, 5), ("out", 4, 3)]),
+    ]
+)
+def test_current_source_pin_positions(rotation, expected_positions):
+    source = Component("current_source", "I1", "1m", 4, 4, rotation)
+
+    assert source.get_pin_positions() == expected_positions
+
+
+@pytest.mark.parametrize("kind, model_name", [
+    ("diode", "1N4148"),
+    ("led", "LED_RED"),
+])
+@pytest.mark.parametrize(
+    "rotation, expected_positions",
+    [
+        (0, [("anode", 4, 3), ("cathode", 4, 5)]),
+        (90, [("anode", 3, 4), ("cathode", 5, 4)]),
+        (180, [("anode", 4, 5), ("cathode", 4, 3)]),
+        (270, [("anode", 5, 4), ("cathode", 3, 4)]),
+    ]
+)
+def test_diode_and_led_pin_positions(
+        kind, model_name, rotation, expected_positions):
+    diode = Component(kind, "D1", model_name, 4, 4, rotation)
+
+    assert diode.get_pin_positions() == expected_positions
+
+
+@pytest.mark.parametrize(
+    "rotation, expected_positions",
+    [
+        (0, [("plus", 4, 3), ("minus", 4, 5)]),
+        (90, [("plus", 3, 4), ("minus", 5, 4)]),
+        (180, [("plus", 4, 5), ("minus", 4, 3)]),
+        (270, [("plus", 5, 4), ("minus", 3, 4)]),
+    ]
+)
+def test_polarized_capacitor_pin_positions(rotation, expected_positions):
+    capacitor = Component("capacitor_polarized", "C1", "10u", 4, 4, rotation)
+
+    assert capacitor.get_pin_positions() == expected_positions
+
+
+def test_get_component_definition_returns_a_copy():
+    definition = get_component_definition("resistor")
+    definition["pins"].append(("3", 0, 1))
+    definition["prefix"] = "X"
+
+    assert COMPONENT_DEFINITIONS["resistor"]["pins"] == [
+        ("1", -1, 0), ("2", 1, 0)
+    ]
+    assert COMPONENT_DEFINITIONS["resistor"]["prefix"] == "R"
+    assert get_component_definition("resistor")["prefix"] == "R"
+
+
+def test_get_component_definition_rejects_unknown_kind():
+    with pytest.raises(ComponentError):
+        get_component_definition("transistor")
 
 
 def test_pins_fit_grid():
