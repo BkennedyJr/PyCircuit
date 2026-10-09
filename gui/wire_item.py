@@ -2,10 +2,10 @@
 QGraphicsLineItem that draws one wire on the connection grid.
 
 Stacking (z values): the grid lines are the scene background, label
-patches are at -0.5, wires at WIRE_Z_VALUE (-0.25), grid points at 0 and
-parts at 1. So wires draw above the grid lines and label patches but below
-the grid dots (the dot at each wire end reads as the junction) and below
-the parts.
+patches are at -0.5, wires at WIRE_Z_VALUE (-0.25), grid points at 0,
+junction dots at 0.5 and parts at 1. So wires draw above the grid lines
+and label patches but below the grid dots and the parts; a wire connects
+every grid dot it covers.
 
 This module must not import gui.grid_editor (the scene imports this
 module); the scene passes scene positions in.
