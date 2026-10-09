@@ -648,9 +648,11 @@ class MainWindow(QMainWindow):
             return
 
         # refresh_component keeps the item and its selection, but the
-        # panel text must be refreshed by hand.
+        # panel text must be refreshed by hand. A turn can move the label
+        # to another side, past the visible area.
         self.connection_grid_scene.refresh_component(component.reference)
         self.component_panel_widget.show_component(component)
+        self.reveal_component(component.reference)
         self.mark_project_modified(
             f"Rotated {component.reference} to {component.rotation} degrees."
         )

@@ -546,11 +546,18 @@ def test_enter_twice_in_the_value_box_places_once(window):
     assert references(window) == ["R1"]
 
 
-def test_another_kind_on_the_same_point_is_still_placed(window):
+def test_another_kind_on_the_same_point_is_refused(window):
     place(window, "NODE_R04_C04", "resistor", "1k")
     window.place_component("capacitor", "100n")
-    assert references(window) == ["C1", "R1"]
-    assert window.recorded_errors == []
+    assert references(window) == ["R1"]
+    assert window.recorded_errors[-1][0] == "Part Not Placed"
+    assert window.recorded_errors[-1][1] == (
+        "R1 (Resistor) already has its centre at row 4, column 4. Pick "
+        "another grid point, or select R1 to edit it."
+    )
+    assert window.statusBar().currentMessage().startswith(
+        "Part not placed: R1 (Resistor) already has its centre"
+    )
 
 
 def test_parts_sharing_a_pin_can_both_be_placed(window):
@@ -561,9 +568,19 @@ def test_parts_sharing_a_pin_can_both_be_placed(window):
 
 
 def test_rotate_onto_an_identical_part_is_refused_in_the_gui(window):
+    from core.components import Component
+
     place(window, "NODE_R04_C04", "resistor", "1k")
     window.rotate_selected_component()
-    place(window, "NODE_R04_C04", "resistor", "2k2")
+    # add_component no longer allows a second part on R1's centre, so the
+    # stacked twin is stored directly to keep testing the rotate guard.
+    window.component_collection.components_by_reference["R2"] = Component(
+        "resistor", "R2", "2k2", 4, 4, 0
+    )
+    window.connection_grid_scene.rebuild_component_items()
+    window.connection_grid_scene.clearSelection()
+    window.select_component_by_reference("R2")
+    assert window.selected_component_reference == "R2"
     window.is_project_modified = False
     window.rotate_selected_component()
     assert window.component_collection.get_component("R2").rotation == 0
@@ -703,3 +720,30 @@ def test_zoomed_in_view_scrolls_without_changing_the_zoom(window):
     assert visible_scene_rect(window).contains(
         item(window, "R1").sceneBoundingRect()
     )
+
+
+def test_rotate_brings_a_moved_label_into_view(window, monkeypatch):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    revealed = []
+    monkeypatch.setattr(window, "reveal_component", revealed.append)
+    window.rotate_selected_component()
+    assert revealed == ["R1"]
+
+
+def test_refused_rotate_does_not_move_the_view(window, monkeypatch):
+    place(window, "NODE_R08_C04", "resistor", "1k")
+    revealed = []
+    monkeypatch.setattr(window, "reveal_component", revealed.append)
+    window.rotate_selected_component()
+    assert revealed == []
+
+
+def test_rotated_label_past_the_grid_edge_is_visible(window):
+    shown_and_fitted(window)
+    # Q1's long label sits past the last column; each turn moves it to
+    # another side, and it must stay in view after every turn.
+    place(window, "NODE_R04_C07", "npn", "2N3904_LONG_MODEL_NAME")
+    window.connection_grid_view.fit_grid_in_view()
+    for _turn in range(3):
+        window.rotate_selected_component()
+        assert visible_scene_rect(window).contains(label_rect(window, "Q1"))

@@ -586,9 +586,10 @@ class ComponentCollection:
     All placed components of one project, keyed by reference designator.
 
     The collection assigns references, refuses placements and rotations
-    that would put a pin outside the grid or exactly on top of an
-    identical part, and removes parts that no longer fit after the grid
-    shrinks. Parts may still share pins: that is how they connect.
+    that would put a pin outside the grid, exactly on top of an identical
+    part, or a part's centre (anchor) on another part's centre, and
+    removes parts that no longer fit after the grid shrinks. Parts may
+    still share pins: that is how they connect.
     """
 
     def __init__(self):
@@ -660,6 +661,7 @@ class ComponentCollection:
 
         self.ensure_pins_fit_grid(component, connection_grid)
         self.ensure_not_identical_to_existing(component)
+        self.ensure_anchor_is_free(component)
 
         self.components_by_reference[component.reference] = component
 
@@ -691,6 +693,62 @@ class ComponentCollection:
                 return existing_component
 
         return None
+
+    def find_component_at_anchor(self, row_number, column_number, skip=None):
+        """
+        Return the stored part whose centre (anchor) is at a grid point.
+
+        :param row_number: One-based grid row.
+        :type row_number: int
+        :param column_number: One-based grid column.
+        :type column_number: int
+        :param skip: Part to ignore, for example the part being checked.
+        :type skip: Component or None
+        :returns: The first such part by reference, or None.
+        :rtype: Component or None
+        """
+        for existing_component in self.get_components():
+            if existing_component is skip:
+                continue
+
+            if (existing_component.row_number == row_number and
+                    existing_component.column_number == column_number):
+                return existing_component
+
+        return None
+
+    def ensure_anchor_is_free(self, component):
+        """
+        Raise a clear error when another part has its centre at this
+        part's centre, whatever the kinds.
+
+        Two symbols on one centre overlap and the upper one hides the
+        lower one. Pins are never anchors (except ground's single pin), so
+        parts can still share pins and connect.
+
+        :param component: Part being placed or rotated.
+        :type component: Component
+        :returns: None
+        :raises ComponentError: If the anchor is already another part's.
+        """
+        existing_component = self.find_component_at_anchor(
+            component.row_number,
+            component.column_number,
+            skip=component
+        )
+
+        if existing_component is None:
+            return
+
+        existing_display_name = COMPONENT_DEFINITIONS[
+            existing_component.kind
+        ]["display_name"]
+        raise ComponentError(
+            f"{existing_component.reference} ({existing_display_name}) "
+            f"already has its centre at row {component.row_number}, column "
+            f"{component.column_number}. Pick another grid point, or select "
+            f"{existing_component.reference} to edit it."
+        )
 
     def ensure_not_identical_to_existing(self, component):
         """
@@ -796,8 +854,9 @@ class ComponentCollection:
         :returns: The new rotation in degrees.
         :rtype: int
         :raises ComponentError: If the part is unknown, a rotated pin
-            would leave the grid, or the turn would put it exactly on an
-            identical part. The old rotation is then kept.
+            would leave the grid, the turn would put it exactly on an
+            identical part, or another part shares its centre. The old
+            rotation is then kept.
         """
         _validate_connection_grid(connection_grid)
         component = self.get_component(reference)
@@ -819,6 +878,7 @@ class ComponentCollection:
 
         try:
             self.ensure_not_identical_to_existing(component)
+            self.ensure_anchor_is_free(component)
         except ComponentError as error:
             component.rotation = old_rotation
             raise ComponentError(
