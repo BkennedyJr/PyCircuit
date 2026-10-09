@@ -683,15 +683,56 @@ class ConnectionGridScene(QGraphicsScene):
 
         super().mouseReleaseEvent(event)
 
+    def check_component_drop(self, reference, anchor_position):
+        """
+        Say whether dropping a dragged part here would be refused.
+
+        :param reference: Part being dragged.
+        :type reference: str
+        :param anchor_position: Current anchor position, scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None if the drop would be accepted (or puts the part
+            back on its own point), otherwise the reason.
+        :rtype: str or None
+        """
+        if self.component_collection is None:
+            return None
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            return None
+
+        return self.component_collection.check_move(
+            reference, row_number, column_number, self.connection_grid
+        )
+
     def keyPressEvent(self, event):
         """
-        Esc cancels a wire being drawn.
+        Esc cancels a part drag or a wire being drawn.
+
+        Other keys go to the items as usual.
+
+        :param event: Key event.
+        :type event: QKeyEvent
+        :returns: None
         """
-        if (event.key() == Qt.Key_Escape and
-                self.wire_start_identifier is not None):
-            self.cancel_wire_drawing()
-            event.accept()
-            return
+        if event.key() == Qt.Key_Escape:
+            grabber = self.mouseGrabberItem()
+
+            if isinstance(grabber, ComponentItem) and grabber.is_dragging:
+                grabber.cancel_drag()
+                event.accept()
+                return
+
+            if self.wire_start_identifier is not None:
+                self.cancel_wire_drawing()
+                event.accept()
+                return
 
         super().keyPressEvent(event)
 
@@ -1040,17 +1081,19 @@ class ConnectionGridView(QGraphicsView):
 
     def update_scroll_area(self, *_unused):
         """
-        Let the view scroll half a viewport past every edge of the scene.
+        Let the view scroll one full viewport past every edge of the scene.
 
         Without this margin Qt centres a scene smaller than the view and
-        a zoom could not keep the point under the cursor still. Called when
+        a zoom could not keep the point under the cursor still. Half a
+        viewport was not enough: zooming out near the scene edge hit the
+        scroll limit (QC #15). Called when
         the scene grows, the zoom changes or the view is resized.
 
         :returns: None
         """
         zoom = self.get_zoom()
-        margin_x = self.viewport().width() / 2.0 / zoom
-        margin_y = self.viewport().height() / 2.0 / zoom
+        margin_x = self.viewport().width() / zoom
+        margin_y = self.viewport().height() / zoom
         self.setSceneRect(
             self.scene().sceneRect().adjusted(
                 -margin_x, -margin_y, margin_x, margin_y
@@ -1059,7 +1102,7 @@ class ConnectionGridView(QGraphicsView):
 
     def resizeEvent(self, event):
         """
-        Keep the scroll margin at half the new viewport size.
+        Keep the scroll margin at one full new viewport size.
 
         :param event: Resize event.
         :type event: QResizeEvent

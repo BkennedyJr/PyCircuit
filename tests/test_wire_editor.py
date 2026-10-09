@@ -15,6 +15,7 @@ from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
 from core.wires import Wire, WireCollection
 from gui.component_item import COMPONENT_Z_VALUE, LABEL_Z_VALUE
+from gui.component_panel_widget import NO_PART_SELECTED_TEXT
 from gui.grid_editor import (
     CONNECTION_POINT_Z_VALUE,
     WIRE_SNAP_DISTANCE,
@@ -545,3 +546,44 @@ def test_new_project_starts_with_no_wires(window, monkeypatch):
         window.wire_collection
     )
     assert window.connection_grid_scene.wire_items_by_reference == {}
+
+
+def test_delete_removes_every_selected_part_and_wire(window):
+    scene = window.connection_grid_scene
+
+    for identifier, kind, value in [
+        ("NODE_R05_C05", "resistor", "1k"),
+        ("NODE_R07_C02", "capacitor", "100n"),
+        ("NODE_R07_C06", "resistor", "2k"),
+    ]:
+        scene.clearSelection()
+        scene.connection_point_items_by_identifier[identifier].setSelected(
+            True
+        )
+        window.place_component(kind, value)
+
+    for start, end in [("NODE_R02_C02", "NODE_R02_C04"),
+                       ("NODE_R03_C02", "NODE_R03_C04"),
+                       ("NODE_R04_C02", "NODE_R04_C04")]:
+        window.wire_collection.add_wire(start, end, window.connection_grid)
+    scene.rebuild_wire_items()
+    scene.clearSelection()
+
+    for reference in ("R1", "C1"):
+        scene.component_items_by_reference[reference].setSelected(True)
+    for reference in ("W1", "W2"):
+        scene.wire_items_by_reference[reference].setSelected(True)
+    window.connection_grid_view.setFocus()
+    QApplication.processEvents()
+
+    QTest.keyClick(window.connection_grid_view, Qt.Key_Delete)
+
+    assert [component.reference for component in
+            window.component_collection.get_components()] == ["R2"]
+    assert [wire.reference for wire in window.wire_collection.get_wires()] == [
+        "W3"
+    ]
+    assert window.statusBar().currentMessage() == "Deleted C1, R1, W1, W2."
+    assert window.component_panel_widget.selected_component_label.text() == (
+        NO_PART_SELECTED_TEXT
+    )

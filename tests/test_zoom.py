@@ -134,13 +134,13 @@ def test_wheel_zoom_from_the_fitted_view_keeps_the_cursor_point(
     small.view.deleteLater()
 
 
-def test_view_can_scroll_half_a_viewport_past_the_scene(editor):
+def test_view_can_scroll_a_viewport_past_the_scene(editor):
     for zoom in (0.5, 1.0, 3.0):
         editor.view.set_zoom(zoom)
         scene_rect = editor.scene.sceneRect()
         view_rect = editor.view.sceneRect()
-        margin_x = editor.view.viewport().width() / 2 / zoom
-        margin_y = editor.view.viewport().height() / 2 / zoom
+        margin_x = editor.view.viewport().width() / zoom
+        margin_y = editor.view.viewport().height() / zoom
 
         assert view_rect.left() == pytest.approx(scene_rect.left() - margin_x)
         assert view_rect.bottom() == pytest.approx(
@@ -150,7 +150,7 @@ def test_view_can_scroll_half_a_viewport_past_the_scene(editor):
 
 def test_scroll_margin_follows_scene_growth(editor):
     editor.scene.setSceneRect(editor.scene.sceneRect().adjusted(0, 0, 500, 0))
-    margin_x = editor.view.viewport().width() / 2 / editor.view.get_zoom()
+    margin_x = editor.view.viewport().width() / editor.view.get_zoom()
 
     assert editor.view.sceneRect().right() == pytest.approx(
         editor.scene.sceneRect().right() + margin_x
@@ -443,3 +443,35 @@ def test_window_wheel_zoom_updates_the_label(window):
     send_wheel(view, view.viewport().rect().center(), 120)
 
     assert window.zoom_label.text() == "Zoom 125%"
+
+
+def test_wheel_keeps_the_point_near_the_scene_edge(qt_application):
+    # QC #15: with only half a viewport of margin, zooming out over the
+    # grid's top-left while it sits at the bottom-right of the view hit
+    # the scroll limit and the point jumped (R2 C2 18 px off by notch 4).
+    scene = ConnectionGridScene(ConnectionGrid(8, 8))
+    view = ConnectionGridView(scene)
+    view.resize(1000, 800)
+    view.show()
+    QApplication.processEvents()
+    viewport = view.viewport()
+    view.resize(1000 - (viewport.width() - 900),
+                800 - (viewport.height() - 700))
+    QApplication.processEvents()
+    assert (viewport.width(), viewport.height()) == (900, 700)
+    view.fit_grid_in_view()
+    QApplication.processEvents()
+
+    cursor = QPoint(540, 440)
+    view.keep_scene_point_at(point(2, 2), QPointF(cursor))
+    assert view.mapFromScene(point(2, 2)) == cursor
+
+    for _notch in range(4):
+        send_wheel(view, cursor, -120)
+        where = view.mapFromScene(point(2, 2))
+
+        assert abs(where.x() - cursor.x()) <= 1
+        assert abs(where.y() - cursor.y()) <= 1
+
+    view.close()
+    view.deleteLater()

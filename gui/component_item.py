@@ -35,7 +35,7 @@ back when the move is refused. A plain click still just selects.
 
 import math
 
-from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt5.QtGui import (
     QColor,
     QPainterPath,
@@ -60,6 +60,8 @@ from gui.component_symbols import build_symbol_paths, get_body_path
 BACKGROUND_COLOR = "#1f2933"
 SYMBOL_COLOR = "#d9e2ec"
 SELECTED_COLOR = "#ffd166"
+# A dragged part over a spot where the drop would be refused.
+REFUSED_DROP_COLOR = "#ff6b6b"
 SYMBOL_PEN_WIDTH = 2
 BOUNDING_MARGIN = 3
 LABEL_GAP = 6
@@ -384,6 +386,8 @@ class ComponentItem(QGraphicsItem):
         # press has become a drag.
         self.drag_start_position = None
         self.is_dragging = False
+        # True while a drag hovers a spot where the drop would be refused.
+        self.is_drop_refused = False
 
         self.refresh_from_component()
 
@@ -433,6 +437,76 @@ class ComponentItem(QGraphicsItem):
             event.buttonDownScenePos(Qt.LeftButton)
         )
 
+        scene = self.scene()
+
+        if scene is not None and hasattr(scene, "check_component_drop"):
+            self.set_drop_refused(
+                scene.check_component_drop(
+                    self.component.reference, self.pos()
+                ) is not None
+            )
+
+    def set_drop_refused(self, is_drop_refused):
+        """
+        Draw the part in the refused colour (or not) while it is dragged.
+
+        :param is_drop_refused: True when dropping here would be refused.
+        :type is_drop_refused: bool
+        :returns: None
+        """
+        if is_drop_refused != self.is_drop_refused:
+            self.is_drop_refused = is_drop_refused
+            self.update()
+
+    def cancel_drag(self):
+        """
+        Abandon a drag: the part goes back to where the drag started.
+
+        The model is not touched and no signal is sent; the release that
+        may follow does nothing. Used for Esc and for a lost mouse grab.
+
+        :returns: True if a drag was cancelled.
+        :rtype: bool
+        """
+        if not self.is_dragging:
+            return False
+
+        start_position = self.drag_start_position
+        self.drag_start_position = None
+        self.is_dragging = False
+        self.set_drop_refused(False)
+        self.setZValue(COMPONENT_Z_VALUE)
+        self.setPos(start_position)
+
+        if self.scene() is not None and self.scene().mouseGrabberItem() is self:
+            self.ungrabMouse()
+
+        return True
+
+    def sceneEvent(self, event):
+        """
+        Losing the mouse grab mid-drag (a popup, Alt+Tab) cancels the drag.
+
+        QGraphicsItem has no ungrabMouseEvent (only QGraphicsWidget does),
+        so the QEvent.UngrabMouse event is caught here. The part goes back
+        to its start; ungrabMouse() is not called again, so this cannot
+        recurse.
+
+        :param event: Qt event.
+        :type event: QEvent
+        :returns: Whether the event was handled.
+        :rtype: bool
+        """
+        if event.type() == QEvent.UngrabMouse and self.is_dragging:
+            start_position = self.drag_start_position
+            self.drag_start_position = None
+            self.is_dragging = False
+            self.set_drop_refused(False)
+            self.setZValue(COMPONENT_Z_VALUE)
+            self.setPos(start_position)
+
+        return super().sceneEvent(event)
+
     def mouseReleaseEvent(self, event):
         """
         End a drag: the scene snaps the part to a grid point or puts it back.
@@ -450,6 +524,7 @@ class ComponentItem(QGraphicsItem):
         start_position = self.drag_start_position
         self.drag_start_position = None
         self.is_dragging = False
+        self.set_drop_refused(False)
         self.setZValue(COMPONENT_Z_VALUE)
         event.accept()
 
@@ -760,7 +835,9 @@ class ComponentItem(QGraphicsItem):
 
         painter.fillPath(self.body_path, QColor(BACKGROUND_COLOR))
 
-        if self.isSelected():
+        if self.is_drop_refused:
+            color = QColor(REFUSED_DROP_COLOR)
+        elif self.isSelected():
             color = QColor(SELECTED_COLOR)
         else:
             color = QColor(SYMBOL_COLOR)

@@ -223,3 +223,30 @@ def test_wires_module_does_not_import_qt():
     with open(core.wires.__file__, encoding="utf-8") as source_file:
         source = source_file.read()
     assert "PyQt5" not in source.replace("no PyQt5 imports", "")
+
+
+def test_joined_identifiers_are_the_one_connection_rule(wires, grid):
+    wire = wires.add_wire("NODE_R02_C02", "NODE_R02_C05", grid)
+
+    # Billie's every-dot rule: ends and every point between.
+    assert wire.get_joined_identifiers() == (
+        "NODE_R02_C02", "NODE_R02_C03", "NODE_R02_C04", "NODE_R02_C05"
+    )
+    assert wire.get_inner_point_identifiers() == (
+        "NODE_R02_C03", "NODE_R02_C04"
+    )
+
+
+def test_get_wires_at_follows_the_connection_rule(wires, grid, monkeypatch):
+    wire = wires.add_wire("NODE_R02_C02", "NODE_R02_C05", grid)
+
+    assert wires.get_wires_at("NODE_R02_C03") == [wire]
+
+    # Changing the one rule changes what get_wires_at reports.
+    monkeypatch.setattr(
+        Wire, "get_joined_identifiers",
+        lambda self: (self.start_identifier, self.end_identifier)
+    )
+
+    assert wires.get_wires_at("NODE_R02_C03") == []
+    assert wires.get_wires_at("NODE_R02_C05") == [wire]

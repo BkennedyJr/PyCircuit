@@ -55,6 +55,7 @@ BODY_RECTS = {
     "capacitor_polarized": QRectF(-0.3, -0.3, 0.44, 0.6),
     "dc_source": QRectF(-0.3, -0.3, 0.6, 0.42),
     "ac_source": QRectF(-0.32, -0.32, 0.64, 0.64),
+    "current_source": QRectF(-0.32, -0.32, 0.64, 0.64),
     "diode": QRectF(-0.2, -0.2, 0.4, 0.4),
     "led": QRectF(-0.2, -0.4, 0.5, 0.6),
     "npn": QRectF(-0.55, -0.5, 1.0, 1.0),
@@ -112,6 +113,8 @@ BODY_POLYGONS = {
 
 # AC source: a 36 px circle with 12 px leads at the 60 px spacing.
 SOURCE_RADIUS = 0.3
+# Current source arrow: from y = 0.2 up to y = -0.2, inside the circle.
+CURRENT_ARROW_HALF_LENGTH = 0.2
 
 # DC source (battery cell): the long plate is the plus side, nearest the
 # plus pin; plates are 0.12 of a step (7 px) apart.
@@ -383,6 +386,29 @@ def _sine_glyph_path():
     return stroke_path
 
 
+def _current_source_paths():
+    """
+    Current source: circle with leads to the out pin (top) and the in pin
+    (bottom), and an arrow inside pointing to out, the way the current
+    leaves the source. The arrow turns with the part (it shows direction).
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+
+    stroke_path.addEllipse(QPointF(0.0, 0.0), SOURCE_RADIUS, SOURCE_RADIUS)
+    _add_line(stroke_path, 0.0, -HALF_SPAN, 0.0, -SOURCE_RADIUS)
+    _add_line(stroke_path, 0.0, SOURCE_RADIUS, 0.0, HALF_SPAN)
+    _add_arrow(
+        stroke_path, fill_path, 0.0, CURRENT_ARROW_HALF_LENGTH,
+        0.0, -CURRENT_ARROW_HALF_LENGTH
+    )
+
+    return (stroke_path, fill_path)
+
+
 def _diode_paths():
     """
     Diode: anode on the left, a filled triangle pointing right, and the
@@ -539,6 +565,7 @@ _SYMBOL_BUILDERS = {
     "inductor": _inductor_paths,
     "dc_source": _dc_source_paths,
     "ac_source": _ac_source_paths,
+    "current_source": _current_source_paths,
     "diode": _diode_paths,
     "led": _led_paths,
     "npn": _npn_paths,

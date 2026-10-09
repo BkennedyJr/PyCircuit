@@ -6,13 +6,19 @@ qt_application fixture in tests/conftest.py.
 """
 
 import pytest
-from PyQt5.QtCore import QEvent, QPointF, Qt
+from PyQt5.QtCore import QEvent, QPointF, QRectF, QSizeF, Qt
+from PyQt5.QtGui import QColor, QImage, QPainter
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from core.components import ComponentCollection
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
-from gui.component_item import COMPONENT_Z_VALUE, DRAGGED_COMPONENT_Z_VALUE
+from gui.component_item import (
+    COMPONENT_Z_VALUE,
+    DRAGGED_COMPONENT_Z_VALUE,
+    REFUSED_DROP_COLOR,
+)
 from gui.grid_editor import (
     GRID_POINT_SPACING,
     ConnectionGridScene,
@@ -475,3 +481,150 @@ def test_move_drawing_over_another_part_is_refused(collection, grid):
         "already drawn there"
     )
     assert position(collection.get_component("R1")) == (7, 2, 0)
+
+
+# ----- QC fixes: Esc, lost grab, drop hint, panel ---------------------------
+
+
+def start_drag(editor, start, offset):
+    send_mouse(editor.view, QEvent.MouseButtonPress, start)
+    send_mouse(editor.view, QEvent.MouseMove, start + offset * 0.5,
+               Qt.NoButton)
+    send_mouse(editor.view, QEvent.MouseMove, start + offset, Qt.NoButton)
+
+
+def test_escape_cancels_a_drag_and_the_release_does_nothing(editor):
+    editor.add("resistor", 2, 2, "1k")
+    body = between(point(2, 2), point(2, 3))
+    r1 = item(editor, "R1")
+    start_drag(editor, body, QPointF(130, 70))
+    assert r1.is_dragging is True
+
+    editor.view.setFocus()
+    QTest.keyClick(editor.view.viewport(), Qt.Key_Escape)
+
+    assert r1.pos() == point(2, 2)
+    assert r1.zValue() == COMPONENT_Z_VALUE
+    assert r1.is_dragging is False
+    assert r1.is_drop_refused is False
+
+    send_mouse(editor.view, QEvent.MouseButtonRelease,
+               body + QPointF(130, 70), Qt.LeftButton, Qt.NoButton)
+
+    component = editor.collection.get_component("R1")
+    assert (component.row_number, component.column_number) == (2, 2)
+    assert r1.pos() == point(2, 2)
+    assert editor.moves == []
+    assert editor.refusals == []
+
+
+def test_escape_without_a_drag_does_nothing(editor):
+    editor.add("resistor", 2, 2, "1k")
+    click(editor.view, between(point(2, 2), point(2, 3)))
+    selected = editor.scene.selectedItems()
+
+    editor.view.setFocus()
+    QTest.keyClick(editor.view.viewport(), Qt.Key_Escape)
+
+    assert editor.scene.selectedItems() == selected
+    assert item(editor, "R1").pos() == point(2, 2)
+
+
+def test_losing_the_mouse_grab_puts_the_part_back(editor):
+    editor.add("resistor", 2, 2, "1k")
+    r1 = item(editor, "R1")
+    start_drag(editor, between(point(2, 2), point(2, 3)), QPointF(130, 70))
+
+    r1.ungrabMouse()
+
+    assert r1.pos() == point(2, 2)
+    assert r1.zValue() == COMPONENT_Z_VALUE
+    assert r1.is_dragging is False
+    component = editor.collection.get_component("R1")
+    assert (component.row_number, component.column_number) == (2, 2)
+    assert editor.moves == [] and editor.refusals == []
+
+
+def test_the_part_turns_red_over_a_refused_spot(editor):
+    editor.add("resistor", 2, 2, "1k")
+    editor.add("capacitor", 5, 5, "100n")
+    body = between(point(5, 5), point(5, 6))
+    c1 = item(editor, "C1")
+
+    # Over R1's exact two points: refused.
+    start_drag(editor, body, point(2, 2) - point(5, 5))
+
+    assert c1.is_drop_refused is True
+
+    # On to a free spot: fine again.
+    send_mouse(editor.view, QEvent.MouseMove,
+               body + (point(7, 2) - point(5, 5)), Qt.NoButton)
+
+    assert c1.is_drop_refused is False
+
+    send_mouse(editor.view, QEvent.MouseMove,
+               body + (point(2, 2) - point(5, 5)), Qt.NoButton)
+    send_mouse(editor.view, QEvent.MouseButtonRelease,
+               body + (point(2, 2) - point(5, 5)), Qt.LeftButton, Qt.NoButton)
+
+    assert c1.is_drop_refused is False
+    assert editor.refusals[0][0] == "C1"
+
+
+def test_refused_colour_is_drawn(editor):
+    editor.add("resistor", 2, 2, "1k")
+    r1 = item(editor, "R1")
+    r1.set_drop_refused(True)
+    image = QImage(200, 120, QImage.Format_ARGB32)
+    image.fill(QColor("#000000"))
+    painter = QPainter(image)
+    editor.scene.render(painter, QRectF(image.rect()),
+                        QRectF(point(2, 2) - QPointF(40, 60),
+                               QSizeF(200, 120)))
+    painter.end()
+    colours = {
+        QColor(image.pixel(x, y)).name()
+        for x in range(200) for y in range(120)
+    }
+
+    assert REFUSED_DROP_COLOR in colours
+
+
+def test_check_move_does_not_move(collection, grid):
+    collection.add_component("resistor", 2, 2, "1k", grid)
+    collection.add_component("capacitor", 5, 5, "100n", grid)
+
+    assert collection.check_move("C1", 7, 2, grid) is None
+    assert collection.check_move("C1", 2, 2, grid).startswith(
+        "C1 cannot be moved to row 2, column 2: R1 (Resistor) already "
+        "connects exactly"
+    )
+    assert collection.check_move("C1", 2, 9, grid) == (
+        "C1 cannot be moved to row 2, column 9: that is outside the 8 x 8 "
+        "grid."
+    )
+    assert position(collection.get_component("C1")) == (5, 5, 0)
+
+    with pytest.raises(ComponentError):
+        collection.check_move("X9", 1, 1, grid)
+
+
+def test_the_panel_follows_the_moved_part(window):
+    place(window, 2, 2, "resistor", "1k")
+    place(window, 5, 5, "capacitor", "100n")
+    scene = window.connection_grid_scene
+    # Both selected, the panel showing C1.
+    scene.component_items_by_reference["R1"].setSelected(True)
+    scene.component_items_by_reference["C1"].setSelected(True)
+    window.handle_component_selection(
+        window.component_collection.get_component("C1")
+    )
+    body = between(point(2, 2), point(2, 3))
+
+    drag(window.connection_grid_view, body,
+         body + (point(7, 2) - point(2, 2)))
+
+    assert window.component_panel_widget.selected_component_label.text() == (
+        "R1 (Resistor) at R7 C2, 0 deg"
+    )
+    assert window.selected_component_reference == "R1"

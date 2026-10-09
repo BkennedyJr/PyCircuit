@@ -22,7 +22,7 @@ from gui.component_symbols import (
 )
 
 ALL_KINDS = list(COMPONENT_DEFINITIONS)
-KINDS_WITH_FILL = ["diode", "led", "npn", "pnp"]
+KINDS_WITH_FILL = ["current_source", "diode", "led", "npn", "pnp"]
 KINDS_WITHOUT_FILL = sorted(set(ALL_KINDS) - set(KINDS_WITH_FILL))
 
 # The grid dot is 16 px across at 60 px spacing: radius 8/60 of a pitch.
