@@ -264,22 +264,26 @@ def test_fit_of_a_tiny_grid_stops_at_the_maximum(qt_application):
 # ----- Middle-button pan -------------------------------------------------------
 
 
-def middle_drag_pixels(view, start_pixel, offset, steps=4):
+def drag_pixels(view, start_pixel, offset, button, steps=4):
     """
-    Middle-drag by viewport pixels. Scene positions are worked out at send
-    time, because the view scrolls under the mouse while it pans.
+    Drag by viewport pixels. Scene positions are worked out at send time,
+    because the view scrolls under the mouse while it pans.
     """
     send_mouse(view, QEvent.MouseButtonPress, view.mapToScene(start_pixel),
-               Qt.MiddleButton, Qt.MiddleButton)
+               button, button)
 
     for step in range(1, steps + 1):
         pixel = start_pixel + offset * step / steps
         send_mouse(view, QEvent.MouseMove, view.mapToScene(pixel),
-                   Qt.NoButton, Qt.MiddleButton)
+                   Qt.NoButton, button)
 
     send_mouse(view, QEvent.MouseButtonRelease,
-               view.mapToScene(start_pixel + offset), Qt.MiddleButton,
-               Qt.NoButton)
+               view.mapToScene(start_pixel + offset), button, Qt.NoButton)
+
+
+def middle_drag_pixels(view, start_pixel, offset, steps=4):
+    """Middle-drag by viewport pixels."""
+    drag_pixels(view, start_pixel, offset, Qt.MiddleButton, steps)
 
 
 def test_middle_drag_pans_the_view(editor):
@@ -329,12 +333,57 @@ def test_middle_drag_selects_nothing_and_draws_no_wire(editor):
     assert editor.scene.wire_preview_item is None
 
 
-def test_left_drag_still_does_rubber_band_selection(editor):
+def test_left_drag_pans_the_board(editor):
+    editor.view.centerOn(point(10, 10))
+    editor.view.set_zoom(ZOOM_STEP * ZOOM_STEP)
+    editor.view.viewport().setCursor(Qt.ArrowCursor)
+    horizontal = editor.view.horizontalScrollBar().value()
+    vertical = editor.view.verticalScrollBar().value()
+    start_pixel = QPoint(300, 250)
+    grabbed = editor.view.mapToScene(start_pixel)
+
+    send_mouse(editor.view, QEvent.MouseButtonPress,
+               editor.view.mapToScene(start_pixel))
+    assert editor.view.viewport().cursor().shape() == Qt.ArrowCursor
+
+    send_mouse(editor.view, QEvent.MouseMove,
+               editor.view.mapToScene(start_pixel + QPoint(40, 32)),
+               Qt.NoButton, Qt.LeftButton)
+
+    assert editor.view.viewport().cursor().shape() == Qt.ClosedHandCursor
+    assert editor.view.mapToScene(start_pixel + QPoint(40, 32)) == grabbed
+
+    send_mouse(editor.view, QEvent.MouseButtonRelease,
+               editor.view.mapToScene(start_pixel + QPoint(40, 32)),
+               Qt.LeftButton, Qt.NoButton)
+
+    assert editor.view.horizontalScrollBar().value() == horizontal - 40
+    assert editor.view.verticalScrollBar().value() == vertical - 32
+    assert editor.view.get_zoom() == pytest.approx(ZOOM_STEP * ZOOM_STEP)
+    assert editor.scene.selectedItems() == []
+    assert editor.view.pan_start_position is None
+    assert editor.view.viewport().cursor().shape() == Qt.ArrowCursor
+
+
+def test_a_short_left_drag_is_a_click(editor):
+    editor.view.centerOn(point(10, 10))
+    horizontal = editor.view.horizontalScrollBar().value()
+    start_pixel = editor.view.mapFromScene(point(10, 10))
+
+    drag_pixels(editor.view, start_pixel, QPoint(3, 2), Qt.LeftButton)
+
+    assert editor.view.horizontalScrollBar().value() == horizontal
+    assert editor.scene.connection_point_items_by_identifier[
+        "NODE_R10_C10"
+    ].isSelected()
+
+
+def test_shift_drag_still_rubber_band_selects(editor):
     editor.view.centerOn(point(10, 10))
     horizontal = editor.view.horizontalScrollBar().value()
 
     drag(editor.view, point(10, 10) + QPointF(-10, -10),
-         point(10, 10) + QPointF(10, 10))
+         point(10, 10) + QPointF(10, 10), modifiers=Qt.ShiftModifier)
 
     assert editor.view.horizontalScrollBar().value() == horizontal
     assert editor.scene.connection_point_items_by_identifier[

@@ -12,7 +12,7 @@ Error dialogs are replaced with a recorder, so no modal box opens.
 """
 
 import pytest
-from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QHelpEvent, QImage, QPainter
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QToolTip
@@ -26,7 +26,7 @@ from gui.component_item import (
 )
 from gui.main_window import MainWindow
 from gui.wire_item import WIRE_COLOR
-from tests.view_mouse import send_mouse
+from tests.view_mouse import click, send_mouse
 
 
 @pytest.fixture
@@ -381,6 +381,46 @@ def test_right_click_places_it(window):
     assert (component.row_number, component.column_number) == (4, 4)
     assert component.rotation == 90
     assert ghost(window) is None
+
+
+def test_click_moves_the_ghost_and_a_drag_pans_the_board(window):
+    window.resize(1000, 800)
+    window.show()
+    QTest.qWaitForWindowExposed(window)
+    start_ghost(window, "NODE_R04_C04", "resistor", "1k")
+    target = scene(window).connection_point_items_by_identifier[
+        "NODE_R06_C02"
+    ].pos()
+    click(view(window), target)
+
+    assert scene(window).pending_placement.identifier == "NODE_R06_C02"
+
+    grid_view = view(window)
+    grid_view.set_zoom(2)
+    grid_view.horizontalScrollBar().setValue(
+        grid_view.horizontalScrollBar().maximum() // 2
+    )
+    horizontal = grid_view.horizontalScrollBar().value()
+    anchor = QPointF(ghost(window).pos())
+    # Above the anchor, in viewport pixels, so the grab is not undone by
+    # the scene point moving as the board scrolls.
+    start_pixel = grid_view.mapFromScene(anchor + QPointF(20, -40))
+    offset = QPoint(-80, 0)
+    send_mouse(grid_view, QEvent.MouseButtonPress,
+               grid_view.mapToScene(start_pixel))
+
+    for step in range(1, 5):
+        pixel = start_pixel + QPoint(offset.x() * step // 4, 0)
+        send_mouse(grid_view, QEvent.MouseMove, grid_view.mapToScene(pixel),
+                   Qt.NoButton, Qt.LeftButton)
+
+    send_mouse(grid_view, QEvent.MouseButtonRelease,
+               grid_view.mapToScene(start_pixel + offset), Qt.LeftButton,
+               Qt.NoButton)
+
+    assert ghost(window).pos() == anchor
+    assert scene(window).pending_placement.identifier == "NODE_R06_C02"
+    assert grid_view.horizontalScrollBar().value() == horizontal + 80
 
 
 def test_esc_cancels(window):

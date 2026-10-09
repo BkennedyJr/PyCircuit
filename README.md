@@ -78,7 +78,10 @@ Using it
   to another point on the same row or column. If that wire crosses
   another wire, choose Connect or Bridge. Bridge hops over the crossing
   and does not connect there. Esc cancels a wire.
-- Ctrl + mouse wheel zooms. View > Fit Grid fits the grid to the window.
+- Ctrl + mouse wheel zooms. Drag the board with the left button to
+  move it (the middle button does the same). Hold Shift and drag to
+  select several points or parts. View > Fit Grid fits the grid to the
+  window.
 - File > Save Project / Open Project stores the grid as a .json file.
 
 
