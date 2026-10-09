@@ -196,13 +196,27 @@ class Wire:
             for row, column in self.get_points()
         )
 
-    def get_inner_point_identifiers(self):
+    def get_joined_identifiers(self):
         """
-        Return the covered points between the two ends (mid-span).
+        Return the points this wire electrically joins, from A to B.
+
+        THE connection rule, in one place: every other piece of code that
+        asks what a wire connects (get_wires_at, junction dots, the net
+        builder) goes through this method. Billie's rule (Oct 9) is the
+        breadboard strip: every grid point the wire covers. That rule is
+        why diagonal wires are refused in __init__.
 
         :rtype: tuple
         """
-        return self.get_point_identifiers()[1:-1]
+        return self.get_point_identifiers()
+
+    def get_inner_point_identifiers(self):
+        """
+        Return the joined points between the two ends (mid-span).
+
+        :rtype: tuple
+        """
+        return self.get_joined_identifiers()[1:-1]
 
     def fits_grid(self, row_count, column_count):
         """
@@ -376,7 +390,7 @@ class WireCollection:
         """
         return [
             wire for wire in self.get_wires()
-            if identifier in wire.get_point_identifiers()
+            if identifier in wire.get_joined_identifiers()
         ]
 
     def remove_wire(self, reference):
