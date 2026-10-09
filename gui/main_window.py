@@ -115,8 +115,27 @@ class MainWindow(QMainWindow):
         self.create_component_dock()
         self.create_selected_node_dock()
 
+        self.zoom_label = QLabel(self)
+        self.statusBar().addPermanentWidget(self.zoom_label)
+        self.update_zoom_display(self.connection_grid_view.get_zoom())
+
         self.statusBar().showMessage(
             "Ready. Configure a grid or select a connection point."
+        )
+
+    def update_zoom_display(self, zoom):
+        """
+        Show the zoom in the status bar and grey out Zoom In/Out at a limit.
+
+        :param zoom: Current zoom factor (1.0 = 100 %).
+        :type zoom: float
+        :returns: None
+        """
+        self.zoom_label.setText(f"Zoom {round(zoom * 100)}%")
+
+        self.zoom_in_action.setEnabled(self.connection_grid_view.can_zoom_in())
+        self.zoom_out_action.setEnabled(
+            self.connection_grid_view.can_zoom_out()
         )
 
     def connect_application_signals(self):
@@ -143,6 +162,9 @@ class MainWindow(QMainWindow):
         )
         self.connection_grid_scene.wires_selected.connect(
             self.handle_wire_selection
+        )
+        self.connection_grid_view.zoom_changed.connect(
+            self.update_zoom_display
         )
 
     def create_actions(self):
@@ -208,7 +230,24 @@ class MainWindow(QMainWindow):
             component_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             self.connection_grid_view.addAction(component_action)
 
-        self.fit_grid_action = QAction("Fit Grid", self)
+        # Zoom shortcuts work from anywhere in the window. Ctrl+= is the
+        # same key as Ctrl++ without Shift on most keyboards.
+        self.zoom_in_action = QAction("Zoom In", self)
+        self.zoom_in_action.setShortcuts(
+            [QKeySequence.ZoomIn, QKeySequence("Ctrl+=")]
+        )
+        self.zoom_in_action.triggered.connect(
+            self.connection_grid_view.zoom_in
+        )
+
+        self.zoom_out_action = QAction("Zoom Out", self)
+        self.zoom_out_action.setShortcut(QKeySequence.ZoomOut)
+        self.zoom_out_action.triggered.connect(
+            self.connection_grid_view.zoom_out
+        )
+
+        self.fit_grid_action = QAction("Zoom to Fit", self)
+        self.fit_grid_action.setShortcut(QKeySequence("Ctrl+0"))
         self.fit_grid_action.triggered.connect(
             self.connection_grid_view.fit_grid_in_view
         )
@@ -241,6 +280,8 @@ class MainWindow(QMainWindow):
         component_menu.addAction(self.wire_mode_action)
 
         view_menu = self.menuBar().addMenu("&View")
+        view_menu.addAction(self.zoom_in_action)
+        view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.fit_grid_action)
 
     def create_tool_bar(self):
@@ -262,6 +303,8 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.delete_component_action)
         main_tool_bar.addAction(self.wire_mode_action)
         main_tool_bar.addSeparator()
+        main_tool_bar.addAction(self.zoom_in_action)
+        main_tool_bar.addAction(self.zoom_out_action)
         main_tool_bar.addAction(self.fit_grid_action)
 
     def create_grid_configuration_dock(self):

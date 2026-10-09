@@ -20,6 +20,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from PyQt5.QtGui import QPainter
 from PyQt5.QtGui import QPen
+from PyQt5.QtGui import QTransform
 from PyQt5.QtCore import QLineF
 from PyQt5.QtWidgets import QGraphicsEllipseItem
 from PyQt5.QtWidgets import QGraphicsLineItem
@@ -54,6 +55,13 @@ SCENE_MARGIN = 20
 WIRE_SNAP_DISTANCE = 20
 # The rubber-band line draws above everything while a wire is drawn.
 WIRE_PREVIEW_Z_VALUE = 3
+# Zoom factors: 1.0 shows a grid step as GRID_POINT_SPACING pixels. One
+# wheel notch or one Zoom In/Out is ZOOM_STEP. MINIMUM_ZOOM still shows a
+# 50 x 50 grid in a small window; MAXIMUM_ZOOM makes one step 480 pixels.
+ZOOM_STEP = 1.25
+MINIMUM_ZOOM = 0.1
+MAXIMUM_ZOOM = 8.0
+ZOOM_TOLERANCE = 1e-6
 # Junction dots (core.wires.find_junction_identifiers) sit on top of the
 # grid dot, in the wire color, below the parts.
 JUNCTION_DIAMETER = 14
@@ -1038,14 +1046,20 @@ class ConnectionGridView(QGraphicsView):
     """
     Interactive view for the connection-grid scene.
 
-    Ctrl+mouse-wheel zoom is available for large grids. Standard scrollbars
-    allow navigation without introducing platform-specific mouse handling.
+    The mouse wheel zooms around the point under the cursor, with or without
+    Ctrl; Shift+wheel keeps Qt's normal scrolling. Zoom In, Zoom Out and
+    Zoom to Fit work around the middle of the view. Every zoom is kept
+    between MINIMUM_ZOOM and MAXIMUM_ZOOM (1.0 shows a grid step as 60
+    pixels). Dragging with the middle mouse button pans the view in every
+    mode; scrollbars stay available as well.
 
     :param connection_grid_scene: Scene shown by the view.
     :type connection_grid_scene: ConnectionGridScene
     :param parent: Optional Qt parent object.
     :type parent: QWidget or None
     """
+
+    zoom_changed = pyqtSignal(float)
 
     def __init__(self, connection_grid_scene, parent=None):
         super(ConnectionGridView, self).__init__(
@@ -1055,37 +1069,256 @@ class ConnectionGridView(QGraphicsView):
 
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(self.RubberBandDrag)
-        self.setTransformationAnchor(self.AnchorUnderMouse)
+        # Zooms place the anchor point themselves (see zoom_by).
+        self.setTransformationAnchor(self.NoAnchor)
+        self.setResizeAnchor(self.AnchorViewCenter)
+        self.pan_start_position = None
+        self.cursor_before_pan = None
+        connection_grid_scene.sceneRectChanged.connect(
+            self.update_scroll_area
+        )
+        self.update_scroll_area()
+
+    def update_scroll_area(self, *_unused):
+        """
+        Let the view scroll one full viewport past every edge of the scene.
+
+        Without this margin Qt centres a scene smaller than the view and
+        a zoom could not keep the point under the cursor still. Half a
+        viewport was not enough: zooming out near the scene edge hit the
+        scroll limit (QC #15). Called when
+        the scene grows, the zoom changes or the view is resized.
+
+        :returns: None
+        """
+        zoom = self.get_zoom()
+        margin_x = self.viewport().width() / zoom
+        margin_y = self.viewport().height() / zoom
+        self.setSceneRect(
+            self.scene().sceneRect().adjusted(
+                -margin_x, -margin_y, margin_x, margin_y
+            )
+        )
+
+    def resizeEvent(self, event):
+        """
+        Keep the scroll margin at one full new viewport size.
+
+        :param event: Resize event.
+        :type event: QResizeEvent
+        :returns: None
+        """
+        super().resizeEvent(event)
+        self.update_scroll_area()
+
+    def get_zoom(self):
+        """
+        Return the current zoom factor (1.0 = 60 pixels per grid step).
+
+        :returns: Zoom factor.
+        :rtype: float
+        """
+        return self.transform().m11()
+
+    @staticmethod
+    def clamp_zoom(zoom):
+        """
+        Keep a zoom factor between MINIMUM_ZOOM and MAXIMUM_ZOOM.
+
+        :param zoom: Wanted zoom factor.
+        :type zoom: float
+        :returns: The nearest allowed zoom factor.
+        :rtype: float
+        """
+        return min(MAXIMUM_ZOOM, max(MINIMUM_ZOOM, zoom))
+
+    def can_zoom_in(self):
+        """
+        :returns: True when the view is below MAXIMUM_ZOOM.
+        :rtype: bool
+        """
+        return self.get_zoom() < MAXIMUM_ZOOM - ZOOM_TOLERANCE
+
+    def can_zoom_out(self):
+        """
+        :returns: True when the view is above MINIMUM_ZOOM.
+        :rtype: bool
+        """
+        return self.get_zoom() > MINIMUM_ZOOM + ZOOM_TOLERANCE
+
+    def zoom_by(self, factor, viewport_position=None):
+        """
+        Multiply the zoom by a factor, keeping one point of the view still.
+
+        The scene point under viewport_position (the middle of the view
+        when None) stays under that position, as far as the scrollbars
+        allow. The result is clamped; nothing happens when the clamped zoom
+        equals the current one.
+
+        :param factor: Zoom multiplier, above 1 to zoom in.
+        :type factor: float
+        :param viewport_position: Anchor point in viewport coordinates.
+        :type viewport_position: QPoint or QPointF or None
+        :returns: True when the zoom changed.
+        :rtype: bool
+        """
+        current_zoom = self.get_zoom()
+        new_zoom = self.clamp_zoom(current_zoom * factor)
+
+        if abs(new_zoom - current_zoom) <= ZOOM_TOLERANCE:
+            return False
+
+        if viewport_position is None:
+            viewport_position = QPointF(self.viewport().rect().center())
+
+        viewport_position = QPointF(viewport_position)
+        anchor_scene_position = self.mapToScene(viewport_position.toPoint())
+        self.set_zoom(new_zoom)
+        self.keep_scene_point_at(anchor_scene_position, viewport_position)
+        return True
+
+    def set_zoom(self, zoom):
+        """
+        Set the zoom factor directly (clamped) and report the change.
+
+        :param zoom: Wanted zoom factor.
+        :type zoom: float
+        :returns: None
+        """
+        zoom = self.clamp_zoom(zoom)
+        self.setTransform(QTransform.fromScale(zoom, zoom))
+        self.update_scroll_area()
+        self.zoom_changed.emit(zoom)
+
+    def keep_scene_point_at(self, scene_position, viewport_position):
+        """
+        Scroll so a scene point appears at a viewport position.
+
+        :param scene_position: Scene point to move.
+        :type scene_position: QPointF
+        :param viewport_position: Where it should appear in the viewport.
+        :type viewport_position: QPointF
+        :returns: None
+        """
+        offset = self.mapFromScene(scene_position) - viewport_position.toPoint()
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() + offset.x()
+        )
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() + offset.y()
+        )
+
+    def zoom_in(self):
+        """
+        Zoom in one step around the middle of the view.
+
+        :returns: True when the zoom changed.
+        :rtype: bool
+        """
+        return self.zoom_by(ZOOM_STEP)
+
+    def zoom_out(self):
+        """
+        Zoom out one step around the middle of the view.
+
+        :returns: True when the zoom changed.
+        :rtype: bool
+        """
+        return self.zoom_by(1.0 / ZOOM_STEP)
 
     def fit_grid_in_view(self):
         """
         Fit the complete connection grid into the visible editor area.
 
+        The fitted zoom is clamped like any other zoom, so a 50 x 50 grid
+        in a small window may still need scrolling.
+
         :returns: None
         """
         scene_rectangle = self.scene().itemsBoundingRect()
 
-        if not scene_rectangle.isNull():
-            self.fitInView(
-                scene_rectangle.adjusted(-25, -25, 25, 25),
-                Qt.KeepAspectRatio
-            )
+        if scene_rectangle.isNull():
+            return
+
+        scene_rectangle = scene_rectangle.adjusted(-25, -25, 25, 25)
+        self.fitInView(scene_rectangle, Qt.KeepAspectRatio)
+        fitted_zoom = self.get_zoom()
+        self.set_zoom(fitted_zoom)
+        self.centerOn(scene_rectangle.center())
 
     def wheelEvent(self, event):
         """
-        Zoom when Ctrl is held; otherwise preserve normal scrolling.
+        Zoom around the cursor; Shift+wheel scrolls as usual.
+
+        One notch (120 eighths of a degree) is one ZOOM_STEP; touchpads
+        that send smaller deltas zoom by the matching fraction.
 
         :param event: Mouse-wheel event.
         :type event: QWheelEvent
         :returns: None
         """
-        if event.modifiers() & Qt.ControlModifier:
-            if event.angleDelta().y() > 0:
-                self.scale(1.15, 1.15)
-            else:
-                self.scale(1.0 / 1.15, 1.0 / 1.15)
+        delta = event.angleDelta().y()
 
+        if event.modifiers() & Qt.ShiftModifier or delta == 0:
+            super(ConnectionGridView, self).wheelEvent(event)
+            return
+
+        self.zoom_by(ZOOM_STEP ** (delta / 120.0), event.posF())
+        event.accept()
+
+    def mousePressEvent(self, event):
+        """
+        Start a pan on a middle-button press; other buttons work as usual.
+
+        :param event: Mouse press event.
+        :type event: QMouseEvent
+        :returns: None
+        """
+        if event.button() == Qt.MiddleButton:
+            self.pan_start_position = event.pos()
+            self.cursor_before_pan = self.viewport().cursor()
+            self.viewport().setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
 
-        super(ConnectionGridView, self).wheelEvent(event)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """
+        Pan while the middle button is held.
+
+        :param event: Mouse move event.
+        :type event: QMouseEvent
+        :returns: None
+        """
+        if self.pan_start_position is not None:
+            offset = event.pos() - self.pan_start_position
+            self.pan_start_position = event.pos()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - offset.x()
+            )
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - offset.y()
+            )
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """
+        End a middle-button pan and restore the cursor.
+
+        :param event: Mouse release event.
+        :type event: QMouseEvent
+        :returns: None
+        """
+        if (event.button() == Qt.MiddleButton and
+                self.pan_start_position is not None):
+            self.pan_start_position = None
+            self.viewport().setCursor(self.cursor_before_pan)
+            self.cursor_before_pan = None
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
