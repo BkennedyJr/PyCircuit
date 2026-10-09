@@ -12,7 +12,12 @@ qt_application fixture in tests/conftest.py.
 import pytest
 from PyQt5.QtCore import QPointF, QRectF
 from PyQt5.QtGui import QColor, QImage, QPainter
-from PyQt5.QtWidgets import QComboBox, QGraphicsScene
+from PyQt5.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QGraphicsScene,
+    QGraphicsView,
+)
 
 from core.components import (
     COMPONENT_DEFINITIONS,
@@ -94,7 +99,7 @@ def test_unknown_color_is_refused():
 
 
 def test_empty_color_on_edit_is_refused_and_nothing_changes():
-    led = Component("led", "D1", "LED_RED", 4, 4, 0, {"color": "green"})
+    led = Component("led", "D1", "LED_GREEN", 4, 4, 0, {"color": "green"})
 
     with pytest.raises(ComponentError) as error:
         led.set_values("LED_GREEN", {"color": ""})
@@ -106,7 +111,7 @@ def test_empty_color_on_edit_is_refused_and_nothing_changes():
 
 
 def test_label_does_not_show_the_color():
-    led = Component("led", "D1", "LED_RED", 4, 4, 0, {"color": "blue"})
+    led = Component("led", "D1", "LED_BLUE", 4, 4, 0, {"color": "blue"})
 
     assert led.label_text() == "D1 LED_BLUE"
 
@@ -119,9 +124,58 @@ def test_other_kinds_have_no_color():
 # ----- the model follows the color -----
 
 def test_new_led_takes_the_colors_model():
-    led = Component("led", "D1", "LED_RED", 4, 4, 0, {"color": "green"})
+    led = ComponentCollection().add_component(
+        "led", 2, 2, "", ConnectionGrid(8, 8), 0, {"color": "green"}
+    )
 
     assert led.value_text == "LED_GREEN"
+
+
+def test_add_component_keeps_an_explicit_model():
+    led = ComponentCollection().add_component(
+        "led", 2, 2, "LED_RED", ConnectionGrid(8, 8), 0, {"color": "blue"}
+    )
+
+    assert (led.value_text, led.parameter_texts) == (
+        "LED_RED", {"color": "blue"}
+    )
+
+
+def test_rebuild_keeps_a_typed_model():
+    # A saved project is loaded through the constructor: a model the
+    # user typed must survive the round trip.
+    led = Component("led", "D1", "LED_GREEN", 4, 4, 0, {"color": "green"})
+    led.set_values("LED_RED", {"color": "green"})
+    copy = Component(
+        led.kind, led.reference, led.value_text, 4, 4, 0,
+        dict(led.parameter_texts)
+    )
+
+    assert copy.value_text == "LED_RED"
+
+
+def test_bad_color_on_add_is_refused_before_the_model_follows():
+    with pytest.raises(ComponentError) as error:
+        ComponentCollection().add_component(
+            "led", 2, 2, "", ConnectionGrid(8, 8), 0, {"color": "pink"}
+        )
+
+    assert str(error.value) == (
+        "LED color must be one of red, green, blue, yellow, white, orange, "
+        "not 'pink'."
+    )
+
+
+def test_follow_ignores_a_missing_or_unknown_choice():
+    assert follow_choice_model(
+        "led", "LED_RED", {"color": "pink"}, {"color": "red"}
+    ) == "LED_RED"
+    assert follow_choice_model(
+        "led", "LED_RED", {}, {"color": "red"}
+    ) == "LED_RED"
+    assert follow_choice_model(
+        "led", "LED_RED", {"color": "red"}, {}
+    ) == "LED_RED"
 
 
 def test_editing_the_color_changes_the_default_model():
@@ -273,6 +327,48 @@ def test_selected_part_color_pick_applies_at_once(panel):
     assert len(requests) == 1
 
 
+def test_selected_part_same_color_sends_nothing(panel):
+    panel.show_component(
+        Component("led", "D1", "LED_GREEN", 4, 4, 0, {"color": "green"})
+    )
+    requests = []
+    panel.value_change_requested.connect(
+        lambda *arguments: requests.append(arguments)
+    )
+    field = panel.selected_parameter_line_edits["color"]
+    field.activated.emit(field.findData("green"))
+
+    assert requests == []
+
+
+def test_selected_part_same_color_with_edited_model_applies(panel):
+    panel.show_component(
+        Component("led", "D1", "LED_GREEN", 4, 4, 0, {"color": "green"})
+    )
+    requests = []
+    panel.value_change_requested.connect(
+        lambda *arguments: requests.append(arguments)
+    )
+    panel.selected_value_line_edit.setText("LED_RED")
+    field = panel.selected_parameter_line_edits["color"]
+    field.activated.emit(field.findData("green"))
+
+    assert len(requests) == 1
+
+
+def test_new_part_color_with_no_current_item_changes_nothing(panel):
+    choose_kind(panel, "led")
+    field = panel.parameter_line_edits["color"]
+    field.setCurrentIndex(field.findData("green"))
+    model_text = panel.value_line_edit.text()
+    field.setCurrentIndex(-1)
+
+    assert panel.value_line_edit.text() == model_text
+    field.setCurrentIndex(field.findData("blue"))
+
+    assert panel.value_line_edit.text() == "LED_BLUE"
+
+
 @pytest.fixture
 def window(qt_application, monkeypatch):
     main_window = MainWindow()
@@ -287,19 +383,19 @@ def window(qt_application, monkeypatch):
     main_window.deleteLater()
 
 
-def place_led(window, parameter_texts=None):
+def place_led(window, parameter_texts=None, value_text="LED_RED"):
     scene = window.connection_grid_scene
     scene.clearSelection()
     scene.connection_point_items_by_identifier["NODE_R04_C03"].setSelected(
         True
     )
-    window.place_component("led", "LED_RED", parameter_texts)
+    window.place_component("led", value_text, parameter_texts)
 
     return scene.component_items_by_reference["D1"]
 
 
 def test_window_places_a_colored_led(window):
-    item = place_led(window, {"color": "green"})
+    item = place_led(window, {"color": "green"}, "")
 
     assert item.component.parameter_texts == {"color": "green"}
     assert item.label_item.text() == "D1 LED_GREEN"
@@ -393,19 +489,101 @@ def test_lit_led_glows_around_the_body(qt_application):
     assert lit_pixel.green() > lit_pixel.red() + 20
 
 
-def test_glow_fits_in_the_bounding_rect(qt_application):
+def test_glow_fits_in_the_bounding_rect_while_lit(qt_application):
     for rotation in (0, 90, 180, 270):
         item = make_led(rotation=rotation)
+        item.set_lit(True)
 
         assert item.boundingRect().contains(item.get_glow_rect())
 
 
-def test_lit_does_not_change_the_geometry(qt_application):
+def test_glow_room_is_reserved_only_while_lit(qt_application):
     item = make_led()
-    before = item.boundingRect()
+    dark_rect = item.boundingRect()
+
+    assert not dark_rect.contains(item.get_glow_rect())
     item.set_lit(True)
 
-    assert item.boundingRect() == before
+    assert item.boundingRect().contains(dark_rect)
+    assert item.boundingRect() != dark_rect
+    item.set_lit(False)
+
+    assert item.boundingRect() == dark_rect
+
+
+def test_set_lit_accepts_numpy_bools(qt_application):
+    numpy = pytest.importorskip("numpy")
+    item = make_led()
+    current = numpy.float64(0.02)
+    item.set_lit(abs(current) > 1e-3)
+
+    assert item.is_lit is True
+    item.set_lit(numpy.False_)
+
+    assert item.is_lit is False
+
+
+@pytest.mark.parametrize("value", [1, 0, None, "yes", 1.0])
+def test_set_lit_still_refuses_non_bools(qt_application, value):
+    item = make_led()
+
+    with pytest.raises(ComponentError) as error:
+        item.set_lit(value)
+
+    assert str(error.value) == f"set_lit needs True or False, not {value!r}."
+
+
+def test_selected_dark_led_does_not_look_lit(qt_application):
+    item = make_led("yellow")
+    scene = QGraphicsScene()
+    scene.addItem(item)
+    item.setSelected(True)
+    dark = render_item(item, SCENE_RECT)
+
+    assert pixel(dark, SCENE_RECT, TRIANGLE_POINT).name() == "#d9e2ec"
+    scene.addItem(item)
+    item.setSelected(True)
+    item.set_lit(True)
+    lit = render_item(item, SCENE_RECT)
+
+    assert pixel(lit, SCENE_RECT, TRIANGLE_POINT).name() == (
+        LED_LIT_COLORS["yellow"]
+    )
+
+
+def test_set_lit_repaints_a_live_view(qt_application):
+    scene = QGraphicsScene()
+    item = make_led("green")
+    scene.addItem(item)
+    view = QGraphicsView(scene)
+    view.resize(200, 200)
+    view.show()
+    qt_application.processEvents()
+
+    def check_view_matches_a_fresh_render():
+        qt_application.processEvents()
+        shown = QApplication.primaryScreen().grabWindow(view.winId())
+        fresh_view = QGraphicsView(scene)
+        fresh_view.resize(view.size())
+        fresh_view.setTransform(view.transform())
+        fresh_view.horizontalScrollBar().setValue(
+            view.horizontalScrollBar().value()
+        )
+        fresh_view.verticalScrollBar().setValue(
+            view.verticalScrollBar().value()
+        )
+        fresh = fresh_view.grab()
+        fresh_view.deleteLater()
+
+        assert (shown.toImage().convertToFormat(QImage.Format_RGB32) ==
+                fresh.toImage().convertToFormat(QImage.Format_RGB32))
+
+    item.set_lit(True)
+    check_view_matches_a_fresh_render()
+    item.set_lit(False)
+    check_view_matches_a_fresh_render()
+    view.close()
+    view.deleteLater()
 
 
 def test_set_lit_false_turns_it_off(qt_application):

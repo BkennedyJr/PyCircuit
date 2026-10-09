@@ -615,7 +615,9 @@ def follow_choice_model(kind, value_text, old_texts, new_texts):
     For a kind with "model_follows_choice" (the LED's color): when the
     choice changes and value_text is the old choice's default model (case
     ignored), the new choice's default model is returned. Any other model
-    (one the user typed) is returned unchanged.
+    (one the user typed) is returned unchanged, and so is value_text when
+    either settings dict lacks the choice or names a choice the map does
+    not know.
 
     :param kind: Component kind.
     :type kind: str
@@ -635,8 +637,11 @@ def follow_choice_model(kind, value_text, old_texts, new_texts):
 
     name, map_name = follow
     model_by_choice = _MODEL_MAPS[map_name]
-    old_choice = old_texts[name]
-    new_choice = new_texts[name]
+    old_choice = old_texts.get(name)
+    new_choice = new_texts.get(name)
+
+    if old_choice not in model_by_choice or new_choice not in model_by_choice:
+        return value_text
 
     if (old_choice != new_choice and
             value_text.upper() == model_by_choice[old_choice].upper()):
@@ -698,12 +703,10 @@ class Component:
 
         self.validate_reference(reference, component_definition)
         clean_text, value = validate_value_text(kind, value_text)
+        # The model is stored exactly as given (a saved LED_RED on a green
+        # LED stays LED_RED); only add_component, given empty text, picks
+        # the chosen color's default model.
         texts, values = validate_parameter_texts(kind, parameter_texts)
-        # A new LED starts from red: LED_RED with color green becomes
-        # LED_GREEN.
-        clean_text = follow_choice_model(
-            kind, clean_text, get_default_parameter_texts(kind), texts
-        )
 
         # Extra settings such as an AC source's frequency: the text as
         # typed (shown in the label) and the parsed number.
@@ -1160,9 +1163,22 @@ class ComponentCollection:
         _validate_connection_grid(connection_grid)
         component_definition = _lookup_component_definition(kind)
 
-        # Empty text means "use the default", for example "1k".
+        # Empty text means "use the default", for example "1k". For an LED
+        # the default follows the chosen color: green gives LED_GREEN. Text
+        # the caller gave is never changed.
         if isinstance(value_text, str) and not value_text.strip():
             value_text = component_definition["default_value_text"]
+
+            if component_definition.get("model_follows_choice"):
+                texts, _values = validate_parameter_texts(
+                    kind, parameter_texts
+                )
+                value_text = follow_choice_model(
+                    kind,
+                    value_text,
+                    get_default_parameter_texts(kind),
+                    texts
+                )
 
         component = Component(
             kind,

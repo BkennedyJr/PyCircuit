@@ -284,6 +284,23 @@ def _validate_grid_spacing(grid_spacing):
         )
 
 
+def is_bool_like(value):
+    """
+    Return True for True, False and numpy's bool (numpy is not imported).
+
+    :param value: Value to check.
+    :type value: object
+    :rtype: bool
+    """
+    if isinstance(value, bool):
+        return True
+
+    value_type = type(value)
+
+    return (value_type.__module__ == "numpy" and
+            value_type.__name__ in ("bool", "bool_"))
+
+
 class ComponentLabelItem(QGraphicsSimpleTextItem):
     """
     Upright text label drawn over a small background-colored patch.
@@ -597,12 +614,7 @@ class ComponentItem(QGraphicsItem):
             )
         )
 
-        # An LED always reserves room for its glow, so set_lit never has
-        # to change the item's geometry.
-        if component.kind == "led":
-            self._bounding_rect = self._bounding_rect.united(
-                self.get_glow_rect()
-            )
+        # A lit LED's glow is added in boundingRect, only while it is lit.
 
         # prepareGeometryChange() above already schedules the repaint.
         self.refresh_label()
@@ -881,16 +893,22 @@ class ComponentItem(QGraphicsItem):
         runner (M5) a run will call set_lit(True) for each LED whose
         forward current is above about 1 mA, and set_lit(False) otherwise.
 
+        A numpy bool (for example abs(current) > 1e-3 on a numpy value)
+        is accepted as well. 1, 0, None and strings are refused, so a
+        current passed by mistake is not taken as "lit".
+
         :param is_lit: True to light the LED.
-        :type is_lit: bool
+        :type is_lit: bool or numpy.bool
         :returns: None
         :raises ComponentError: If is_lit is not a bool, or a part that is
             not an LED would be lit.
         """
-        if not isinstance(is_lit, bool):
+        if not is_bool_like(is_lit):
             raise ComponentError(
                 f"set_lit needs True or False, not {is_lit!r}."
             )
+
+        is_lit = bool(is_lit)
 
         if is_lit and self.component.kind != "led":
             display_name = COMPONENT_DEFINITIONS[self.component.kind][
@@ -902,6 +920,8 @@ class ComponentItem(QGraphicsItem):
             )
 
         if is_lit != self.is_lit:
+            # The glow grows or shrinks the bounding rect.
+            self.prepareGeometryChange()
             self.is_lit = is_lit
             self.update()
 
@@ -927,9 +947,13 @@ class ComponentItem(QGraphicsItem):
         """
         Return the area this item paints (the label paints itself).
 
-        :returns: Stroke, fill and body rectangles united, plus a margin.
+        :returns: Stroke, fill and body rectangles united, plus a margin,
+            and the glow while an LED is lit.
         :rtype: QRectF
         """
+        if self.is_lit:
+            return self._bounding_rect.united(self.get_glow_rect())
+
         return QRectF(self._bounding_rect)
 
     def shape(self):
@@ -977,9 +1001,17 @@ class ComponentItem(QGraphicsItem):
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(self.stroke_path)
         # A lit LED's triangle (and its arrowheads) take the LED's color.
-        painter.fillPath(
-            self.fill_path, self.get_lit_color() if self.is_lit else color
-        )
+        # A dark LED stays the symbol color even when selected, so a
+        # selected LED can't be mistaken for a lit yellow one; its outline
+        # still shows the selection.
+        if self.is_lit:
+            fill_color = self.get_lit_color()
+        elif self.component.kind == "led":
+            fill_color = QColor(SYMBOL_COLOR)
+        else:
+            fill_color = color
+
+        painter.fillPath(self.fill_path, fill_color)
 
         painter.restore()
 

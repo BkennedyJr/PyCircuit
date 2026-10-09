@@ -207,6 +207,9 @@ class ComponentPanelWidget(QWidget):
 
         # Kind of the part shown in "Selected Part", or None.
         self.selected_component_kind = None
+        # The part show_component last showed (a Selected Part choice is
+        # only applied when it differs from this part's).
+        self.selected_component = None
         self.selected_component_label = QLabel(NO_PART_SELECTED_TEXT)
         self.selected_value_label = QLabel("Value:")
         self.selected_value_line_edit = QLineEdit()
@@ -334,14 +337,40 @@ class ComponentPanelWidget(QWidget):
             else:
                 field.returnPressed.connect(self.emit_place_request)
 
-        for field in self.selected_parameter_line_edits.values():
+        for name, field in self.selected_parameter_line_edits.items():
             if isinstance(field, QComboBox):
                 # Picking a color applies at once (with the value box).
                 field.activated.connect(
-                    lambda unused_index: self.emit_value_change_request()
+                    lambda index, setting=name:
+                    self.handle_selected_choice_activated(setting, index)
                 )
             else:
                 field.returnPressed.connect(self.emit_value_change_request)
+
+    def handle_selected_choice_activated(self, name, index):
+        """
+        Apply a Selected Part choice (the LED color) when it changes.
+
+        Re-picking the part's current choice sends nothing, so the project
+        is not marked modified, unless the value box was also edited.
+
+        :param name: Setting name, for example "color".
+        :type name: str
+        :param index: Index of the picked item.
+        :type index: int
+        :returns: None
+        """
+        component = self.selected_component
+
+        if component is not None:
+            picked = self.selected_parameter_line_edits[name].itemData(index)
+            value_text = self.selected_value_line_edit.text().strip()
+
+            if (picked == component.parameter_texts.get(name) and
+                    value_text == component.value_text):
+                return
+
+        self.emit_value_change_request()
 
     def handle_new_part_choice_change(self, name):
         """
@@ -358,6 +387,12 @@ class ComponentPanelWidget(QWidget):
         field = self.parameter_line_edits[name]
         previous_choice = field.property("previous_choice")
         new_choice = get_field_text(field)
+
+        # No current item (setCurrentIndex(-1)): nothing to follow, and
+        # the last real choice is kept for the next pick.
+        if not new_choice:
+            return
+
         field.setProperty("previous_choice", new_choice)
 
         if previous_choice is None or kind is None:
@@ -487,6 +522,8 @@ class ComponentPanelWidget(QWidget):
             )
 
         shown_names = set()
+
+        self.selected_component = component
 
         if component is None:
             self.selected_component_kind = None
