@@ -57,11 +57,17 @@ def _add_arrow(stroke_path, fill_path, x1, y1, x2, y2):
     :param fill_path: Path that receives the arrowhead.
     :type fill_path: QPainterPath
     :returns: None
+    :raises ComponentError: If the arrow has zero length (it has no
+        direction, so the head cannot be drawn).
     """
+    length = math.hypot(x2 - x1, y2 - y1)
+
+    if length == 0:
+        raise ComponentError("An arrow needs two different end points.")
+
     _add_line(stroke_path, x1, y1, x2, y2)
 
     # Unit vector along the arrow, and the perpendicular for the head width.
-    length = math.hypot(x2 - x1, y2 - y1)
     along_x = (x2 - x1) / length
     along_y = (y2 - y1) / length
     across_x = -along_y

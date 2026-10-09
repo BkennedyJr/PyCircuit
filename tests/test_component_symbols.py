@@ -149,3 +149,14 @@ def test_add_arrow_head_geometry():
     assert rect_tuple(fill_path.boundingRect()) == pytest.approx(
         (0.92, -0.04, 0.08, 0.08), abs=1e-9
     )
+
+
+def test_add_arrow_with_zero_length_raises_and_draws_nothing():
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+
+    with pytest.raises(ComponentError):
+        _add_arrow(stroke_path, fill_path, 0.5, 0.5, 0.5, 0.5)
+
+    assert stroke_path.isEmpty()
+    assert fill_path.isEmpty()
