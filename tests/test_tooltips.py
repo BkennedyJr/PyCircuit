@@ -35,67 +35,91 @@ def test_no_wires():
 
     assert nets.get_points("NODE_R02_C02") == ("NODE_R02_C02",)
     assert nets.get_wire_references("NODE_R02_C02") == ()
+    assert nets.get_pin_labels("NODE_R02_C02") == ()
     assert nets.is_ground("NODE_R02_C02") is False
-    assert nets.describe("NODE_R02_C02") == "no wires"
+    assert nets.describe("NODE_R02_C02") == "not connected"
 
 
-def test_wires_sharing_an_end_are_one_net():
+def test_a_wire_joins_every_point_it_covers():
+    # Breadboard strip (Billie, Oct 9): the dots mid-span are on the net.
+    nets = WireNets(
+        make_wires(("NODE_R02_C02", "NODE_R02_C05")),
+        pin_labels=[("NODE_R02_C03", "R1.1"), ("NODE_R02_C05", "C1.2")]
+    )
+
+    assert nets.get_points("NODE_R02_C04") == (
+        "NODE_R02_C02", "NODE_R02_C03", "NODE_R02_C04", "NODE_R02_C05"
+    )
+    assert nets.describe("NODE_R02_C03", "R1.1") == "to C1.2 via W1"
+    assert nets.describe("NODE_R02_C04") == "to C1.2, R1.1 via W1"
+
+
+def test_wires_sharing_any_point_are_one_net():
     nets = WireNets(make_wires(
-        ("NODE_R02_C05", "NODE_R06_C05"),
-        ("NODE_R02_C02", "NODE_R02_C05"),
+        ("NODE_R02_C02", "NODE_R02_C06"),
+        ("NODE_R04_C04", "NODE_R01_C04"),
         ("NODE_R08_C01", "NODE_R08_C02"),
     ))
-    expected = "NODE_R02_C02, NODE_R02_C05, NODE_R06_C05 via W1, W2"
 
-    for identifier in ("NODE_R02_C02", "NODE_R02_C05", "NODE_R06_C05"):
-        assert nets.describe(identifier) == expected
+    # W2 crosses W1 at R2 C4 (mid-span on both).
+    assert nets.get_wire_references("NODE_R02_C06") == ("W1", "W2")
+    assert nets.get_wire_references("NODE_R01_C04") == ("W1", "W2")
+    assert nets.describe("NODE_R08_C02") == "via W3"
+    assert nets.describe("NODE_R03_C03") == "not connected"
 
-    assert nets.describe("NODE_R08_C02") == (
-        "NODE_R08_C01, NODE_R08_C02 via W3"
+
+def test_parts_sharing_a_point_are_connected_without_a_wire():
+    nets = WireNets(
+        WireCollection(),
+        pin_labels=[("NODE_R03_C03", "R1.2"), ("NODE_R03_C03", "C1.1"),
+                    ("NODE_R03_C04", "C1.2")]
     )
+
+    assert nets.describe("NODE_R03_C03", "R1.2") == "to C1.1"
+    assert nets.describe("NODE_R03_C03", "C1.1") == "to R1.2"
+    assert nets.describe("NODE_R03_C04", "C1.2") == "not connected"
 
 
 def test_points_are_in_row_then_column_order():
     nets = WireNets(make_wires(
         ("NODE_R10_C12", "NODE_R09_C12"),
-        ("NODE_R09_C12", "NODE_R09_C02"),
+        ("NODE_R09_C12", "NODE_R09_C10"),
     ))
 
-    assert nets.get_points("NODE_R09_C02") == (
-        "NODE_R09_C02", "NODE_R09_C12", "NODE_R10_C12"
+    assert nets.get_points("NODE_R09_C10") == (
+        "NODE_R09_C10", "NODE_R09_C11", "NODE_R09_C12", "NODE_R10_C12"
     )
 
 
-def test_wire_references_sort_naturally():
+def test_wire_references_and_labels_sort_naturally():
     pairs = [
         (f"NODE_R01_C{column:02d}", f"NODE_R01_C{column + 1:02d}")
         for column in range(1, 11)
     ]
-    nets = WireNets(make_wires(*pairs))
+    nets = WireNets(
+        make_wires(*pairs),
+        pin_labels=[("NODE_R01_C01", "R10.1"), ("NODE_R01_C05", "R2.1"),
+                    ("NODE_R01_C09", "C1.2")]
+    )
 
     assert nets.get_wire_references("NODE_R01_C01") == tuple(
         f"W{number}" for number in range(1, 11)
     )
-
-
-def test_a_wire_joins_only_its_ends():
-    # PR D semantics: the dot a straight wire passes over is not joined.
-    nets = WireNets(make_wires(("NODE_R02_C02", "NODE_R02_C05")))
-
-    assert nets.describe("NODE_R02_C03") == "no wires"
+    assert nets.get_pin_labels("NODE_R01_C11") == ("C1.2", "R2.1", "R10.1")
 
 
 def test_a_ground_pin_makes_the_net_node_0():
     nets = WireNets(
         make_wires(("NODE_R02_C02", "NODE_R06_C02")),
-        ["NODE_R06_C02", "NODE_R09_C09"]
+        ["NODE_R04_C02", "NODE_R09_C09"],
+        [("NODE_R04_C02", "GND1.gnd"), ("NODE_R09_C09", "GND2.gnd")]
     )
 
+    # The ground sits mid-span.
     assert nets.describe("NODE_R02_C02") == (
-        "0 (ground): NODE_R02_C02, NODE_R06_C02 via W1"
+        "node 0 (ground) to GND1.gnd via W1"
     )
-    # A ground pin on a point with no wire.
-    assert nets.describe("NODE_R09_C09") == "0 (ground)"
+    assert nets.describe("NODE_R09_C09", "GND2.gnd") == "node 0 (ground)"
     assert nets.is_ground("NODE_R08_C08") is False
 
 
@@ -121,6 +145,14 @@ def test_bad_points_are_refused(identifier):
 def test_bad_ground_points_are_refused():
     with pytest.raises(ComponentError):
         WireNets(WireCollection(), ["NODE_R02_C02", 7])
+
+
+@pytest.mark.parametrize("pin_label", [
+    "R1.1", ("NODE_R02_C02",), ("NODE_R02_C02", 1), ("R2C2", "R1.1"),
+])
+def test_bad_pin_labels_are_refused(pin_label):
+    with pytest.raises(ComponentError):
+        WireNets(WireCollection(), (), [pin_label])
 
 
 # ----- ComponentItem tooltip ----------------------------------------------------
@@ -210,14 +242,17 @@ def test_tool_tip_follows_a_value_change(qt_application):
 def test_wire_nets_add_a_net_line_per_pin(qt_application):
     item = ComponentItem(Component("resistor", "R1", "1k", 4, 4), SPACING)
     item.set_wire_nets(WireNets(
-        make_wires(("NODE_R04_C04", "NODE_R08_C04")), ["NODE_R08_C04"]
+        make_wires(("NODE_R04_C04", "NODE_R08_C04")),
+        ["NODE_R08_C04"],
+        [("NODE_R04_C04", "R1.1"), ("NODE_R04_C05", "R1.2"),
+         ("NODE_R08_C04", "GND1.gnd")]
     ))
 
     assert item.toolTip().splitlines()[4:] == [
         "pin 1: NODE_R04_C04",
-        "  net: 0 (ground): NODE_R04_C04, NODE_R08_C04 via W1",
+        "  net: node 0 (ground) to GND1.gnd via W1",
         "pin 2: NODE_R04_C05",
-        "  net: no wires",
+        "  net: not connected",
     ]
 
 
@@ -277,10 +312,12 @@ def net_lines(scene, reference):
     ]
 
 
-def test_scene_tool_tips_show_no_wires_at_first(scene):
+def test_scene_tool_tips_show_not_connected_at_first(scene):
     add_part(scene, "resistor", 2, 2)
 
-    assert net_lines(scene, "R1") == ["  net: no wires", "  net: no wires"]
+    assert net_lines(scene, "R1") == [
+        "  net: not connected", "  net: not connected"
+    ]
 
 
 def test_scene_without_wires_has_no_net_lines(qt_application):
@@ -291,35 +328,54 @@ def test_scene_without_wires_has_no_net_lines(qt_application):
     assert net_lines(scene, "R1") == []
 
 
+def test_parts_sharing_a_point_show_each_other(scene):
+    add_part(scene, "resistor", 2, 2)
+    add_part(scene, "capacitor", 2, 3, 90)
+
+    # R1 pin 2 and C1 pin 1 are both on R2 C3.
+    assert net_lines(scene, "R1") == [
+        "  net: not connected", "  net: to C1.1"
+    ]
+    assert net_lines(scene, "C1")[0] == "  net: to R1.2"
+
+
 def test_drawing_and_deleting_a_wire_updates_the_tool_tips(scene):
     add_part(scene, "resistor", 2, 2)
     add_part(scene, "capacitor", 5, 2)
     wire = add_wire(scene, "NODE_R02_C03", "NODE_R05_C03")
 
     assert net_lines(scene, "R1") == [
-        "  net: no wires",
-        "  net: NODE_R02_C03, NODE_R05_C03 via W1",
+        "  net: not connected",
+        "  net: to C1.2 via W1",
     ]
-    assert net_lines(scene, "C1")[1] == (
-        "  net: NODE_R02_C03, NODE_R05_C03 via W1"
-    )
+    assert net_lines(scene, "C1")[1] == "  net: to R1.2 via W1"
 
     scene.wire_collection.remove_wire(wire)
     scene.rebuild_wire_items()
 
-    assert net_lines(scene, "R1")[1] == "  net: no wires"
+    assert net_lines(scene, "R1")[1] == "  net: not connected"
+
+
+def test_a_pin_mid_span_joins_the_wire(scene):
+    add_part(scene, "resistor", 2, 2)
+    add_part(scene, "capacitor", 4, 4, 90)
+    add_wire(scene, "NODE_R02_C03", "NODE_R02_C06")
+    add_wire(scene, "NODE_R02_C04", "NODE_R04_C04")
+
+    # C1 pin 1 (R4 C4) is joined through W2, which ends on W1 mid-span.
+    assert net_lines(scene, "C1")[0] == "  net: to R1.2 via W1, W2"
 
 
 def test_placing_ground_on_a_net_makes_it_node_0(scene):
     add_part(scene, "resistor", 2, 2)
     add_wire(scene, "NODE_R02_C03", "NODE_R06_C03")
-    add_part(scene, "ground", 6, 3)
+    add_part(scene, "ground", 4, 3)
 
     assert net_lines(scene, "R1")[1] == (
-        "  net: 0 (ground): NODE_R02_C03, NODE_R06_C03 via W1"
+        "  net: node 0 (ground) to GND1.gnd via W1"
     )
     assert net_lines(scene, "GND1") == [
-        "  net: 0 (ground): NODE_R02_C03, NODE_R06_C03 via W1"
+        "  net: node 0 (ground) to R1.2 via W1"
     ]
 
 
@@ -332,10 +388,8 @@ def test_moving_ground_off_the_net_updates_the_tool_tips(scene):
     )
     scene.refresh_component("GND1")
 
-    assert net_lines(scene, "R1")[1] == (
-        "  net: NODE_R02_C03, NODE_R06_C03 via W1"
-    )
-    assert net_lines(scene, "GND1") == ["  net: 0 (ground)"]
+    assert net_lines(scene, "R1")[1] == "  net: via W1"
+    assert net_lines(scene, "GND1") == ["  net: node 0 (ground)"]
 
 
 def test_window_delete_of_a_wire_updates_the_tool_tip(qt_application):
@@ -351,15 +405,13 @@ def test_window_delete_of_a_wire_updates_the_tool_tip(qt_application):
     )
     scene.rebuild_wire_items()
 
-    assert net_lines(scene, "R1")[1] == (
-        "  net: NODE_R02_C03, NODE_R04_C03 via W1"
-    )
+    assert net_lines(scene, "R1")[1] == "  net: via W1"
 
     scene.clearSelection()
     scene.wire_items_by_reference["W1"].setSelected(True)
     window.delete_selection()
 
-    assert net_lines(scene, "R1")[1] == "  net: no wires"
+    assert net_lines(scene, "R1")[1] == "  net: not connected"
     window.is_project_modified = False
     window.close()
     window.deleteLater()

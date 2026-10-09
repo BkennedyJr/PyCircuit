@@ -681,8 +681,9 @@ class ComponentItem(QGraphicsItem):
         One line each for the kind, reference, value (or model), every
         setting (hidden ones such as Offset too) and the rotation, then one
         "pin <name>: <node>" line per pin. Once the scene has given the item
-        its wire nets (set_wire_nets), each pin line is followed by an
-        indented "net: ..." line (see core.wires.WireNets.describe).
+        its nets (set_wire_nets), each pin line is followed by an indented
+        "net: ..." line naming the other pins and the wires on that net
+        (see core.wires.WireNets.describe).
 
         :returns: Multi-line tooltip text.
         :rtype: str
@@ -718,7 +719,10 @@ class ComponentItem(QGraphicsItem):
             lines.append(f"pin {pin_name}: {identifier}")
 
             if self.wire_nets is not None:
-                lines.append(f"  net: {self.wire_nets.describe(identifier)}")
+                net_text = self.wire_nets.describe(
+                    identifier, f"{component.reference}.{pin_name}"
+                )
+                lines.append(f"  net: {net_text}")
 
         return "\n".join(lines)
 

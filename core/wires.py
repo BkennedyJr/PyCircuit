@@ -16,6 +16,7 @@ This module contains no PyQt5 imports, so the later net builder and the
 solver can use it directly.
 """
 
+import itertools
 import re
 
 from core.connection_grid import ConnectionGrid
@@ -24,7 +25,7 @@ from core.exceptions import ComponentError
 WIRE_REFERENCE_PREFIX = "W"
 
 _WIRE_REFERENCE_PATTERN = re.compile(r"W[1-9][0-9]{0,5}")
-_POINT_IDENTIFIER_PATTERN = re.compile(r"NODE_R[0-9]{2,}_C[0-9]{2,}")
+_POINT_IDENTIFIER_PATTERN = re.compile(r"NODE_R([0-9]{2,})_C([0-9]{2,})")
 
 
 def _validate_connection_grid(connection_grid):
@@ -416,21 +417,25 @@ class WireCollection:
 
 class WireNets:
     """
-    Which grid points the wires join, for the part tooltips.
+    Which grid points and part pins are connected, for the part tooltips.
 
-    Wires connect only their two ends (see the module docstring), so two
-    wires that share an end point are one net. This is a light stand-in
-    for M2's NetMap: it knows only wires and the points ground pins sit
-    on, not the parts. A net with a ground point is SPICE node "0".
+    A wire joins every point it covers (breadboard strip), wires that
+    share any point are one net, and part pins on the same point are
+    connected with or without a wire. This is a light stand-in for M2's
+    NetMap. A net with a ground pin is SPICE node "0".
 
     :param wire_collection: Wires to group.
     :type wire_collection: WireCollection
     :param ground_identifiers: Points that a ground pin sits on.
     :type ground_identifiers: iterable of str
+    :param pin_labels: (point, label) for every part pin, for example
+        ("NODE_R02_C03", "R1.2").
+    :type pin_labels: iterable of tuple
     :raises ComponentError: If an argument has the wrong type.
     """
 
-    def __init__(self, wire_collection, ground_identifiers=()):
+    def __init__(self, wire_collection, ground_identifiers=(),
+                 pin_labels=()):
         if not isinstance(wire_collection, WireCollection):
             raise ComponentError(
                 f"Expected a WireCollection, not "
@@ -442,23 +447,32 @@ class WireNets:
         for identifier in ground_identifiers:
             _validate_identifier(identifier)
 
+        pin_labels = tuple(pin_labels)
+
+        for pin_label in pin_labels:
+            if (not isinstance(pin_label, tuple) or len(pin_label) != 2 or
+                    not isinstance(pin_label[1], str)):
+                raise ComponentError(
+                    f"Pin labels must be (point, label) pairs such as "
+                    f"('NODE_R02_C03', 'R1.2'), not {pin_label!r}."
+                )
+
+            _validate_identifier(pin_label[0])
+
         self._ground_identifiers = frozenset(ground_identifiers)
         self._parent_by_point = {}
-        self._point_by_identifier = {}
 
         for wire in wire_collection.get_wires():
-            for identifier, point in (
-                    (wire.start_identifier, wire.start_point),
-                    (wire.end_identifier, wire.end_point)):
-                self._point_by_identifier[identifier] = point
-                self._parent_by_point.setdefault(identifier, identifier)
+            identifiers = wire.get_point_identifiers()
 
-            self._union(wire.start_identifier, wire.end_identifier)
+            for first, second in itertools.pairwise(identifiers):
+                self._union(first, second)
 
         self._points_by_root = {}
         self._wires_by_root = {}
+        self._labels_by_root = {}
 
-        for identifier in self._parent_by_point:
+        for identifier in list(self._parent_by_point):
             self._points_by_root.setdefault(
                 self._find(identifier), []
             ).append(identifier)
@@ -468,13 +482,21 @@ class WireNets:
                 self._find(wire.start_identifier), []
             ).append(wire.reference)
 
+        for identifier, label in pin_labels:
+            self._labels_by_root.setdefault(
+                self._find(identifier), []
+            ).append(label)
+
     def _find(self, identifier):
         """
         Return the representative point of a group (path halving).
 
+        A point no wire covers is its own group.
+
         :rtype: str
         """
         parent_by_point = self._parent_by_point
+        parent_by_point.setdefault(identifier, identifier)
 
         while parent_by_point[identifier] != identifier:
             parent_by_point[identifier] = parent_by_point[
@@ -496,25 +518,38 @@ class WireNets:
         if first_root != second_root:
             self._parent_by_point[second_root] = first_root
 
-    def get_points(self, identifier):
+    def _root_of(self, identifier):
         """
-        Return the points joined to one point by wires, in row-column order.
+        Return the group of a valid identifier without adding it.
 
-        :param identifier: Connection-point identifier.
-        :type identifier: str
-        :returns: The joined identifiers, including this one; just this
-            one when no wire ends here.
-        :rtype: tuple
-        :raises ComponentError: If identifier is not an identifier.
+        :rtype: str or None
         """
         _validate_identifier(identifier)
 
         if identifier not in self._parent_by_point:
+            return None
+
+        return self._find(identifier)
+
+    def get_points(self, identifier):
+        """
+        Return the points of the net through one point, row-column order.
+
+        :param identifier: Connection-point identifier.
+        :type identifier: str
+        :returns: The joined identifiers, including this one; just this
+            one when no wire covers it.
+        :rtype: tuple
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        root = self._root_of(identifier)
+
+        if root is None:
             return (identifier,)
 
         return tuple(sorted(
-            self._points_by_root[self._find(identifier)],
-            key=self._point_by_identifier.__getitem__
+            set(self._points_by_root.get(root, [])) | {identifier},
+            key=_point_sort_key
         ))
 
     def get_wire_references(self, identifier):
@@ -523,18 +558,30 @@ class WireNets:
 
         :param identifier: Connection-point identifier.
         :type identifier: str
-        :returns: Wire references; empty when no wire ends here.
+        :returns: Wire references; empty when no wire covers the net.
         :rtype: tuple
         :raises ComponentError: If identifier is not an identifier.
         """
-        _validate_identifier(identifier)
-
-        if identifier not in self._parent_by_point:
-            return ()
+        root = self._root_of(identifier)
 
         return tuple(sorted(
-            self._wires_by_root[self._find(identifier)],
-            key=_wire_sort_key
+            self._wires_by_root.get(root, []), key=_wire_sort_key
+        ))
+
+    def get_pin_labels(self, identifier):
+        """
+        Return the labels of every part pin on the net, naturally sorted.
+
+        :param identifier: Connection-point identifier.
+        :type identifier: str
+        :returns: Labels such as ("C1.1", "R1.2", "R10.1").
+        :rtype: tuple
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        root = self._root_of(identifier)
+
+        return tuple(sorted(
+            self._labels_by_root.get(root, []), key=_natural_sort_key
         ))
 
     def is_ground(self, identifier):
@@ -548,31 +595,61 @@ class WireNets:
             self.get_points(identifier)
         )
 
-    def describe(self, identifier):
+    def describe(self, identifier, own_label=None):
         """
-        Describe the net through one point, for a tooltip.
+        Describe the net through one point, for a pin's tooltip line.
 
-        Examples: "NODE_R02_C02, NODE_R02_C05 via W1",
-        "0 (ground): NODE_R02_C05, NODE_R06_C05 via W1, W2", "0 (ground)"
-        (a ground pin on the point itself) and "no wires".
+        Examples: "to C1.1 via W2, W3", "to C1.1" (two parts on one point,
+        no wire), "node 0 (ground) to GND1.gnd via W4" and
+        "not connected".
 
         :param identifier: Connection-point identifier.
         :type identifier: str
+        :param own_label: The asking pin's label, left out of the list.
+        :type own_label: str or None
         :rtype: str
         :raises ComponentError: If identifier is not an identifier.
         """
+        other_labels = [
+            label for label in self.get_pin_labels(identifier)
+            if label != own_label
+        ]
         wire_references = self.get_wire_references(identifier)
-        is_ground = self.is_ground(identifier)
+        pieces = []
 
-        if not wire_references:
-            return "0 (ground)" if is_ground else "no wires"
+        if self.is_ground(identifier):
+            pieces.append("node 0 (ground)")
 
-        text = (
-            f"{', '.join(self.get_points(identifier))} via "
-            f"{', '.join(wire_references)}"
-        )
+        if other_labels:
+            pieces.append(f"to {', '.join(other_labels)}")
 
-        return f"0 (ground): {text}" if is_ground else text
+        if wire_references:
+            pieces.append(f"via {', '.join(wire_references)}")
+
+        return " ".join(pieces) if pieces else "not connected"
+
+
+def _point_sort_key(identifier):
+    """
+    Sort key for identifiers: row, then column, as numbers.
+
+    :rtype: tuple
+    """
+    match = _POINT_IDENTIFIER_PATTERN.fullmatch(identifier)
+
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def _natural_sort_key(text):
+    """
+    Natural sort key: "R2.1" before "R10.1".
+
+    :rtype: list
+    """
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"([0-9]+)", text)
+    ]
 
 
 def _validate_identifier(identifier):

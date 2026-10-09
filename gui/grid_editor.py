@@ -490,7 +490,10 @@ class ConnectionGridScene(QGraphicsScene):
 
     def update_wire_nets(self):
         """
-        Give every part item the current wire nets for its tooltip.
+        Give every part item the current nets for its tooltip.
+
+        The nets know every pin ("R1.2"), so parts sharing a point show as
+        connected even without a wire.
 
         Without a wire collection the items get None and their tooltips
         have no net lines.
@@ -501,15 +504,24 @@ class ConnectionGridScene(QGraphicsScene):
 
         if self.wire_collection is not None:
             ground_identifiers = []
+            pin_labels = []
 
             if self.component_collection is not None:
                 for component in self.component_collection.get_components():
+                    pin_identifiers = component.get_pin_identifiers()
+
                     if component.kind == "ground":
-                        ground_identifiers.extend(
-                            component.get_pin_identifiers()
+                        ground_identifiers.extend(pin_identifiers)
+
+                    for (pin_name, unused_dx, unused_dy), identifier in zip(
+                            component.get_pin_offsets(), pin_identifiers):
+                        pin_labels.append(
+                            (identifier, f"{component.reference}.{pin_name}")
                         )
 
-            wire_nets = WireNets(self.wire_collection, ground_identifiers)
+            wire_nets = WireNets(
+                self.wire_collection, ground_identifiers, pin_labels
+            )
 
         for component_item in self.component_items_by_reference.values():
             component_item.set_wire_nets(wire_nets)
