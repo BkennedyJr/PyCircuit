@@ -565,13 +565,30 @@ def _validate_connection_grid(connection_grid):
         )
 
 
+def _get_pin_grid_points(component):
+    """
+    Return the set of (row, column) grid points under a part's pins.
+
+    :param component: Part to inspect.
+    :type component: Component
+    :returns: Grid points, without pin names.
+    :rtype: set
+    """
+    return {
+        (row_number, column_number)
+        for _pin_name, row_number, column_number in
+        component.get_pin_positions()
+    }
+
+
 class ComponentCollection:
     """
     All placed components of one project, keyed by reference designator.
 
     The collection assigns references, refuses placements and rotations
-    that would put a pin outside the grid, and removes parts that no longer
-    fit after the grid shrinks.
+    that would put a pin outside the grid or exactly on top of an
+    identical part, and removes parts that no longer fit after the grid
+    shrinks. Parts may still share pins: that is how they connect.
     """
 
     def __init__(self):
@@ -642,10 +659,62 @@ class ComponentCollection:
         )
 
         self.ensure_pins_fit_grid(component, connection_grid)
+        self.ensure_not_identical_to_existing(component)
 
         self.components_by_reference[component.reference] = component
 
         return component
+
+    def find_identical_component(self, component):
+        """
+        Return a stored part that occupies exactly the same spot.
+
+        Identical means the same kind on exactly the same grid points: the
+        same anchor and rotation, or a turn that lands on the same points
+        (a resistor at 0 and 180 deg). The two symbols would then be drawn
+        on top of each other and the lower one would be hidden. Parts that
+        only share some pins are not identical; that is how parts connect.
+
+        :param component: Part to compare; it is skipped if it is stored.
+        :type component: Component
+        :returns: The first identical part by reference, or None.
+        :rtype: Component or None
+        """
+        grid_points = _get_pin_grid_points(component)
+
+        for existing_component in self.get_components():
+            if existing_component is component:
+                continue
+
+            if (existing_component.kind == component.kind and
+                    _get_pin_grid_points(existing_component) == grid_points):
+                return existing_component
+
+        return None
+
+    def ensure_not_identical_to_existing(self, component):
+        """
+        Raise a clear error when a part would sit exactly on another one.
+
+        :param component: Part being placed or rotated.
+        :type component: Component
+        :returns: None
+        :raises ComponentError: If an identical part is already there.
+        """
+        existing_component = self.find_identical_component(component)
+
+        if existing_component is None:
+            return
+
+        display_name = COMPONENT_DEFINITIONS[component.kind]["display_name"]
+        raise ComponentError(
+            f"{existing_component.reference} ({display_name} at row "
+            f"{existing_component.row_number}, column "
+            f"{existing_component.column_number}, "
+            f"{existing_component.rotation} deg) already sits on exactly "
+            "these grid points. Pick another grid point or rotation, or "
+            f"select {existing_component.reference} to edit it."
+        )
 
     @staticmethod
     def ensure_pins_fit_grid(component, connection_grid):
@@ -726,8 +795,9 @@ class ComponentCollection:
         :type connection_grid: ConnectionGrid
         :returns: The new rotation in degrees.
         :rtype: int
-        :raises ComponentError: If the part is unknown or a rotated pin
-            would leave the grid. The old rotation is then kept.
+        :raises ComponentError: If the part is unknown, a rotated pin
+            would leave the grid, or the turn would put it exactly on an
+            identical part. The old rotation is then kept.
         """
         _validate_connection_grid(connection_grid)
         component = self.get_component(reference)
@@ -745,6 +815,15 @@ class ComponentCollection:
                 f"outside the {connection_grid.row_count} x "
                 f"{connection_grid.column_count} grid. Move it further "
                 "inside the grid first."
+            ) from None
+
+        try:
+            self.ensure_not_identical_to_existing(component)
+        except ComponentError as error:
+            component.rotation = old_rotation
+            raise ComponentError(
+                f"{reference} cannot be rotated to {(old_rotation + 90) % 360} "
+                f"deg: {error}"
             ) from None
 
         return component.rotation

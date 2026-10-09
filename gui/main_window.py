@@ -156,6 +156,15 @@ class MainWindow(QMainWindow):
         )
         self.delete_component_action.setEnabled(False)
 
+        # R and Delete act only while the grid view has focus, so they never
+        # rotate or delete a part from a dock widget (combo box, button).
+        # The menu and toolbar entries still work from anywhere.
+        for component_action in (
+                self.rotate_component_action,
+                self.delete_component_action):
+            component_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            self.connection_grid_view.addAction(component_action)
+
         self.fit_grid_action = QAction("Fit Grid", self)
         self.fit_grid_action.triggered.connect(
             self.connection_grid_view.fit_grid_in_view
@@ -548,11 +557,12 @@ class MainWindow(QMainWindow):
             )
 
         except ComponentError as error:
+            self.statusBar().showMessage(f"Part not placed: {error}", 10000)
             self.show_error_message(
                 "Part Not Placed",
                 str(error),
                 "Check the value, or pick a point where every pin lands "
-                "on the grid."
+                "on the grid and no identical part is already there."
             )
             return
 
@@ -560,11 +570,55 @@ class MainWindow(QMainWindow):
         # rotated (R) or edited at once.
         self.connection_grid_scene.rebuild_component_items()
         self.select_component_by_reference(component.reference)
+        self.reveal_component(component.reference)
+
+        # R and Delete are scoped to the grid view, so give it focus.
+        self.connection_grid_view.setFocus(Qt.OtherFocusReason)
 
         placed_text = component.label_text() or component.reference
         self.mark_project_modified(
             f"Placed {placed_text} at {connection_point.identifier}."
         )
+
+    def reveal_component(self, reference):
+        """
+        Make sure a part and its label are inside the visible editor area.
+
+        A label can grow the scene past the area that was fitted (for
+        example at the last column). If the whole grid was in view, the
+        view is fitted again; if the user had zoomed in, it only scrolls.
+
+        :param reference: Part to reveal.
+        :type reference: str
+        :returns: None
+        """
+        component_item = (
+            self.connection_grid_scene.component_items_by_reference.get(
+                reference
+            )
+        )
+
+        if component_item is None:
+            return
+
+        part_rect = component_item.sceneBoundingRect()
+
+        if component_item.label_item.isVisible():
+            part_rect = part_rect.united(
+                component_item.label_item.sceneBoundingRect()
+            )
+
+        visible_rect = self.connection_grid_view.mapToScene(
+            self.connection_grid_view.viewport().rect()
+        ).boundingRect()
+
+        if visible_rect.contains(part_rect):
+            return
+
+        if visible_rect.contains(self.connection_grid_scene.get_grid_rect()):
+            self.connection_grid_view.fit_grid_in_view()
+        else:
+            self.connection_grid_view.ensureVisible(part_rect, 10, 10)
 
     def rotate_selected_component(self):
         """
@@ -584,10 +638,12 @@ class MainWindow(QMainWindow):
             )
 
         except ComponentError as error:
+            self.statusBar().showMessage(f"Part not rotated: {error}", 10000)
             self.show_error_message(
                 "Part Not Rotated",
                 str(error),
-                "Move the part away from the grid edge or enlarge the grid."
+                "Move the part away from the grid edge or from an identical "
+                "part, or enlarge the grid."
             )
             return
 

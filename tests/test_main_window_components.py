@@ -7,7 +7,7 @@ Error dialogs are replaced with a recorder, so no modal box opens.
 import pytest
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QKeyEvent, QKeySequence
-from PyQt5.QtWidgets import QDockWidget
+from PyQt5.QtWidgets import QDockWidget, QPushButton
 
 from core.components import ComponentCollection
 from gui.component_panel_widget import NO_PART_SELECTED_TEXT
@@ -476,4 +476,230 @@ def test_saving_without_parts_has_no_warning(window, tmp_path):
     assert window.save_project_to_path(tmp_path / "a.pycircuit") is True
     assert window.statusBar().currentMessage() == (
         "Saved project 'a.pycircuit'."
+    )
+
+
+# ----- QC PR #10 fixes -----
+
+def focus_and_press(window, widget, key):
+    """
+    Give a widget real keyboard focus in the active window, then press a
+    key on it, so shortcut contexts are checked the way Qt does for users.
+    """
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtWidgets import QApplication
+
+    window.show()
+    window.activateWindow()
+    QTest.qWaitForWindowActive(window)
+    widget.setFocus(Qt.OtherFocusReason)
+    QApplication.processEvents()
+    assert QApplication.focusWidget() is widget
+    QTest.keyClick(widget, key)
+
+
+def references(window):
+    return [c.reference for c in window.component_collection.get_components()]
+
+
+def test_placing_twice_on_the_same_spot_is_refused(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    window.place_component("resistor", "1k")
+    assert references(window) == ["R1"]
+    assert [error[0] for error in window.recorded_errors] == [
+        "Part Not Placed"
+    ]
+    assert window.recorded_errors[0][1].startswith(
+        "R1 (Resistor at row 4, column 4, 0 deg) already sits on exactly "
+        "these grid points."
+    )
+
+
+def test_refused_duplicate_shows_a_status_message(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    window.place_component("resistor", "2k2")
+    assert window.statusBar().currentMessage() == (
+        "Part not placed: R1 (Resistor at row 4, column 4, 0 deg) already "
+        "sits on exactly these grid points. Pick another grid point or "
+        "rotation, or select R1 to edit it."
+    )
+
+
+def test_refused_duplicate_keeps_the_first_part_selected(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    panel(window).place_button.click()
+    assert window.selected_component_reference == "R1"
+    assert item(window, "R1").isSelected() is True
+    assert list(
+        window.connection_grid_scene.component_items_by_reference
+    ) == ["R1"]
+
+
+def test_enter_twice_in_the_value_box_places_once(window):
+    from PyQt5.QtTest import QTest
+
+    select_point(window, "NODE_R04_C04")
+    line_edit = panel(window).value_line_edit
+    line_edit.setText("1k")
+    QTest.keyClick(line_edit, Qt.Key_Return)
+    QTest.keyClick(line_edit, Qt.Key_Return)
+    assert references(window) == ["R1"]
+
+
+def test_another_kind_on_the_same_point_is_still_placed(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    window.place_component("capacitor", "100n")
+    assert references(window) == ["C1", "R1"]
+    assert window.recorded_errors == []
+
+
+def test_parts_sharing_a_pin_can_both_be_placed(window):
+    place(window, "NODE_R04_C03", "resistor", "1k")
+    place(window, "NODE_R04_C05", "resistor", "2k2")
+    assert references(window) == ["R1", "R2"]
+    assert window.recorded_errors == []
+
+
+def test_rotate_onto_an_identical_part_is_refused_in_the_gui(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    window.rotate_selected_component()
+    place(window, "NODE_R04_C04", "resistor", "2k2")
+    window.is_project_modified = False
+    window.rotate_selected_component()
+    assert window.component_collection.get_component("R2").rotation == 0
+    assert window.recorded_errors[-1][0] == "Part Not Rotated"
+    assert window.statusBar().currentMessage().startswith(
+        "Part not rotated: R2 cannot be rotated to 90 deg: R1 "
+    )
+    assert window.is_project_modified is False
+
+
+def test_part_shortcuts_are_scoped_to_the_grid_view(window):
+    for action in (
+            window.rotate_component_action,
+            window.delete_component_action):
+        assert action.shortcutContext() == Qt.WidgetWithChildrenShortcut
+        assert action in window.connection_grid_view.actions()
+
+
+@pytest.mark.parametrize(
+    "widget_name",
+    ["kind_combo_box", "place_button", "apply_value_button",
+     "rotate_button", "delete_button"],
+)
+def test_r_does_not_rotate_from_the_dock(window, widget_name):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    focus_and_press(window, getattr(panel(window), widget_name), Qt.Key_R)
+    assert window.component_collection.get_component("R1").rotation == 0
+
+
+@pytest.mark.parametrize(
+    "widget_name",
+    ["kind_combo_box", "place_button", "apply_value_button",
+     "rotate_button", "delete_button"],
+)
+def test_delete_does_not_delete_from_the_dock(window, widget_name):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    focus_and_press(
+        window, getattr(panel(window), widget_name), Qt.Key_Delete
+    )
+    assert references(window) == ["R1"]
+
+
+def test_delete_does_not_delete_from_the_grid_dock(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    focus_and_press(
+        window,
+        window.grid_configuration_widget.findChildren(QPushButton)[0],
+        Qt.Key_Delete,
+    )
+    assert references(window) == ["R1"]
+
+
+def test_r_and_delete_work_with_real_focus_on_the_grid(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    focus_and_press(window, window.connection_grid_view, Qt.Key_R)
+    assert window.component_collection.get_component("R1").rotation == 90
+    focus_and_press(window, window.connection_grid_view, Qt.Key_Delete)
+    assert references(window) == []
+
+
+def test_placing_from_the_panel_moves_focus_to_the_grid(window):
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtWidgets import QApplication
+
+    window.show()
+    window.activateWindow()
+    QTest.qWaitForWindowActive(window)
+    select_point(window, "NODE_R04_C04")
+    panel(window).place_button.setFocus(Qt.OtherFocusReason)
+    panel(window).place_button.click()
+    QApplication.processEvents()
+    assert QApplication.focusWidget() is window.connection_grid_view
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key_R)
+    assert window.component_collection.get_component("R1").rotation == 90
+
+
+def test_menu_actions_still_work_without_grid_focus(window):
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    panel(window).kind_combo_box.setFocus()
+    window.rotate_component_action.trigger()
+    window.delete_component_action.trigger()
+    assert references(window) == []
+
+
+def visible_scene_rect(window):
+    view = window.connection_grid_view
+    return view.mapToScene(view.viewport().rect()).boundingRect()
+
+
+def label_rect(window, reference):
+    return item(window, reference).label_item.sceneBoundingRect()
+
+
+def shown_and_fitted(window):
+    from PyQt5.QtTest import QTest
+
+    window.resize(1360, 820)
+    window.show()
+    QTest.qWaitForWindowExposed(window)
+    window.connection_grid_view.fit_grid_in_view()
+
+
+def test_label_past_the_last_column_is_brought_into_view(window):
+    shown_and_fitted(window)
+    place(window, "NODE_R04_C07", "npn", "2N3904_LONG_MODEL_NAME")
+    rect = label_rect(window, "Q1")
+    assert rect.right() > window.connection_grid_scene.get_grid_rect().right()
+    assert visible_scene_rect(window).contains(rect)
+    # The whole grid was in view, so it is refitted rather than scrolled:
+    # the first column must not be pushed out of view.
+    assert visible_scene_rect(window).contains(
+        window.connection_grid_scene.get_grid_rect()
+    )
+
+
+def test_fully_visible_part_does_not_change_the_view(window):
+    shown_and_fitted(window)
+    view = window.connection_grid_view
+    transform = view.transform()
+    place(window, "NODE_R04_C04", "resistor", "1k")
+    assert view.transform() == transform
+
+
+def test_zoomed_in_view_scrolls_without_changing_the_zoom(window):
+    shown_and_fitted(window)
+    view = window.connection_grid_view
+    view.scale(3.0, 3.0)
+    view.centerOn(
+        window.connection_grid_scene.connection_point_items_by_identifier[
+            "NODE_R01_C01"
+        ]
+    )
+    zoom = view.transform().m11()
+    place(window, "NODE_R08_C06", "resistor", "4k7")
+    assert view.transform().m11() == zoom
+    assert visible_scene_rect(window).contains(label_rect(window, "R1"))
+    assert visible_scene_rect(window).contains(
+        item(window, "R1").sceneBoundingRect()
     )
