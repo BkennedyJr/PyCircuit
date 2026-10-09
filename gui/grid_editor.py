@@ -5,23 +5,29 @@ This module draws and manages selectable connection points, the placed
 parts and the wires. In Wire mode a left press on a grid point starts a
 wire: a dashed rubber-band line follows the mouse, and releasing on another
 grid point adds a straight wire between the two points (Esc cancels). Out
-of Wire mode, presses behave as before (select, rubber-band select, drag a
-part). It remains separate from the core data model so future command-line or test workflows
-can use the connection-grid model without importing PyQt5.
+of Wire mode, a left-drag on the board pans the view (the middle button
+does the same). Shift+left-drag rubber-band selects. A click selects, and
+a drag on a part moves that part. It remains separate from the core data
+model so future command-line or test workflows can use the connection-grid
+model without importing PyQt5.
 """
 
 import math
 
 from PyQt5 import sip
+from PyQt5.QtCore import QEvent
+from PyQt5.QtCore import QPoint
 from PyQt5.QtCore import QPointF
 from PyQt5.QtCore import QRectF
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtGui import QPainter
 from PyQt5.QtGui import QPen
 from PyQt5.QtGui import QTransform
 from PyQt5.QtCore import QLineF
+from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QGraphicsEllipseItem
 from PyQt5.QtWidgets import QGraphicsLineItem
 from PyQt5.QtWidgets import QGraphicsScene
@@ -1418,8 +1424,10 @@ class ConnectionGridView(QGraphicsView):
     Ctrl; Shift+wheel keeps Qt's normal scrolling. Zoom In, Zoom Out and
     Zoom to Fit work around the middle of the view. Every zoom is kept
     between MINIMUM_ZOOM and MAXIMUM_ZOOM (1.0 shows a grid step as 60
-    pixels). Dragging with the middle mouse button pans the view in every
-    mode; scrollbars stay available as well.
+    pixels). Drag the board with the left button to move it, or use the
+    middle button; the cursor turns into a closed hand while it is held.
+    A click still selects. Shift+left-drag rubber-band selects. Scrollbars
+    stay available as well.
 
     :param connection_grid_scene: Scene shown by the view.
     :type connection_grid_scene: ConnectionGridScene
@@ -1441,7 +1449,11 @@ class ConnectionGridView(QGraphicsView):
         self.setTransformationAnchor(self.NoAnchor)
         self.setResizeAnchor(self.AnchorViewCenter)
         self.pan_start_position = None
+        self.pan_button = None
         self.cursor_before_pan = None
+        # A left press that may become a pan. A short release is replayed
+        # as a click; a longer move pans and the press is never delivered.
+        self.held_left_press = None
         connection_grid_scene.sceneRectChanged.connect(
             self.update_scroll_area
         )
@@ -1636,16 +1648,31 @@ class ConnectionGridView(QGraphicsView):
 
     def mousePressEvent(self, event):
         """
-        Start a pan on a middle-button press; other buttons work as usual.
+        Start a pan, or hold a left press until it is a drag or a click.
+
+        The middle button pans at once. A left press on the board is held:
+        moving past the drag distance pans, and releasing without that
+        movement is delivered as a click (select a point, move a ghost).
+        A left press in Wire mode, with Shift held, or on a placed part
+        goes straight to the scene, so wires, rubber-band selection and
+        part drags are unchanged.
 
         :param event: Mouse press event.
         :type event: QMouseEvent
         :returns: None
         """
         if event.button() == Qt.MiddleButton:
-            self.pan_start_position = event.pos()
-            self.cursor_before_pan = self.viewport().cursor()
-            self.viewport().setCursor(Qt.ClosedHandCursor)
+            self.begin_pan(event.pos(), Qt.MiddleButton)
+            event.accept()
+            return
+
+        if (event.button() == Qt.LeftButton and
+                not self.left_press_goes_to_the_scene(event)):
+            self.held_left_press = {
+                "pos": QPoint(event.pos()),
+                "global": QPoint(event.globalPos()),
+                "modifiers": event.modifiers(),
+            }
             event.accept()
             return
 
@@ -1653,21 +1680,29 @@ class ConnectionGridView(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         """
-        Pan while the middle button is held.
+        Pan while the board is grabbed.
 
         :param event: Mouse move event.
         :type event: QMouseEvent
         :returns: None
         """
-        if self.pan_start_position is not None:
-            offset = event.pos() - self.pan_start_position
-            self.pan_start_position = event.pos()
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - offset.x()
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - offset.y()
-            )
+        if self.pan_button is not None:
+            self.scroll_pan(event.pos())
+            event.accept()
+            return
+
+        if (self.held_left_press is not None and
+                event.buttons() & Qt.LeftButton):
+            moved = (
+                event.pos() - self.held_left_press["pos"]
+            ).manhattanLength()
+
+            if moved >= QApplication.startDragDistance():
+                origin = self.held_left_press["pos"]
+                self.held_left_press = None
+                self.begin_pan(origin, Qt.LeftButton)
+                self.scroll_pan(event.pos())
+
             event.accept()
             return
 
@@ -1675,18 +1710,131 @@ class ConnectionGridView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         """
-        End a middle-button pan and restore the cursor.
+        End a pan, or deliver a held left press as a click.
 
         :param event: Mouse release event.
         :type event: QMouseEvent
         :returns: None
         """
-        if (event.button() == Qt.MiddleButton and
-                self.pan_start_position is not None):
-            self.pan_start_position = None
-            self.viewport().setCursor(self.cursor_before_pan)
-            self.cursor_before_pan = None
+        if event.button() == self.pan_button:
+            self.end_pan()
+            self.held_left_press = None
             event.accept()
             return
 
+        if (event.button() == Qt.LeftButton and
+                self.held_left_press is not None):
+            self.replay_held_left_click(event)
+            return
+
         super().mouseReleaseEvent(event)
+
+    def left_press_goes_to_the_scene(self, event):
+        """
+        Return True when this left press must not be turned into a pan.
+
+        :param event: Mouse press event.
+        :type event: QMouseEvent
+        :rtype: bool
+        """
+        scene = self.scene()
+
+        if scene is not None and getattr(scene, "is_wire_mode", False):
+            return True
+
+        if event.modifiers() & Qt.ShiftModifier:
+            return True
+
+        return self.is_draggable_part(self.itemAt(event.pos()))
+
+    def is_draggable_part(self, item):
+        """
+        Return True when a left drag on this item should move the part.
+
+        A ghost is not draggable: it takes no clicks, so a drag there pans
+        the board and a click falls through to the grid point underneath.
+
+        :param item: Topmost item under the cursor, or None.
+        :type item: QGraphicsItem or None
+        :rtype: bool
+        """
+        if not isinstance(item, ComponentItem):
+            return False
+
+        return (
+            bool(item.flags() & item.ItemIsSelectable) and
+            bool(item.acceptedMouseButtons() & Qt.LeftButton)
+        )
+
+    def begin_pan(self, viewport_pos, button):
+        """
+        Grab the board. The cursor is a closed hand until end_pan.
+
+        :param viewport_pos: Viewport pixel the grab started at.
+        :type viewport_pos: QPoint
+        :param button: Mouse button that is dragging.
+        :type button: Qt.MouseButton
+        :returns: None
+        """
+        self.pan_button = button
+        self.pan_start_position = QPoint(viewport_pos)
+
+        if self.cursor_before_pan is None:
+            self.cursor_before_pan = self.viewport().cursor()
+
+        self.viewport().setCursor(Qt.ClosedHandCursor)
+        self.viewport().grabMouse()
+
+    def scroll_pan(self, viewport_pos):
+        """
+        Move the board so the grabbed point follows the cursor.
+
+        :param viewport_pos: Current viewport pixel.
+        :type viewport_pos: QPoint
+        :returns: None
+        """
+        offset = viewport_pos - self.pan_start_position
+        self.pan_start_position = QPoint(viewport_pos)
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() - offset.x()
+        )
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() - offset.y()
+        )
+
+    def end_pan(self):
+        """
+        Let go of the board and restore the cursor.
+
+        :returns: None
+        """
+        self.pan_button = None
+        self.pan_start_position = None
+
+        if self.cursor_before_pan is not None:
+            self.viewport().setCursor(self.cursor_before_pan)
+            self.cursor_before_pan = None
+
+        self.viewport().releaseMouse()
+
+    def replay_held_left_click(self, release_event):
+        """
+        Deliver a left press that never became a pan, then this release.
+
+        :param release_event: The release that ended the press.
+        :type release_event: QMouseEvent
+        :returns: None
+        """
+        held = self.held_left_press
+        self.held_left_press = None
+        press = QMouseEvent(
+            QEvent.MouseButtonPress,
+            QPointF(held["pos"]),
+            QPointF(held["pos"]),
+            QPointF(held["global"]),
+            Qt.LeftButton,
+            Qt.LeftButton,
+            held["modifiers"],
+        )
+        super().mousePressEvent(press)
+        super().mouseReleaseEvent(release_event)

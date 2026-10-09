@@ -244,9 +244,10 @@ def test_without_wire_mode_a_press_drag_on_a_point_selects(editor):
     click(editor.view, point(2, 2))
     assert dot.isSelected()
 
-    # A drag from empty space rubber-band selects; no wire, no preview.
+    # Shift+drag from empty space rubber-band selects; no wire, no preview.
+    # A plain drag would pan the board instead.
     drag(editor.view, point(2, 2) + QPointF(-25, -25),
-         point(3, 3) + QPointF(25, 25))
+         point(3, 3) + QPointF(25, 25), modifiers=Qt.ShiftModifier)
 
     assert editor.wires.get_wires() == []
     assert editor.scene.wire_preview_item is None
@@ -255,14 +256,17 @@ def test_without_wire_mode_a_press_drag_on_a_point_selects(editor):
     ].isSelected()
 
 
-def test_without_wire_mode_a_drag_starting_on_a_point_draws_nothing(editor):
+def test_without_wire_mode_a_drag_starting_on_a_point_pans(editor):
+    horizontal = editor.view.horizontalScrollBar().value()
+
     drag(editor.view, point(2, 2), point(2, 4))
 
     assert editor.wires.get_wires() == []
     assert editor.scene.wire_preview_item is None
-    assert editor.scene.connection_point_items_by_identifier[
+    assert not editor.scene.connection_point_items_by_identifier[
         "NODE_R02_C02"
     ].isSelected()
+    assert editor.view.horizontalScrollBar().value() != horizontal
 
 
 def test_escape_cancels_a_wire_in_progress(editor):

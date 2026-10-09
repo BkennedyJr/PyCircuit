@@ -74,7 +74,10 @@ Using it
   down, left or up (cyan where it fits, red where it would clash),
   clicking another grid point moves it, Enter or a right-click places
   it, and Esc cancels.
-- Ctrl + mouse wheel zooms. View > Fit Grid fits the grid to the window.
+- Ctrl + mouse wheel zooms. Drag the board with the left button to
+  move it (the middle button does the same). Hold Shift and drag to
+  select several points or parts. View > Fit Grid fits the grid to the
+  window.
 - File > Save Project / Open Project stores the grid as a .json file.
 
 

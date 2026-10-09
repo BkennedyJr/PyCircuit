@@ -443,7 +443,9 @@ def test_rubber_band_selection_on_empty_space_still_works(window):
     window.connection_grid_scene.clearSelection()
 
     # From an empty spot above-left of R1 to below-right of its body.
-    drag(view, point(1, 1) + QPointF(25, 25), point(3, 4) - QPointF(25, 25))
+    # Shift keeps the rubber band; a plain drag pans the board.
+    drag(view, point(1, 1) + QPointF(25, 25), point(3, 4) - QPointF(25, 25),
+         modifiers=Qt.ShiftModifier)
 
     assert window.connection_grid_scene.component_items_by_reference[
         "R1"
