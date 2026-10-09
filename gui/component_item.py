@@ -37,7 +37,11 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
-from core.components import COMPONENT_DEFINITIONS, Component
+from core.components import (
+    COMPONENT_DEFINITIONS,
+    Component,
+    get_panel_parameter_definitions,
+)
 from core.exceptions import ComponentError
 from gui.component_symbols import build_symbol_paths, get_body_rect
 
@@ -585,7 +589,16 @@ class ComponentItem(QGraphicsItem):
         lines = [f"{component.reference} ({definition['display_name']})"]
 
         if definition["value_kind"] != "none":
-            lines.append(f"Value: {component.value_text}")
+            value_label = definition.get("value_label", "Value")
+            value_unit = definition.get("value_unit", "")
+            lines.append(f"{value_label}: {component.value_text}{value_unit}")
+
+        for parameter in get_panel_parameter_definitions(component.kind):
+            lines.append(
+                f"{parameter['display_name']}: "
+                f"{component.parameter_texts[parameter['name']]}"
+                f"{parameter['unit']}"
+            )
 
         pin_names = [name for name, unused_dx, unused_dy in
                      component.get_pin_offsets()]

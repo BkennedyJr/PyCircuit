@@ -524,7 +524,7 @@ class MainWindow(QMainWindow):
         self.update_window_title()
         self.statusBar().showMessage(status_message, 5000)
 
-    def place_component(self, kind, value_text):
+    def place_component(self, kind, value_text, parameter_texts=None):
         """
         Place a new part with its anchor on the selected grid point.
 
@@ -532,6 +532,9 @@ class MainWindow(QMainWindow):
         :type kind: str
         :param value_text: Value as typed, for example "4k7".
         :type value_text: str
+        :param parameter_texts: Extra settings as typed, for example
+            {"frequency": "50"} for an AC source.
+        :type parameter_texts: dict or None
         :returns: None
         """
         if self.selected_connection_point_identifier is None:
@@ -553,7 +556,8 @@ class MainWindow(QMainWindow):
                 connection_point.row_number,
                 connection_point.column_number,
                 value_text,
-                self.connection_grid
+                self.connection_grid,
+                parameter_texts=parameter_texts
             )
 
         except ComponentError as error:
@@ -657,12 +661,15 @@ class MainWindow(QMainWindow):
             f"Rotated {component.reference} to {component.rotation} degrees."
         )
 
-    def apply_component_value(self, value_text):
+    def apply_component_value(self, value_text, parameter_texts=None):
         """
-        Change the value of the selected part.
+        Change the value (and settings) of the selected part.
 
         :param value_text: New value as typed, for example "2k2".
         :type value_text: str
+        :param parameter_texts: New settings as typed, for example
+            {"frequency": "50"}; settings not given are kept.
+        :type parameter_texts: dict or None
         :returns: None
         """
         component = self.get_selected_component()
@@ -673,7 +680,8 @@ class MainWindow(QMainWindow):
         try:
             self.component_collection.set_component_value(
                 component.reference,
-                value_text
+                value_text,
+                parameter_texts
             )
 
         except ComponentError as error:
@@ -689,7 +697,8 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.refresh_component(component.reference)
         self.component_panel_widget.show_component(component)
         self.mark_project_modified(
-            f"Set {component.reference} to {component.value_text}."
+            f"Set {component.reference} to "
+            f"{component.label_text().partition(' ')[2]}."
         )
 
     def delete_selected_component(self):

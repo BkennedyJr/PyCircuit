@@ -8,6 +8,9 @@ The panel has two parts:
 - "Selected Part": shows the selected part and lets the user rotate it,
   change its value or delete it.
 
+Kinds with extra settings (the AC source's frequency) get one more row in
+each part; the row is hidden for every other kind.
+
 The panel only emits requests. MainWindow applies them to the
 ComponentCollection and reports errors.
 """
@@ -25,10 +28,61 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.components import COMPONENT_DEFINITIONS, Component
+from core.components import (
+    COMPONENT_DEFINITIONS,
+    Component,
+    get_panel_parameter_definitions,
+)
 from core.exceptions import ComponentError
 
 NO_PART_SELECTED_TEXT = "No part selected"
+
+
+def get_all_panel_parameters():
+    """
+    Return every panel setting of any kind, once each, in table order.
+
+    :returns: Mapping of parameter name to its definition.
+    :rtype: dict
+    """
+    parameters = {}
+
+    for kind in COMPONENT_DEFINITIONS:
+        for parameter in get_panel_parameter_definitions(kind):
+            parameters.setdefault(parameter["name"], parameter)
+
+    return parameters
+
+
+def get_value_field_label(kind):
+    """
+    Return the label of the value row, for example "Amplitude (V):".
+
+    :param kind: Component kind.
+    :type kind: str
+    :returns: Label text ending in a colon.
+    :rtype: str
+    """
+    definition = COMPONENT_DEFINITIONS[kind]
+    label_text = definition.get("value_label", "Value")
+    unit_text = definition.get("value_unit", "")
+
+    if unit_text:
+        return f"{label_text} ({unit_text}):"
+
+    return f"{label_text}:"
+
+
+def get_parameter_field_label(parameter):
+    """
+    Return the label of a setting row, for example "Frequency (Hz):".
+
+    :param parameter: Parameter definition.
+    :type parameter: dict
+    :returns: Label text ending in a colon.
+    :rtype: str
+    """
+    return f"{parameter['display_name']} ({parameter['unit']}):"
 
 
 def has_value(kind):
@@ -70,20 +124,40 @@ class ComponentPanelWidget(QWidget):
     :type parent: QWidget or None
     """
 
-    place_requested = pyqtSignal(str, str)
+    # (kind, value text, {setting name: text}) and (value text, settings).
+    # The settings dictionary only holds the kind's panel settings.
+    place_requested = pyqtSignal(str, str, dict)
     rotate_requested = pyqtSignal()
-    value_change_requested = pyqtSignal(str)
+    value_change_requested = pyqtSignal(str, dict)
     delete_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.kind_combo_box = QComboBox()
+        self.value_label = QLabel("Value:")
         self.value_line_edit = QLineEdit()
         self.place_button = QPushButton("Place at Selected Point")
 
+        # Kind of the part shown in "Selected Part", or None.
+        self.selected_component_kind = None
         self.selected_component_label = QLabel(NO_PART_SELECTED_TEXT)
+        self.selected_value_label = QLabel("Value:")
         self.selected_value_line_edit = QLineEdit()
+
+        # One label and box per setting name, in both groups.
+        self.parameter_labels = {}
+        self.parameter_line_edits = {}
+        self.selected_parameter_labels = {}
+        self.selected_parameter_line_edits = {}
+
+        for name, parameter in get_all_panel_parameters().items():
+            field_label = get_parameter_field_label(parameter)
+            self.parameter_labels[name] = QLabel(field_label)
+            self.parameter_line_edits[name] = QLineEdit()
+            self.selected_parameter_labels[name] = QLabel(field_label)
+            self.selected_parameter_line_edits[name] = QLineEdit()
+
         self.rotate_button = QPushButton("Rotate 90")
         self.apply_value_button = QPushButton("Apply Value")
         self.delete_button = QPushButton("Delete Part")
@@ -109,7 +183,10 @@ class ComponentPanelWidget(QWidget):
 
         new_part_form = QFormLayout()
         new_part_form.addRow("Type:", self.kind_combo_box)
-        new_part_form.addRow("Value:", self.value_line_edit)
+        new_part_form.addRow(self.value_label, self.value_line_edit)
+
+        for name, line_edit in self.parameter_line_edits.items():
+            new_part_form.addRow(self.parameter_labels[name], line_edit)
 
         new_part_layout = QVBoxLayout()
         new_part_layout.addLayout(new_part_form)
@@ -119,7 +196,16 @@ class ComponentPanelWidget(QWidget):
         new_part_group.setLayout(new_part_layout)
 
         selected_part_form = QFormLayout()
-        selected_part_form.addRow("Value:", self.selected_value_line_edit)
+        selected_part_form.addRow(
+            self.selected_value_label,
+            self.selected_value_line_edit
+        )
+
+        for name, line_edit in self.selected_parameter_line_edits.items():
+            selected_part_form.addRow(
+                self.selected_parameter_labels[name],
+                line_edit
+            )
 
         selected_part_buttons = QHBoxLayout()
         selected_part_buttons.addWidget(self.rotate_button)
@@ -167,6 +253,12 @@ class ComponentPanelWidget(QWidget):
             self.emit_value_change_request
         )
 
+        for line_edit in self.parameter_line_edits.values():
+            line_edit.returnPressed.connect(self.emit_place_request)
+
+        for line_edit in self.selected_parameter_line_edits.values():
+            line_edit.returnPressed.connect(self.emit_value_change_request)
+
     def get_selected_kind(self):
         """
         Return the kind chosen in the type box.
@@ -180,25 +272,60 @@ class ComponentPanelWidget(QWidget):
         """
         Fill the value box with the new kind's default value.
 
-        Ground has no value, so its value box is emptied and disabled.
+        Ground has no value, so its value box is emptied and disabled. Only
+        the kind's own settings rows are shown, filled with defaults.
 
         :returns: None
         """
         kind = self.get_selected_kind()
         definition = COMPONENT_DEFINITIONS[kind]
 
+        self.value_label.setText(get_value_field_label(kind))
         self.value_line_edit.setText(definition["default_value_text"])
         self.value_line_edit.setEnabled(has_value(kind))
 
+        kind_parameters = {
+            parameter["name"]: parameter
+            for parameter in get_panel_parameter_definitions(kind)
+        }
+
+        for name, line_edit in self.parameter_line_edits.items():
+            is_shown = name in kind_parameters
+            self.parameter_labels[name].setVisible(is_shown)
+            line_edit.setVisible(is_shown)
+
+            if is_shown:
+                line_edit.setText(kind_parameters[name]["default_value_text"])
+
+    @staticmethod
+    def collect_parameter_texts(kind, line_edits):
+        """
+        Read the settings boxes that belong to one kind.
+
+        :param kind: Component kind.
+        :type kind: str
+        :param line_edits: Boxes keyed by setting name.
+        :type line_edits: dict
+        :returns: {setting name: text} for the kind's panel settings.
+        :rtype: dict
+        """
+        return {
+            parameter["name"]: line_edits[parameter["name"]].text()
+            for parameter in get_panel_parameter_definitions(kind)
+        }
+
     def emit_place_request(self):
         """
-        Request a new part of the chosen kind and value.
+        Request a new part of the chosen kind, value and settings.
 
         :returns: None
         """
+        kind = self.get_selected_kind()
+
         self.place_requested.emit(
-            self.get_selected_kind(),
-            self.value_line_edit.text()
+            kind,
+            self.value_line_edit.text(),
+            self.collect_parameter_texts(kind, self.parameter_line_edits)
         )
 
     def emit_value_change_request(self):
@@ -212,7 +339,11 @@ class ComponentPanelWidget(QWidget):
         """
         if self.apply_value_button.isEnabled():
             self.value_change_requested.emit(
-                self.selected_value_line_edit.text()
+                self.selected_value_line_edit.text(),
+                self.collect_parameter_texts(
+                    self.selected_component_kind,
+                    self.selected_parameter_line_edits
+                )
             )
 
     def show_component(self, component):
@@ -231,16 +362,39 @@ class ComponentPanelWidget(QWidget):
                 f"{component!r}."
             )
 
+        shown_names = set()
+
         if component is None:
+            self.selected_component_kind = None
             self.selected_component_label.setText(NO_PART_SELECTED_TEXT)
+            self.selected_value_label.setText("Value:")
             self.selected_value_line_edit.clear()
             part_has_value = False
         else:
+            self.selected_component_kind = component.kind
             self.selected_component_label.setText(
                 describe_component(component)
             )
+            self.selected_value_label.setText(
+                get_value_field_label(component.kind)
+            )
             self.selected_value_line_edit.setText(component.value_text)
             part_has_value = has_value(component.kind)
+
+            for parameter in get_panel_parameter_definitions(component.kind):
+                name = parameter["name"]
+                shown_names.add(name)
+                self.selected_parameter_line_edits[name].setText(
+                    component.parameter_texts[name]
+                )
+
+        for name, line_edit in self.selected_parameter_line_edits.items():
+            is_shown = name in shown_names
+            self.selected_parameter_labels[name].setVisible(is_shown)
+            line_edit.setVisible(is_shown)
+
+            if not is_shown:
+                line_edit.clear()
 
         self.rotate_button.setEnabled(component is not None)
         self.delete_button.setEnabled(component is not None)

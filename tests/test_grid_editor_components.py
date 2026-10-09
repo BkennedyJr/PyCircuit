@@ -236,12 +236,12 @@ def test_component_selected_reports_the_part_and_none():
 # --- (a) sceneRect grows; headers stay clear ----------------------------------
 
 STEP6_LAYOUT = [
-    ("voltage_source", 4, 2, "5", 0), ("resistor", 3, 3, "330", 0),
+    ("dc_source", 4, 2, "5", 0), ("resistor", 3, 3, "330", 0),
     ("led", 3, 5, "LED_RED", 0), ("resistor", 4, 6, "1k", 90),
     ("ground", 5, 2, "", 0), ("ground", 5, 6, "", 0),
     ("capacitor_polarized", 4, 8, "10u", 270), ("npn", 4, 11, "2N3904", 0),
     ("capacitor", 7, 2, "100n", 90), ("inductor", 7, 5, "10u", 0),
-    ("current_source", 7, 8, "1m", 90), ("pnp", 7, 11, "2N3906", 180),
+    ("ac_source", 7, 8, "1", 90), ("pnp", 7, 11, "2N3906", 180),
     ("diode", 9, 4, "1N4148", 180), ("npn", 9, 8, "2N3904", 90),
 ]
 
@@ -363,11 +363,11 @@ def test_selected_point_under_a_label_stays_visible():
 
 
 def test_label_never_hides_another_parts_pin():
-    # From the Step 6 preview: Q2's label (left side) covered I1's "out"
+    # From the Step 6 preview: Q2's label (left side) covered a source pin
     # pin at R7 C9.
     _grid, _collection, scene = make_scene(
         10, 12,
-        [("current_source", 7, 8, "1m", 90), ("pnp", 7, 11, "2N3906", 180)]
+        [("ac_source", 7, 8, "1", 90), ("pnp", 7, 11, "2N3906", 180)]
     )
     q2 = scene.component_items_by_reference["Q1"]
     pin_center = grid_point_to_scene_position(7, 9)
@@ -379,7 +379,7 @@ def test_label_never_hides_another_parts_pin():
     move_label_over(q2, pin_center)
     image = render(scene)
 
-    # Just below I1's lead, inside the dot: the dot shows, not the patch.
+    # Just below the source lead, inside the dot: the dot shows, not the patch.
     assert pixel(image, scene, pin_center + QPointF(0, 5)) == DOT_FILL_COLOR
 
 

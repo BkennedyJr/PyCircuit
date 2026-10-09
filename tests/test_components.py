@@ -9,6 +9,8 @@ from core.components import (
     VALID_ROTATIONS,
     Component,
     get_component_definition,
+    get_panel_parameter_definitions,
+    get_parameter_definitions,
     rotate_offset,
     validate_value_text,
 )
@@ -69,9 +71,8 @@ def test_plan_definitions_are_exact():
         "capacitor_polarized": (
             "C", [("plus", 0, 0), ("minus", 1, 0)], "positive", "10u"),
         "inductor": ("L", [("1", 0, 0), ("2", 1, 0)], "positive", "10u"),
-        "voltage_source": (
-            "V", [("plus", 0, 0), ("minus", 0, 1)], "any", "5"),
-        "current_source": ("I", [("in", 0, 0), ("out", 0, 1)], "any", "1m"),
+        "dc_source": ("V", [("plus", 0, 0), ("minus", 0, 1)], "any", "5"),
+        "ac_source": ("V", [("plus", 0, 0), ("minus", 0, 1)], "any", "1"),
         "diode": (
             "D", [("anode", 0, 0), ("cathode", 1, 0)], "model", "1N4148"),
         "led": (
@@ -107,7 +108,7 @@ def test_body_centres_are_exact():
         "resistor": (1, 0), "capacitor": (1, 0),
         "capacitor_polarized": (1, 0), "inductor": (1, 0),
         "diode": (1, 0), "led": (1, 0),
-        "voltage_source": (0, 1), "current_source": (0, 1),
+        "dc_source": (0, 1), "ac_source": (0, 1),
         "npn": (0, 0), "pnp": (0, 0), "ground": (0, 0),
     }
 
@@ -125,8 +126,8 @@ TWO_PIN_KINDS = [
 
 def test_every_two_pin_part_is_listed():
     assert TWO_PIN_KINDS == [
-        "capacitor", "capacitor_polarized", "current_source", "diode",
-        "inductor", "led", "resistor", "voltage_source",
+        "ac_source", "capacitor", "capacitor_polarized", "dc_source",
+        "diode", "inductor", "led", "resistor",
     ]
 
 
@@ -245,8 +246,8 @@ def test_pnp_has_emitter_on_top():
     ]
 
 
-def test_voltage_source_rotated_90():
-    source = Component("voltage_source", "V1", "5", 4, 4, 90)
+def test_dc_source_rotated_90():
+    source = Component("dc_source", "V1", "5", 4, 4, 90)
 
     assert source.get_pin_positions() == [("plus", 4, 4), ("minus", 4, 3)]
 
@@ -270,14 +271,14 @@ def test_ground():
 @pytest.mark.parametrize(
     "rotation, expected_positions",
     [
-        (0, [("in", 4, 4), ("out", 5, 4)]),
-        (90, [("in", 4, 4), ("out", 4, 3)]),
-        (180, [("in", 4, 4), ("out", 3, 4)]),
-        (270, [("in", 4, 4), ("out", 4, 5)]),
+        (0, [("plus", 4, 4), ("minus", 5, 4)]),
+        (90, [("plus", 4, 4), ("minus", 4, 3)]),
+        (180, [("plus", 4, 4), ("minus", 3, 4)]),
+        (270, [("plus", 4, 4), ("minus", 4, 5)]),
     ]
 )
-def test_current_source_pin_positions(rotation, expected_positions):
-    source = Component("current_source", "I1", "1m", 4, 4, rotation)
+def test_ac_source_pin_positions(rotation, expected_positions):
+    source = Component("ac_source", "V1", "1", 4, 4, rotation)
 
     assert source.get_pin_positions() == expected_positions
 
@@ -368,8 +369,8 @@ def test_resistor_rejects_non_positive_values(value_text):
     assert "greater than zero" in str(error_info.value)
 
 
-def test_voltage_source_accepts_negative_value():
-    assert Component("voltage_source", "V1", "-5", 4, 4).value == -5.0
+def test_dc_source_accepts_negative_value():
+    assert Component("dc_source", "V1", "-5", 4, 4).value == -5.0
 
 
 def test_diode_model_value_is_none():
@@ -448,3 +449,161 @@ def test_bad_rotation_raises_in_constructor_and_setter():
         resistor.rotation = 90.0
 
     assert resistor.rotation == 90
+
+
+# PR B: DC and AC sources -------------------------------------------------
+
+
+def test_only_the_ac_source_has_settings():
+    for kind in COMPONENT_DEFINITIONS:
+        names = [parameter["name"] for parameter in
+                 get_parameter_definitions(kind)]
+        assert names == (
+            ["frequency", "offset", "phase"] if kind == "ac_source" else []
+        )
+
+
+def test_ac_source_setting_definitions_are_exact():
+    assert [
+        (parameter["name"], parameter["unit"], parameter["value_kind"],
+         parameter["default_value_text"], parameter["shown_in_panel"])
+        for parameter in get_parameter_definitions("ac_source")
+    ] == [
+        ("frequency", "Hz", "positive", "1k", True),
+        ("offset", "V", "any", "0", False),
+        ("phase", "deg", "any", "0", False),
+    ]
+    assert [parameter["name"] for parameter in
+            get_panel_parameter_definitions("ac_source")] == ["frequency"]
+
+
+def test_source_value_labels_and_units():
+    assert COMPONENT_DEFINITIONS["dc_source"]["value_label"] == "Voltage"
+    assert COMPONENT_DEFINITIONS["ac_source"]["value_label"] == "Amplitude"
+    assert COMPONENT_DEFINITIONS["dc_source"]["value_unit"] == "V"
+    assert COMPONENT_DEFINITIONS["ac_source"]["value_unit"] == "V"
+
+
+def test_dc_source_label_and_value():
+    source = Component("dc_source", "V1", "9", 4, 4)
+
+    assert source.label_text() == "V1 9V"
+    assert source.value == 9.0
+    assert source.parameter_texts == {}
+    assert source.parameter_values == {}
+
+
+def test_ac_source_defaults():
+    source = Component("ac_source", "V2", "1", 4, 4)
+
+    assert source.label_text() == "V2 1V 1kHz"
+    assert source.value == 1.0
+    assert source.parameter_texts == {
+        "frequency": "1k", "offset": "0", "phase": "0"
+    }
+    assert source.parameter_values == {
+        "frequency": 1000.0, "offset": 0.0, "phase": 0.0
+    }
+
+
+def test_ac_source_settings_are_parsed_with_parse_value():
+    source = Component(
+        "ac_source", "V1", "2.5", 4, 4,
+        parameter_texts={"frequency": " 2k2 ", "offset": "-1", "phase": "90"}
+    )
+
+    assert source.label_text() == "V1 2.5V 2k2Hz"
+    assert source.parameter_texts == {
+        "frequency": "2k2", "offset": "-1", "phase": "90"
+    }
+    assert source.parameter_values == {
+        "frequency": 2200.0, "offset": -1.0, "phase": 90.0
+    }
+
+
+def test_empty_frequency_means_the_default():
+    source = Component(
+        "ac_source", "V1", "1", 4, 4, parameter_texts={"frequency": "  "}
+    )
+
+    assert source.parameter_texts["frequency"] == "1k"
+
+
+@pytest.mark.parametrize("parameter_texts, message", [
+    ({"frequency": "0"}, "frequency must be greater than zero"),
+    ({"frequency": "-50"}, "frequency must be greater than zero"),
+    ({"frequency": "1kHz"}, "frequency: Invalid value '1kHz'"),
+    ({"frequency": "1M"}, "'M' is ambiguous"),
+    ({"frequency": 50}, "frequency must be text"),
+    ({"offset": "abc"}, "offset: Invalid value 'abc'"),
+    ({"gain": "2"}, "has no setting 'gain'. Settings: frequency, offset"),
+    (["frequency"], "settings must be a dictionary"),
+])
+def test_bad_ac_source_settings_raise(parameter_texts, message):
+    with pytest.raises(ComponentError) as error_info:
+        Component("ac_source", "V1", "1", 4, 4,
+                  parameter_texts=parameter_texts)
+
+    assert message in str(error_info.value)
+
+
+def test_kinds_without_settings_refuse_any_setting():
+    with pytest.raises(ComponentError, match="Settings: none"):
+        Component("dc_source", "V1", "9", 4, 4,
+                  parameter_texts={"frequency": "50"})
+
+
+def test_set_values_changes_value_and_settings_together():
+    source = Component("ac_source", "V1", "1", 4, 4)
+
+    source.set_values("3", {"frequency": "50"})
+
+    assert source.label_text() == "V1 3V 50Hz"
+    assert source.value == 3.0
+    assert source.parameter_values["frequency"] == 50.0
+
+
+def test_set_values_keeps_settings_not_given():
+    source = Component(
+        "ac_source", "V1", "1", 4, 4,
+        parameter_texts={"frequency": "60", "phase": "45"}
+    )
+
+    source.set_values("2")
+
+    assert source.parameter_texts == {
+        "frequency": "60", "offset": "0", "phase": "45"
+    }
+
+
+@pytest.mark.parametrize("value_text, parameter_texts", [
+    ("abc", {"frequency": "50"}),
+    ("3", {"frequency": "0"}),
+])
+def test_set_values_changes_nothing_on_error(value_text, parameter_texts):
+    source = Component("ac_source", "V1", "1", 4, 4)
+
+    with pytest.raises(ComponentError):
+        source.set_values(value_text, parameter_texts)
+
+    assert source.value_text == "1"
+    assert source.value == 1.0
+    assert source.parameter_texts["frequency"] == "1k"
+    assert source.parameter_values["frequency"] == 1000.0
+
+
+def test_old_source_kinds_are_gone():
+    for kind in ("voltage_source", "current_source"):
+        assert kind not in COMPONENT_DEFINITIONS
+
+        with pytest.raises(ComponentError, match="Unknown component kind"):
+            Component(kind, "V1", "5", 4, 4)
+
+
+def test_setting_definitions_are_not_shared_through_copies():
+    definition = get_component_definition("ac_source")
+    definition["parameters"][0]["default_value_text"] = "50"
+
+    assert get_parameter_definitions("ac_source")[0][
+        "default_value_text"
+    ] == "1k"
