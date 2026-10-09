@@ -841,7 +841,7 @@ def test_clearing_the_selected_frequency_is_refused(window):
         ),
         (
             "Enter a number with an optional prefix, for example 4k7, 100n, "
-            "50 or 1k."
+            "1m or 1k, or a model name for diodes, LEDs and transistors."
         ),
     )
     assert frequency_box.text() == "60"

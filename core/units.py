@@ -40,7 +40,7 @@ ALLOWED_VALUE_DESCRIPTION = (
     "Use a number with an optional SI prefix, for example 4700, 4.7k, 4k7, "
     "10u, 100n, 2.2m, or 1meg. Accepted prefixes: f, p, n, "
     "u (or \u00b5 or \u03bc), m, k, meg, g, t. Do not add unit letters "
-    "such as F, H, V, or Ohm."
+    "such as F, H, V, A, or Ohm."
 )
 
 # Plain number: optional sign, ASCII digits with an optional decimal point,

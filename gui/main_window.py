@@ -802,7 +802,8 @@ class MainWindow(QMainWindow):
                 "Part Value Not Changed",
                 str(error),
                 "Enter a number with an optional prefix, for example 4k7, "
-                "100n, 50 or 1k."
+                "100n, 1m or 1k, or a model name for diodes, LEDs and "
+                "transistors."
             )
             # Put the unchanged value back in the box.
             self.component_panel_widget.show_component(component)
