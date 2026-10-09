@@ -1343,6 +1343,44 @@ class ComponentCollection:
 
         return component
 
+    def check_move(self, reference, row_number, column_number,
+                   connection_grid):
+        """
+        Say whether move_component would accept a move, without moving.
+
+        Used while a part is dragged, to show a drop that would be refused.
+
+        :param reference: Reference of the part.
+        :type reference: str
+        :param row_number: Candidate one-based anchor row.
+        :type row_number: int
+        :param column_number: Candidate one-based anchor column.
+        :type column_number: int
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :returns: None if the move would be accepted, otherwise the reason
+            move_component would give.
+        :rtype: str or None
+        :raises ComponentError: If the part is unknown or the grid is not a
+            ConnectionGrid.
+        """
+        _validate_connection_grid(connection_grid)
+        component = self.get_component(reference)
+        old_row_number = component.row_number
+        old_column_number = component.column_number
+
+        try:
+            self.move_component(
+                reference, row_number, column_number, connection_grid
+            )
+        except ComponentError as error:
+            return str(error)
+
+        component.row_number = old_row_number
+        component.column_number = old_column_number
+
+        return None
+
     def set_component_value(self, reference, value_text, parameter_texts=None):
         """
         Change a component's value, and optionally its extra settings.

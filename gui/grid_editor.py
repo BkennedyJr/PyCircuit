@@ -675,15 +675,56 @@ class ConnectionGridScene(QGraphicsScene):
 
         super().mouseReleaseEvent(event)
 
+    def check_component_drop(self, reference, anchor_position):
+        """
+        Say whether dropping a dragged part here would be refused.
+
+        :param reference: Part being dragged.
+        :type reference: str
+        :param anchor_position: Current anchor position, scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None if the drop would be accepted (or puts the part
+            back on its own point), otherwise the reason.
+        :rtype: str or None
+        """
+        if self.component_collection is None:
+            return None
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            return None
+
+        return self.component_collection.check_move(
+            reference, row_number, column_number, self.connection_grid
+        )
+
     def keyPressEvent(self, event):
         """
-        Esc cancels a wire being drawn.
+        Esc cancels a part drag or a wire being drawn.
+
+        Other keys go to the items as usual.
+
+        :param event: Key event.
+        :type event: QKeyEvent
+        :returns: None
         """
-        if (event.key() == Qt.Key_Escape and
-                self.wire_start_identifier is not None):
-            self.cancel_wire_drawing()
-            event.accept()
-            return
+        if event.key() == Qt.Key_Escape:
+            grabber = self.mouseGrabberItem()
+
+            if isinstance(grabber, ComponentItem) and grabber.is_dragging:
+                grabber.cancel_drag()
+                event.accept()
+                return
+
+            if self.wire_start_identifier is not None:
+                self.cancel_wire_drawing()
+                event.accept()
+                return
 
         super().keyPressEvent(event)
 
