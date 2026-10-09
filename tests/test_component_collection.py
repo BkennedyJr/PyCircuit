@@ -383,21 +383,21 @@ def test_same_pins_in_the_other_order_are_refused(collection, grid):
 def test_vertical_parts_on_the_same_pins_are_refused(collection, grid):
     # V1 runs R4 -> R5 down; a resistor at 90 deg runs the same way, and a
     # diode anchored on R5 at 270 deg runs R5 -> R4.
-    collection.add_component("voltage_source", 4, 4, "9", grid)
+    collection.add_component("dc_source", 4, 4, "9", grid)
 
-    with pytest.raises(ComponentError, match=r"^V1 \(Voltage source\)"):
+    with pytest.raises(ComponentError, match=r"^V1 \(DC voltage source\)"):
         collection.add_component("resistor", 4, 4, "1k", grid, 90)
 
-    with pytest.raises(ComponentError, match=r"^V1 \(Voltage source\)"):
+    with pytest.raises(ComponentError, match=r"^V1 \(DC voltage source\)"):
         collection.add_component("diode", 5, 4, "1N4148", grid, 270)
 
 
-def test_current_source_on_a_voltage_source_is_refused(grid):
+def test_ac_source_on_a_dc_source_is_refused(grid):
     collection = ComponentCollection()
-    collection.add_component("voltage_source", 5, 5, "9", grid)
+    collection.add_component("dc_source", 5, 5, "9", grid)
 
-    with pytest.raises(ComponentError, match=r"^V1 \(Voltage source\)"):
-        collection.add_component("current_source", 5, 5, "1m", grid)
+    with pytest.raises(ComponentError, match=r"^V1 \(DC voltage source\)"):
+        collection.add_component("ac_source", 5, 5, "1", grid)
 
 
 def test_identical_ground_is_refused(collection, grid):
@@ -536,6 +536,55 @@ def test_rotation_with_free_pins_is_allowed(collection, grid):
     assert collection.rotate_component("R2", grid) == 180
 
 
+# PR B: sources ------------------------------------------------------------
+
+
+def test_dc_and_ac_sources_share_v_numbering(collection, grid):
+    first = collection.add_component("dc_source", 2, 2, "9", grid)
+    second = collection.add_component("ac_source", 2, 4, "", grid)
+
+    assert (first.reference, second.reference) == ("V1", "V2")
+    assert first.label_text() == "V1 9V"
+    assert second.label_text() == "V2 1V 1kHz"
+
+
+def test_add_ac_source_with_a_frequency(collection, grid):
+    source = collection.add_component(
+        "ac_source", 2, 2, "2", grid, 90, parameter_texts={"frequency": "50"}
+    )
+
+    assert source.rotation == 90
+    assert source.parameter_values["frequency"] == 50.0
+    assert source.label_text() == "V1 2V 50Hz"
+
+
+def test_bad_frequency_places_nothing(collection, grid):
+    with pytest.raises(ComponentError, match="frequency"):
+        collection.add_component(
+            "ac_source", 2, 2, "1", grid, parameter_texts={"frequency": "0"}
+        )
+
+    assert collection.get_components() == []
+
+
+def test_set_component_value_with_settings(collection, grid):
+    collection.add_component("ac_source", 2, 2, "1", grid)
+
+    source = collection.set_component_value("V1", "5", {"frequency": "60"})
+
+    assert source.label_text() == "V1 5V 60Hz"
+
+
+def test_set_component_value_keeps_the_frequency(collection, grid):
+    collection.add_component(
+        "ac_source", 2, 2, "1", grid, parameter_texts={"frequency": "60"}
+    )
+
+    source = collection.set_component_value("V1", "5")
+
+    assert source.label_text() == "V1 5V 60Hz"
+
+
 # --- QC #11 issue 1: a symbol drawn over another part's body or pin ----------
 
 
@@ -619,7 +668,7 @@ def test_rotation_onto_ground_bars_is_refused(collection, grid):
     (("resistor", 4, 4, "1k", 0), ("ground", 4, 4, "", 0)),
     (("resistor", 4, 4, "1k", 0), ("ground", 4, 5, "", 0)),
     (("resistor", 4, 2, "1k", 0), ("npn", 4, 4, "2N3904", 0)),
-    (("voltage_source", 4, 4, "5", 0), ("npn", 4, 6, "2N3904", 0)),
+    (("dc_source", 4, 4, "5", 0), ("npn", 4, 6, "2N3904", 0)),
 ])
 def test_neighbours_that_only_share_pins_are_allowed(collection, grid, first,
                                                      second):

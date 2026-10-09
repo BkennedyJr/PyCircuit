@@ -186,8 +186,8 @@ def test_choose_label_side_falls_back_to_above_when_every_side_has_a_pin():
         ("resistor", 0, "above"),
         ("resistor", 90, "right"),
         ("capacitor", 0, "above"),        # not on the right lead (old rule)
-        ("voltage_source", 0, "right"),
-        ("voltage_source", 90, "above"),
+        ("dc_source", 0, "right"),
+        ("ac_source", 90, "above"),
         # NPN pins after rotation: 0 -> left, up, down; 90 -> up, right,
         # left; 180 -> right, down, up; 270 -> down, left, right.
         ("npn", 0, "right"),
@@ -580,3 +580,25 @@ def test_apply_label_placement_moves_the_label():
     assert item.label_item.mapRectToParent(
         item.label_item.text_rect()
     ).topLeft() == item.pos() + spot
+
+
+def test_dc_source_tool_tip_names_the_voltage():
+    tool_tip = make_item("dc_source", value_text="9").toolTip()
+
+    assert tool_tip.splitlines() == [
+        "V1 (DC voltage source)",
+        "Voltage: 9V",
+        "plus: NODE_R04_C04",
+        "minus: NODE_R05_C04",
+    ]
+
+
+def test_ac_source_tool_tip_and_label_show_the_frequency():
+    item = make_item("ac_source")
+
+    assert item.toolTip().splitlines()[:3] == [
+        "V1 (AC voltage source)",
+        "Peak amplitude: 1V",
+        "Frequency: 1kHz",
+    ]
+    assert item.label_item.text() == "V1 1V 1kHz"

@@ -2,7 +2,7 @@
 Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
-sources, diodes, transistors, and ground), their connection pins, and the
+DC and AC voltage sources, diodes, transistors, and ground), their connection pins, and the
 Component class that holds one placed part. It contains no PyQt5 imports so
 the same objects can be used by the GUI label, the later SPICE netlist
 builder, and the solver.
@@ -17,6 +17,13 @@ them. ``body_center_half_steps`` gives the body centre from the anchor in
 half grid steps (so it stays a whole number that rotate_offset accepts):
 (1, 0) is half a step to the right. Transistors keep their anchor at the
 body centre with three pins around it; ground's single pin is its anchor.
+
+Besides the main value, a kind may define extra numeric ``parameters``,
+for example the AC source's frequency. Each has a name, a unit, a value
+kind and a default, and ``shown_in_panel`` says whether the GUI offers it
+(the AC source's offset and phase are kept for the later SPICE SIN source
+but have no field yet). ``value_unit`` is appended to the value in the
+label ("V1 9V"), and ``value_label`` names the value field in the panel.
 
 ``covered_half_steps`` lists, in the same half-step units, the points a
 body covers that are not pins: a two-pin body covers its centre; a
@@ -82,23 +89,56 @@ COMPONENT_DEFINITIONS = {
         "value_kind": "positive",
         "default_value_text": "10u",
     },
-    "voltage_source": {
-        "display_name": "Voltage source",
+    "dc_source": {
+        "display_name": "DC voltage source",
         "prefix": "V",
         "pins": [("plus", 0, 0), ("minus", 0, 1)],
         "body_center_half_steps": (0, 1),
         "covered_half_steps": [(0, 1)],
         "value_kind": "any",
         "default_value_text": "5",
+        "value_label": "Voltage",
+        "value_unit": "V",
     },
-    "current_source": {
-        "display_name": "Current source",
-        "prefix": "I",
-        "pins": [("in", 0, 0), ("out", 0, 1)],
+    "ac_source": {
+        "display_name": "AC voltage source",
+        "prefix": "V",
+        "pins": [("plus", 0, 0), ("minus", 0, 1)],
         "body_center_half_steps": (0, 1),
         "covered_half_steps": [(0, 1)],
         "value_kind": "any",
-        "default_value_text": "1m",
+        "default_value_text": "1",
+        "value_label": "Peak amplitude",
+        "value_unit": "V",
+        # Sine source: amplitude is the main value. Offset and phase are
+        # ready for the SPICE SIN(offset amplitude frequency 0 0 phase)
+        # source but are not shown in the panel yet.
+        "parameters": (
+            {
+                "name": "frequency",
+                "display_name": "Frequency",
+                "unit": "Hz",
+                "value_kind": "positive",
+                "default_value_text": "1k",
+                "shown_in_panel": True,
+            },
+            {
+                "name": "offset",
+                "display_name": "Offset",
+                "unit": "V",
+                "value_kind": "any",
+                "default_value_text": "0",
+                "shown_in_panel": False,
+            },
+            {
+                "name": "phase",
+                "display_name": "Phase",
+                "unit": "deg",
+                "value_kind": "any",
+                "default_value_text": "0",
+                "shown_in_panel": False,
+            },
+        ),
     },
     "diode": {
         "display_name": "Diode",
@@ -316,6 +356,128 @@ def validate_value_text(kind, value_text):
     return (clean_text, numeric_value)
 
 
+def get_parameter_definitions(kind):
+    """
+    Return the extra parameter definitions of a kind, in display order.
+
+    :param kind: Component kind.
+    :type kind: str
+    :returns: Tuple of parameter dictionaries (shared; do not modify);
+        empty for kinds with only a main value.
+    :rtype: tuple
+    :raises ComponentError: If the kind is unknown.
+    """
+    return _lookup_component_definition(kind).get("parameters", ())
+
+
+def get_panel_parameter_definitions(kind):
+    """
+    Return the parameters of a kind that the GUI panel shows.
+
+    :param kind: Component kind.
+    :type kind: str
+    :returns: Tuple of parameter dictionaries with shown_in_panel True.
+    :rtype: tuple
+    :raises ComponentError: If the kind is unknown.
+    """
+    return tuple(
+        parameter for parameter in get_parameter_definitions(kind)
+        if parameter["shown_in_panel"]
+    )
+
+
+def validate_parameter_texts(kind, parameter_texts, current_texts=None):
+    """
+    Validate extra parameter values (for example an AC source frequency).
+
+    Missing names keep current_texts, or the defaults when there are none.
+
+    :param kind: Component kind.
+    :type kind: str
+    :param parameter_texts: Mapping of parameter name to value text, or
+        None.
+    :type parameter_texts: dict or None
+    :param current_texts: Texts to keep for names not given, or None to
+        use the defaults.
+    :type current_texts: dict or None
+    :returns: (texts, values): two dictionaries keyed by parameter name.
+    :rtype: tuple
+    :raises ComponentError: If the mapping, a name or a value is invalid.
+    """
+    component_definition = _lookup_component_definition(kind)
+    display_name = component_definition["display_name"]
+    parameter_definitions = get_parameter_definitions(kind)
+    known_names = [parameter["name"] for parameter in parameter_definitions]
+
+    if parameter_texts is None:
+        parameter_texts = {}
+
+    if not isinstance(parameter_texts, dict):
+        raise ComponentError(
+            f"{display_name} settings must be a dictionary, not "
+            f"{parameter_texts!r}."
+        )
+
+    for name in parameter_texts:
+        if name not in known_names:
+            allowed_text = ", ".join(known_names) or "none"
+            raise ComponentError(
+                f"{display_name} has no setting {name!r}. Settings: "
+                f"{allowed_text}."
+            )
+
+    texts = {}
+    values = {}
+
+    for parameter in parameter_definitions:
+        name = parameter["name"]
+
+        if name in parameter_texts:
+            value_text = parameter_texts[name]
+        elif current_texts is not None and name in current_texts:
+            value_text = current_texts[name]
+        else:
+            value_text = parameter["default_value_text"]
+
+        if not isinstance(value_text, str):
+            raise ComponentError(
+                f"{display_name} {parameter['display_name'].lower()} must "
+                f"be text, not {value_text!r}."
+            )
+
+        clean_text = value_text.strip()
+
+        # For a new part an empty box means "use the default", like the
+        # main value. When editing, an empty box is an error, so a stray
+        # select-all + Enter cannot silently reset the setting.
+        if not clean_text:
+            if current_texts is not None and name in parameter_texts:
+                raise ComponentError(
+                    f"{display_name} {parameter['display_name'].lower()} is "
+                    "empty. Enter a number such as 50 or 1k."
+                )
+
+            clean_text = parameter["default_value_text"]
+
+        try:
+            numeric_value = parse_value(clean_text)
+        except ComponentError as error:
+            raise ComponentError(
+                f"{display_name} {parameter['display_name'].lower()}: {error}"
+            ) from None
+
+        if parameter["value_kind"] == "positive" and not numeric_value > 0:
+            raise ComponentError(
+                f"{display_name} {parameter['display_name'].lower()} must "
+                "be greater than zero."
+            )
+
+        texts[name] = clean_text
+        values[name] = numeric_value
+
+    return (texts, values)
+
+
 class Component:
     """
     One placed schematic part.
@@ -335,6 +497,9 @@ class Component:
     :type column_number: int
     :param rotation: Rotation in degrees, clockwise on screen.
     :type rotation: int
+    :param parameter_texts: Extra settings by name, for example
+        {"frequency": "50"} for an AC source; missing ones use defaults.
+    :type parameter_texts: dict or None
     :raises ComponentError: If any argument is invalid.
     """
 
@@ -345,11 +510,18 @@ class Component:
             value_text,
             row_number,
             column_number,
-            rotation=0):
+            rotation=0,
+            parameter_texts=None):
         component_definition = _lookup_component_definition(kind)
 
         self.validate_reference(reference, component_definition)
         clean_text, value = validate_value_text(kind, value_text)
+        texts, values = validate_parameter_texts(kind, parameter_texts)
+
+        # Extra settings such as an AC source's frequency: the text as
+        # typed (shown in the label) and the parsed number.
+        self.parameter_texts = texts
+        self.parameter_values = values
 
         # kind and reference are fixed for the life of the part; the
         # collection keys parts by reference and the prefix follows kind.
@@ -451,6 +623,32 @@ class Component:
 
         self.value_text = clean_text
         self.value = value
+
+    def set_values(self, value_text, parameter_texts=None):
+        """
+        Validate and store a new value and extra settings together.
+
+        Nothing changes unless everything is valid.
+
+        :param value_text: New user-entered value text.
+        :type value_text: str
+        :param parameter_texts: Settings to change by name; others keep
+            their current value.
+        :type parameter_texts: dict or None
+        :returns: None
+        :raises ComponentError: If the value or a setting is invalid.
+        """
+        clean_text, value = validate_value_text(self.kind, value_text)
+        texts, values = validate_parameter_texts(
+            self.kind,
+            parameter_texts,
+            self.parameter_texts
+        )
+
+        self.value_text = clean_text
+        self.value = value
+        self.parameter_texts = texts
+        self.parameter_values = values
 
     @staticmethod
     def validate_reference(reference, component_definition):
@@ -630,13 +828,28 @@ class Component:
         """
         Return the text shown next to the symbol, for example "R1 4k7".
 
+        Sources add their units and shown settings: "V1 9V",
+        "V2 1V 1kHz".
+
         :returns: Reference and value text, or "" for ground.
         :rtype: str
         """
-        if COMPONENT_DEFINITIONS[self.kind]["value_kind"] == "none":
+        component_definition = COMPONENT_DEFINITIONS[self.kind]
+
+        if component_definition["value_kind"] == "none":
             return ""
 
-        return f"{self.reference} {self.value_text}"
+        parts = [
+            self.reference,
+            self.value_text + component_definition.get("value_unit", "")
+        ]
+
+        for parameter in get_panel_parameter_definitions(self.kind):
+            parts.append(
+                self.parameter_texts[parameter["name"]] + parameter["unit"]
+            )
+
+        return " ".join(parts)
 
 
 def _reference_sort_key(reference):
@@ -726,7 +939,8 @@ class ComponentCollection:
             column_number,
             value_text,
             connection_grid,
-            rotation=0):
+            rotation=0,
+            parameter_texts=None):
         """
         Create, validate, and store a new component.
 
@@ -742,6 +956,9 @@ class ComponentCollection:
         :type connection_grid: ConnectionGrid
         :param rotation: Rotation in degrees.
         :type rotation: int
+        :param parameter_texts: Extra settings by name, for example
+            {"frequency": "50"}; missing or empty ones use defaults.
+        :type parameter_texts: dict or None
         :returns: The new component.
         :rtype: Component
         :raises ComponentError: If any argument is invalid or a pin would
@@ -760,7 +977,8 @@ class ComponentCollection:
             value_text,
             row_number,
             column_number,
-            rotation
+            rotation,
+            parameter_texts
         )
 
         self.ensure_pins_fit_grid(component, connection_grid)
@@ -1031,21 +1249,24 @@ class ComponentCollection:
 
         return component.rotation
 
-    def set_component_value(self, reference, value_text):
+    def set_component_value(self, reference, value_text, parameter_texts=None):
         """
-        Change a component's value.
+        Change a component's value, and optionally its extra settings.
 
         :param reference: Reference of the part.
         :type reference: str
         :param value_text: New value text.
         :type value_text: str
+        :param parameter_texts: Settings to change by name, for example
+            {"frequency": "50"}; others are kept.
+        :type parameter_texts: dict or None
         :returns: The updated component.
         :rtype: Component
-        :raises ComponentError: If the part is unknown or the value is
-            invalid. The old value is then kept.
+        :raises ComponentError: If the part is unknown or the value or a
+            setting is invalid. The old values are then all kept.
         """
         component = self.get_component(reference)
-        component.set_value_text(value_text)
+        component.set_values(value_text, parameter_texts)
 
         return component
 

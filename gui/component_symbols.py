@@ -47,16 +47,28 @@ BODY_RECTS = {
     "inductor": QRectF(-0.32, -0.16, 0.64, 0.24),
     "ground": QRectF(-0.35, 0.25, 0.7, 0.35),
     "capacitor_polarized": QRectF(-0.3, -0.3, 0.44, 0.6),
-    "voltage_source": QRectF(-0.32, -0.32, 0.64, 0.64),
-    "current_source": QRectF(-0.32, -0.32, 0.64, 0.64),
+    "dc_source": QRectF(-0.3, -0.3, 0.6, 0.42),
+    "ac_source": QRectF(-0.32, -0.32, 0.64, 0.64),
     "diode": QRectF(-0.2, -0.2, 0.4, 0.4),
     "led": QRectF(-0.2, -0.4, 0.5, 0.6),
     "npn": QRectF(-0.55, -0.5, 1.0, 1.0),
     "pnp": QRectF(-0.55, -0.5, 1.0, 1.0),
 }
 
-# Sources: a 36 px circle with 12 px leads at the 60 px spacing.
+# AC source: a 36 px circle with 12 px leads at the 60 px spacing.
 SOURCE_RADIUS = 0.3
+
+# DC source (battery cell): the long plate is the plus side, nearest the
+# plus pin; plates are 0.12 of a step (7 px) apart.
+BATTERY_LONG_PLATE_Y = -0.06
+BATTERY_SHORT_PLATE_Y = 0.06
+BATTERY_LONG_PLATE_HALF_WIDTH = 0.26
+BATTERY_SHORT_PLATE_HALF_WIDTH = 0.13
+
+# AC source sine: one full period across the circle.
+SINE_HALF_WIDTH = 0.18
+SINE_AMPLITUDE = 0.1
+SINE_POINT_COUNT = 25
 TRANSISTOR_CIRCLE_CENTER_X = -0.05
 TRANSISTOR_CIRCLE_RADIUS = 0.5
 
@@ -243,10 +255,42 @@ def _polarized_capacitor_paths():
     return (stroke_path, QPainterPath())
 
 
-def _source_circle_paths():
+def _dc_source_paths():
     """
-    Circle and vertical leads shared by both sources (pins at +/-HALF_SPAN
-    above and below the centre).
+    DC voltage source drawn as a battery cell: the long plate toward the
+    plus pin (top), the short plate toward the minus pin (bottom), and a
+    "+" beside the long plate.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+
+    _add_line(stroke_path, 0.0, -HALF_SPAN, 0.0, BATTERY_LONG_PLATE_Y)
+    _add_line(stroke_path, 0.0, BATTERY_SHORT_PLATE_Y, 0.0, HALF_SPAN)
+    _add_line(
+        stroke_path,
+        -BATTERY_LONG_PLATE_HALF_WIDTH, BATTERY_LONG_PLATE_Y,
+        BATTERY_LONG_PLATE_HALF_WIDTH, BATTERY_LONG_PLATE_Y
+    )
+    _add_line(
+        stroke_path,
+        -BATTERY_SHORT_PLATE_HALF_WIDTH, BATTERY_SHORT_PLATE_Y,
+        BATTERY_SHORT_PLATE_HALF_WIDTH, BATTERY_SHORT_PLATE_Y
+    )
+
+    # "+" above the right half of the long plate, beside the plus lead.
+    _add_line(stroke_path, 0.11, -0.2, 0.23, -0.2)
+    _add_line(stroke_path, 0.17, -0.26, 0.17, -0.14)
+
+    return (stroke_path, QPainterPath())
+
+
+def _ac_source_paths():
+    """
+    AC voltage source: circle with leads to the plus pin (top) and the
+    minus pin (bottom). The sine inside is a separate glyph
+    (_sine_glyph_path) that build_symbol_paths keeps upright.
 
     :returns: (stroke_path, fill_path)
     :rtype: tuple
@@ -260,36 +304,28 @@ def _source_circle_paths():
     return (stroke_path, QPainterPath())
 
 
-def _voltage_source_paths():
+def _sine_glyph_path():
     """
-    DC voltage source: circle with "+" toward the plus pin (top) and "-"
-    toward the minus pin (bottom).
+    One full period of a sine, horizontal and centred on the body centre,
+    first half-wave up. Drawn upright at every rotation.
 
-    :returns: (stroke_path, fill_path)
-    :rtype: tuple
+    :returns: Stroke path of the sine.
+    :rtype: QPainterPath
     """
-    stroke_path, fill_path = _source_circle_paths()
+    stroke_path = QPainterPath()
 
-    _add_line(stroke_path, -0.07, -0.14, 0.07, -0.14)
-    _add_line(stroke_path, 0.0, -0.21, 0.0, -0.07)
-    _add_line(stroke_path, -0.07, 0.14, 0.07, 0.14)
+    # y points down, so the minus sign makes the first half-wave go up.
+    for point_index in range(SINE_POINT_COUNT):
+        fraction = point_index / (SINE_POINT_COUNT - 1)
+        x = -SINE_HALF_WIDTH + 2 * SINE_HALF_WIDTH * fraction
+        y = -SINE_AMPLITUDE * math.sin(2 * math.pi * fraction)
 
-    return (stroke_path, fill_path)
+        if point_index == 0:
+            stroke_path.moveTo(x, y)
+        else:
+            stroke_path.lineTo(x, y)
 
-
-def _current_source_paths():
-    """
-    DC current source: circle with an arrow pointing at the "out" pin
-    (bottom), the direction of conventional current through the source.
-
-    :returns: (stroke_path, fill_path)
-    :rtype: tuple
-    """
-    stroke_path, fill_path = _source_circle_paths()
-
-    _add_arrow(stroke_path, fill_path, 0.0, -0.18, 0.0, 0.18)
-
-    return (stroke_path, fill_path)
+    return stroke_path
 
 
 def _diode_paths():
@@ -400,8 +436,8 @@ _SYMBOL_BUILDERS = {
     "capacitor": _capacitor_paths,
     "capacitor_polarized": _polarized_capacitor_paths,
     "inductor": _inductor_paths,
-    "voltage_source": _voltage_source_paths,
-    "current_source": _current_source_paths,
+    "dc_source": _dc_source_paths,
+    "ac_source": _ac_source_paths,
     "diode": _diode_paths,
     "led": _led_paths,
     "npn": _npn_paths,
@@ -409,19 +445,33 @@ _SYMBOL_BUILDERS = {
     "ground": _ground_paths,
 }
 
+# Glyphs drawn inside a body that must read the same at every rotation
+# (Billie: the AC sine always stays horizontal). They are built around the
+# body centre and turned back by the part's rotation, so the item's own
+# rotation leaves them upright.
+_UPRIGHT_GLYPH_BUILDERS = {
+    "ac_source": _sine_glyph_path,
+}
 
-def build_symbol_paths(kind):
+ALLOWED_SYMBOL_ROTATIONS = (0, 90, 180, 270)
+
+
+def build_symbol_paths(kind, rotation=0):
     """
     Build the symbol paths for one component kind, in pitch units.
 
     A new pair of paths is returned on every call, so callers may change
-    or transform them freely.
+    or transform them freely. The paths are unrotated; the caller rotates
+    them by the part's rotation. Pass that same rotation here so glyphs
+    that must stay upright (the AC sine) are pre-turned the other way.
 
     :param kind: Component kind, a key of COMPONENT_DEFINITIONS.
     :type kind: str
+    :param rotation: The part's rotation in degrees: 0, 90, 180 or 270.
+    :type rotation: int
     :returns: (stroke_path, fill_path)
     :rtype: tuple
-    :raises ComponentError: If the kind is unknown.
+    :raises ComponentError: If the kind or the rotation is not valid.
     :raises NotImplementedError: If the kind has no symbol yet (Step 5).
     """
     if not isinstance(kind, str) or kind not in COMPONENT_DEFINITIONS:
@@ -432,7 +482,19 @@ def build_symbol_paths(kind):
             f"The {kind} symbol is not drawn yet (planned for Step 5)."
         )
 
+    if (isinstance(rotation, bool) or not isinstance(rotation, int) or
+            rotation not in ALLOWED_SYMBOL_ROTATIONS):
+        raise ComponentError(
+            f"Symbol rotation must be 0, 90, 180 or 270, not {rotation!r}."
+        )
+
     stroke_path, fill_path = _SYMBOL_BUILDERS[kind]()
+
+    if kind in _UPRIGHT_GLYPH_BUILDERS:
+        stroke_path.addPath(
+            QTransform().rotate(-rotation).map(_UPRIGHT_GLYPH_BUILDERS[kind]())
+        )
+
     to_anchor = _get_anchor_transform(kind)
 
     return (to_anchor.map(stroke_path), to_anchor.map(fill_path))

@@ -1,7 +1,7 @@
 """
 Tests for gui.component_symbols: all 11 kinds (Step 4: resistor, capacitor,
-inductor, ground; Step 5: polarized capacitor, both sources, diode, LED,
-NPN, PNP). Runs headless through the qt_application fixture in
+inductor, ground; Step 5: polarized capacitor, diode, LED, NPN, PNP; PR B:
+DC source battery and AC source sine). Runs headless through the qt_application fixture in
 tests/conftest.py.
 """
 
@@ -9,12 +9,11 @@ import math
 
 import pytest
 from PyQt5.QtCore import QPointF, QRectF
-from PyQt5.QtGui import QPainterPath
+from PyQt5.QtGui import QPainterPath, QTransform
 
 from core.components import COMPONENT_DEFINITIONS
 from core.exceptions import ComponentError
 from gui.component_symbols import (
-    ARROW_HEAD_HALF_WIDTH,
     ARROW_HEAD_LENGTH,
     BODY_RECTS,
     _add_arrow,
@@ -23,7 +22,7 @@ from gui.component_symbols import (
 )
 
 ALL_KINDS = list(COMPONENT_DEFINITIONS)
-KINDS_WITH_FILL = ["current_source", "diode", "led", "npn", "pnp"]
+KINDS_WITH_FILL = ["diode", "led", "npn", "pnp"]
 KINDS_WITHOUT_FILL = sorted(set(ALL_KINDS) - set(KINDS_WITH_FILL))
 
 # The grid dot is 16 px across at 60 px spacing: radius 8/60 of a pitch.
@@ -136,9 +135,10 @@ def led_shaft_top():
         # Unchanged: lead from the pin at y = 0; widest bar 0.6; last bar
         # at y = 0.54.
         ("ground", (-0.3, 0.0, 0.6, 0.54)),
+        # Leads from y = 0 to 1; the long plate is 0.52 wide.
+        ("dc_source", (-0.26, 0.0, 0.52, 1.0)),
         # Leads from y = 0 to 1; circle radius 0.3 around (0, 0.5).
-        ("voltage_source", (-0.3, 0.0, 0.6, 1.0)),
-        ("current_source", (-0.3, 0.0, 0.6, 1.0)),
+        ("ac_source", (-0.3, 0.0, 0.6, 1.0)),
         # Leads reach x = 0 and 1; triangle and bar from y = -0.17 to 0.17.
         ("diode", (0.0, -0.17, 1.0, 0.34)),
         # Unchanged: base lead from x = -1; circle centered x = -0.05,
@@ -204,29 +204,104 @@ def test_polarized_capacitor_curved_plate_bulges_toward_plus():
     assert min(point.x() for point in points) == pytest.approx(0.57, abs=1e-3)
 
 
-def test_voltage_source_plus_is_on_the_plus_pin_side():
-    segments = straight_segments(build_symbol_paths("voltage_source")[0])
+def test_dc_source_is_a_battery_with_the_long_plate_at_the_plus_pin():
+    segments = straight_segments(build_symbol_paths("dc_source")[0])
 
-    # "+" near the plus pin (0, 0), "-" near the minus pin (0, 1).
-    assert ((-0.07, 0.36), (0.07, 0.36)) in segments
-    assert ((0.0, 0.29), (0.0, 0.43)) in segments
-    assert ((-0.07, 0.64), (0.07, 0.64)) in segments
-    assert ((0.0, 0.57), (0.0, 0.71)) not in segments
+    # Plus pin (0, 0) above, minus pin (0, 1) below; body centre (0, 0.5).
+    assert ((0.0, 0.0), (0.0, 0.44)) in segments
+    assert ((0.0, 0.56), (0.0, 1.0)) in segments
+    # Long plate on the plus side, short plate on the minus side.
+    assert ((-0.26, 0.44), (0.26, 0.44)) in segments
+    assert ((-0.13, 0.56), (0.13, 0.56)) in segments
+    # "+" beside the long plate, on the plus side.
+    assert ((0.11, 0.3), (0.23, 0.3)) in segments
+    assert ((0.17, 0.24), (0.17, 0.36)) in segments
+    assert len(segments) == 6
 
 
-def test_current_source_arrow_points_at_the_out_pin():
-    stroke_path, fill_path = build_symbol_paths("current_source")
+def test_ac_source_has_a_circle_and_one_sine_period():
+    stroke_path, fill_path = build_symbol_paths("ac_source")
+    assert fill_path.isEmpty()
 
-    # The out pin is (0, 1): the head's tip is at the bottom, (0, 0.68).
-    assert rect_tuple(fill_path.boundingRect()) == pytest.approx(
-        (
-            -ARROW_HEAD_HALF_WIDTH, 0.68 - ARROW_HEAD_LENGTH,
-            2 * ARROW_HEAD_HALF_WIDTH, ARROW_HEAD_LENGTH,
-        ),
-        abs=1e-9
-    )
-    shaft_end = round(0.68 - ARROW_HEAD_LENGTH, 9)
-    assert ((0.0, 0.32), (0.0, shaft_end)) in straight_segments(stroke_path)
+    sine = [
+        polygon for polygon in stroke_path.toSubpathPolygons()
+        if polygon.count() == 25
+    ]
+    assert len(sine) == 1
+    points = [(point.x(), point.y()) for point in sine[0]]
+
+    # From (-0.18, 0.5) to (0.18, 0.5): up first (y is down), then down.
+    assert points[0] == pytest.approx((-0.18, 0.5), abs=1e-9)
+    assert points[-1] == pytest.approx((0.18, 0.5), abs=1e-9)
+    assert points[6] == pytest.approx((-0.09, 0.4), abs=1e-9)
+    assert points[18] == pytest.approx((0.09, 0.6), abs=1e-9)
+
+    # The sine stays inside the circle (radius 0.3 around (0, 0.5)).
+    for x, y in points:
+        assert math.hypot(x, y - 0.5) < 0.3
+
+    segments = straight_segments(stroke_path)
+    assert ((0.0, 0.0), (0.0, 0.2)) in segments
+    assert ((0.0, 0.8), (0.0, 1.0)) in segments
+
+
+def sine_points_on_screen(rotation):
+    """
+    Return the AC sine points after the item's rotation, relative to the
+    rotated body centre, as the user sees them.
+    """
+    stroke_path = build_symbol_paths("ac_source", rotation)[0]
+    sine = [
+        polygon for polygon in stroke_path.toSubpathPolygons()
+        if polygon.count() == 25
+    ]
+    assert len(sine) == 1
+    to_screen = QTransform().rotate(rotation)
+    centre = to_screen.map(QPointF(0.0, 0.5))
+    return [to_screen.map(point) - centre for point in sine[0]]
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_ac_sine_stays_upright_at_every_rotation(rotation):
+    # Billie's call on QC #12 item 4: the sine always reads as a sine.
+    upright = sine_points_on_screen(0)
+    points = sine_points_on_screen(rotation)
+
+    for drawn, expected in zip(points, upright):
+        assert (drawn.x(), drawn.y()) == pytest.approx(
+            (expected.x(), expected.y()), abs=1e-9
+        )
+
+    # Horizontal from left to right, first half-wave up (y is down).
+    assert (points[0].x(), points[0].y()) == pytest.approx((-0.18, 0.0))
+    assert (points[-1].x(), points[-1].y()) == pytest.approx((0.18, 0.0))
+    assert (points[6].x(), points[6].y()) == pytest.approx((-0.09, -0.1))
+
+
+@pytest.mark.parametrize("rotation", [90, 270])
+def test_ac_circle_and_leads_still_turn_with_the_part(rotation):
+    stroke_path = build_symbol_paths("ac_source", rotation)[0]
+    segments = straight_segments(stroke_path)
+
+    assert ((0.0, 0.0), (0.0, 0.2)) in segments
+    assert ((0.0, 0.8), (0.0, 1.0)) in segments
+
+
+@pytest.mark.parametrize("kind", ["resistor", "dc_source", "npn"])
+def test_rotation_does_not_change_other_symbols(kind):
+    for rotation in (90, 180, 270):
+        assert build_symbol_paths(kind, rotation)[0] == (
+            build_symbol_paths(kind)[0]
+        )
+
+
+@pytest.mark.parametrize("rotation", [45, -90, 360, "90", 90.0, True, None])
+def test_symbol_rotation_must_be_a_quarter_turn(rotation):
+    with pytest.raises(
+        ComponentError,
+        match=r"^Symbol rotation must be 0, 90, 180 or 270, not "
+    ):
+        build_symbol_paths("ac_source", rotation)
 
 
 @pytest.mark.parametrize("kind", ["diode", "led"])

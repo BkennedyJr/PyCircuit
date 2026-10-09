@@ -766,3 +766,94 @@ def test_a_part_can_start_on_the_last_column_pointing_inward(window):
     assert window.component_collection.get_component(
         "R1"
     ).get_pin_identifiers() == ["NODE_R04_C07", "NODE_R04_C08"]
+
+
+# PR B: sources through the window and panel --------------------------------
+
+
+def test_place_dc_and_ac_sources_from_the_panel(window):
+    select_point(window, "NODE_R02_C02")
+    combo = panel(window).kind_combo_box
+    combo.setCurrentIndex(combo.findData("dc_source"))
+    panel(window).value_line_edit.setText("9")
+    panel(window).place_button.click()
+
+    select_point(window, "NODE_R02_C04")
+    combo.setCurrentIndex(combo.findData("ac_source"))
+    panel(window).parameter_line_edits["frequency"].setText("50")
+    panel(window).place_button.click()
+
+    assert item(window, "V1").label_item.text() == "V1 9V"
+    assert item(window, "V2").label_item.text() == "V2 1V 50Hz"
+    assert window.statusBar().currentMessage() == (
+        "Placed V2 1V 50Hz at NODE_R02_C04."
+    )
+
+
+def test_apply_a_new_frequency_to_the_selected_ac_source(window):
+    place(window, "NODE_R02_C02", "ac_source", "1")
+    assert not panel(window).selected_parameter_line_edits[
+        "frequency"
+    ].isHidden()
+
+    panel(window).selected_parameter_line_edits["frequency"].setText("60")
+    panel(window).apply_value_button.click()
+
+    assert item(window, "V1").label_item.text() == "V1 1V 60Hz"
+    assert window.statusBar().currentMessage() == "Set V1 to 1V 60Hz."
+
+
+def test_bad_frequency_shows_an_error_and_restores_the_boxes(window):
+    place(window, "NODE_R02_C02", "ac_source", "1")
+    window.is_project_modified = False
+    panel(window).selected_value_line_edit.setText("3")
+    panel(window).selected_parameter_line_edits["frequency"].setText("-5")
+    panel(window).apply_value_button.click()
+
+    source = window.component_collection.get_component("V1")
+    assert (source.value_text, source.parameter_texts["frequency"]) == (
+        "1", "1k"
+    )
+    assert window.recorded_errors[0][0] == "Part Value Not Changed"
+    assert panel(window).selected_value_line_edit.text() == "1"
+    assert panel(window).selected_parameter_line_edits[
+        "frequency"
+    ].text() == "1k"
+    assert window.is_project_modified is False
+
+
+def test_clearing_the_selected_frequency_is_refused(window):
+    # QC #12 item 1: an empty Frequency box no longer resets to 1k.
+    select_point(window, "NODE_R02_C02")
+    window.place_component("ac_source", "1", {"frequency": "60"})
+    window.is_project_modified = False
+    frequency_box = panel(window).selected_parameter_line_edits["frequency"]
+    frequency_box.setText("")
+    frequency_box.returnPressed.emit()
+
+    source = window.component_collection.get_component("V1")
+    assert source.parameter_texts["frequency"] == "60"
+    assert window.recorded_errors[-1] == (
+        "Part Value Not Changed",
+        (
+            "AC voltage source frequency is empty. Enter a number such as 50 "
+            "or 1k."
+        ),
+        (
+            "Enter a number with an optional prefix, for example 4k7, 100n, "
+            "50 or 1k."
+        ),
+    )
+    assert frequency_box.text() == "60"
+    assert window.is_project_modified is False
+
+
+def test_bad_frequency_on_place_places_nothing(window):
+    select_point(window, "NODE_R02_C02")
+    window.place_component("ac_source", "1", {"frequency": "0"})
+
+    assert window.component_collection.get_components() == []
+    assert window.recorded_errors[0][0] == "Part Not Placed"
+    assert "frequency must be greater than zero" in (
+        window.statusBar().currentMessage()
+    )
