@@ -15,7 +15,7 @@ Requirements
 ------------
 
 - Anaconda or Miniconda
-- Python 3.13 (made with 3.13; 3.9 or newer should work)
+- Python (tested on Python 3.13)
 - PyQt5 5.15, installed with pip from requirements.txt
 
 
@@ -27,11 +27,14 @@ Project layout
         connection_grid.py           grid data model
         exceptions.py                error classes
         project_io.py                save and load project files
+        units.py                     parse component values (4k7, 10u, 1meg)
     gui/                             PyQt5 user interface
         main_window.py               main window, menus, docks
         grid_editor.py               grid drawing (QGraphicsScene/View)
         grid_configuration_widget.py rows and columns controls
     tests/                           pytest tests
+        test_smoke.py                grid model smoke test
+        test_units.py                value parser tests
 
 
 Install (Windows, Anaconda Prompt)
@@ -64,13 +67,16 @@ Using it
   identifier (for example NODE_R03_C05), row and column.
 - Node > Toggle Signal Pickoff marks the selected point green.
 - Use the Grid Configuration panel to change the rows and columns, then
-  click Apply.
+  click Apply Grid Configuration.
 - Ctrl + mouse wheel zooms. View > Fit Grid fits the grid to the window.
 - File > Save Project / Open Project stores the grid as a .json file.
 
 
 Tests
 -----
+
+pytest is only needed for running the tests, not for running the app, so
+it is not in requirements.txt. Install it once, then run the tests:
 
     conda activate pycircuit
     pip install pytest
