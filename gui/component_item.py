@@ -8,9 +8,16 @@ rotate() turns clockwise on screen (y points down), the same direction as
 core.components.rotate_offset(), so the drawn leads end on the grid points
 the model reports for the pins.
 
-The item itself is never rotated, so its child label stays upright. The
-click area (shape) is only the symbol body, so the grid points under the
-pins and under the label stay clickable.
+The item itself is never rotated, so its label stays upright. The click
+area (shape) is only the symbol body, so the grid points under the pins and
+under the label stay clickable.
+
+Stacking (z values): label patches at LABEL_Z_VALUE (-0.5) are below the
+grid points (0), which are below the parts (1). So a label never hides a
+pin or a selected grid point, and the body still hides the dot under the
+part's center. A child item always stacks with its parent, so the label is
+a separate top-level scene item: ComponentItem adds it to, and removes it
+from, the scene with itself and keeps it next to itself when moved.
 
 This module must not import gui.grid_editor (the scene will import this
 module). The scene sets the item position.
@@ -34,6 +41,12 @@ BOUNDING_MARGIN = 3
 LABEL_GAP = 6
 LABEL_PATCH_PADDING = 2
 COMPONENT_Z_VALUE = 1
+LABEL_Z_VALUE = -0.5
+# The label may move this close to the body to keep its text off a dot.
+MIN_LABEL_GAP = 2
+# Half the grid dot (16 px) plus its 1 px outline; matches
+# gui.grid_editor.CONNECTION_POINT_DIAMETER (not imported, see above).
+LABEL_DOT_CLEARANCE = 9
 
 # Sides tried for the label, in order. The first side that no pin points
 # toward wins; if every side has a pin, the label goes above.
@@ -72,15 +85,125 @@ def choose_label_side(pin_offsets):
     :returns: "above", "right", "below", or "left".
     :rtype: str
     """
+    return free_label_sides(pin_offsets)[0]
+
+
+def free_label_sides(pin_offsets):
+    """
+    Return the sides in LABEL_SIDES order that no pin points toward.
+
+    :param pin_offsets: Rotated pins as (pin_name, dx, dy).
+    :type pin_offsets: list
+    :returns: Free sides; ["above"] if every side has a pin.
+    :rtype: list
+    """
     blocked_sides = {
         pin_direction(dx, dy) for unused_name, dx, dy in pin_offsets
     }
+    free_sides = [side for side in LABEL_SIDES if side not in blocked_sides]
 
-    for side in LABEL_SIDES:
-        if side not in blocked_sides:
-            return side
+    return free_sides or [LABEL_SIDES[0]]
 
-    return LABEL_SIDES[0]
+
+def snap_between_rows(center_y, grid_spacing):
+    """
+    Return the middle of the gap between grid rows nearest to center_y.
+
+    Rows are at multiples of grid_spacing from the anchor, so the gap
+    middles are at odd multiples of grid_spacing / 2. On a tie (center_y
+    on a row) the upper gap wins.
+
+    :param center_y: Label center relative to the anchor, in pixels.
+    :type center_y: float
+    :param grid_spacing: Pixels between grid rows.
+    :type grid_spacing: float
+    :returns: The middle of the nearest gap.
+    :rtype: float
+    """
+    half_step = grid_spacing / 2.0
+    upper_gap = (math.ceil((center_y - half_step) / grid_spacing)
+                 * grid_spacing) - half_step
+
+    if center_y - upper_gap <= half_step:
+        return upper_gap
+
+    return upper_gap + grid_spacing
+
+
+def fit_between_rows(center_y, text_height, grid_spacing, low=None,
+                     high=None):
+    """
+    Shift a label center so its text stays clear of the grid dot rows.
+
+    The text is moved by the smallest amount that keeps it inside the
+    dot-free band of the row gap that contains center_y. The move is not
+    made if the result would leave [low, high] (too close to the body) or
+    if the text is taller than the band; center_y is then returned.
+
+    :param center_y: Preferred label center relative to the anchor.
+    :type center_y: float
+    :param text_height: Height of the text in pixels.
+    :type text_height: float
+    :param grid_spacing: Pixels between grid rows.
+    :type grid_spacing: float
+    :param low: Smallest allowed center, or None.
+    :type low: float or None
+    :param high: Largest allowed center, or None.
+    :type high: float or None
+    :returns: The adjusted center.
+    :rtype: float
+    """
+    half_height = text_height / 2.0
+    gap_index = math.floor(center_y / grid_spacing)
+    band_top = (gap_index * grid_spacing) + LABEL_DOT_CLEARANCE
+    band_bottom = ((gap_index + 1) * grid_spacing) - LABEL_DOT_CLEARANCE
+
+    if text_height > band_bottom - band_top:
+        return center_y
+
+    fitted = min(max(center_y, band_top + half_height),
+                 band_bottom - half_height)
+
+    if (low is not None and fitted < low) or (high is not None and
+                                                 fitted > high):
+        return center_y
+
+    return fitted
+
+
+def text_touches_a_grid_dot(text_rect, grid_spacing):
+    """
+    Check whether a rectangle (relative to the anchor) overlaps a grid dot.
+
+    The anchor is a grid point, so grid points are at whole multiples of
+    grid_spacing in both directions.
+
+    :param text_rect: Text rectangle in item coordinates.
+    :type text_rect: QRectF
+    :param grid_spacing: Pixels between grid points.
+    :type grid_spacing: float
+    :returns: True if any dot (with its outline) overlaps the rectangle.
+    :rtype: bool
+    """
+    clearance = LABEL_DOT_CLEARANCE
+    first_column = math.floor((text_rect.left() - clearance) / grid_spacing)
+    last_column = math.ceil((text_rect.right() + clearance) / grid_spacing)
+    first_row = math.floor((text_rect.top() - clearance) / grid_spacing)
+    last_row = math.ceil((text_rect.bottom() + clearance) / grid_spacing)
+
+    for column in range(first_column, last_column + 1):
+        for row in range(first_row, last_row + 1):
+            dot_rect = QRectF(
+                column * grid_spacing - clearance,
+                row * grid_spacing - clearance,
+                2 * clearance,
+                2 * clearance
+            )
+
+            if text_rect.intersects(dot_rect):
+                return True
+
+    return False
 
 
 def _validate_grid_spacing(grid_spacing):
@@ -117,6 +240,7 @@ class ComponentLabelItem(QGraphicsSimpleTextItem):
 
         self.setBrush(QColor(SYMBOL_COLOR))
         self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setZValue(LABEL_Z_VALUE)
 
     def text_rect(self):
         """
@@ -197,15 +321,20 @@ class ComponentItem(QGraphicsItem):
         self.fill_path = QPainterPath()
         self.body_path = QPainterPath()
         self.label_side = LABEL_SIDES[0]
+        self.label_offset = QPointF()
         self._bounding_rect = QRectF()
 
         # Selectable for the property panel, but never dragged by Qt: a
         # move must go through the collection's checked move (M2).
         self.setFlag(self.ItemIsSelectable, True)
         self.setFlag(self.ItemIsMovable, False)
+        # Needed for ItemPositionHasChanged, which moves the label along.
+        self.setFlag(self.ItemSendsGeometryChanges, True)
         self.setZValue(COMPONENT_Z_VALUE)
 
-        self.label_item = ComponentLabelItem(self)
+        # Not a child (see the module docstring). This item keeps the only
+        # Python reference and puts the label in its scene in itemChange().
+        self.label_item = ComponentLabelItem()
 
         self.refresh_from_component()
 
@@ -249,7 +378,17 @@ class ComponentItem(QGraphicsItem):
 
     def refresh_label(self):
         """
-        Set the label text and put it on the first free side of the body.
+        Set the label text and put it beside the body.
+
+        The side is the first one, in LABEL_SIDES order, that no pin points
+        toward and where the text stays off every grid dot. If no free side
+        keeps the text off the dots, the first free side is used. Grid dots
+        draw above labels, so this keeps the text readable.
+
+        Right and left labels are centered on the gap between grid rows
+        nearest the body's center. Above and below labels sit LABEL_GAP
+        from the body, moving to as little as MIN_LABEL_GAP to stay between
+        the rows.
 
         :returns: None
         """
@@ -257,36 +396,100 @@ class ComponentItem(QGraphicsItem):
         self.label_item.setText(label_text)
         self.label_item.setVisible(bool(label_text))
 
-        self.label_side = choose_label_side(self.component.get_pin_offsets())
-
-        body_rect = self.body_path.boundingRect()
         text_rect = self.label_item.text_rect()
+        free_sides = free_label_sides(self.component.get_pin_offsets())
+        placements = [
+            (side, self.get_label_top_left(side, text_rect))
+            for side in free_sides
+        ]
+
+        self.label_side, top_left = placements[0]
+
+        for side, candidate_top_left in placements:
+            candidate_rect = QRectF(candidate_top_left, text_rect.size())
+
+            if not text_touches_a_grid_dot(candidate_rect, self.grid_spacing):
+                self.label_side, top_left = side, candidate_top_left
+                break
+
+        self.label_offset = top_left - text_rect.topLeft()
+        self.place_label()
+
+    def get_label_top_left(self, side, text_rect):
+        """
+        Return where the text's top-left corner goes for one side.
+
+        :param side: "above", "right", "below" or "left".
+        :type side: str
+        :param text_rect: The label's text rectangle (for its size).
+        :type text_rect: QRectF
+        :returns: Top-left corner in item coordinates.
+        :rtype: QPointF
+        """
+        body_rect = self.body_path.boundingRect()
         text_width = text_rect.width()
         text_height = text_rect.height()
+        half_height = text_height / 2.0
+        spacing = self.grid_spacing
 
-        if self.label_side == "above":
-            top_left = QPointF(
-                body_rect.center().x() - text_width / 2.0,
-                body_rect.top() - LABEL_GAP - text_height
+        if side == "above":
+            center_y = fit_between_rows(
+                body_rect.top() - LABEL_GAP - half_height,
+                text_height,
+                spacing,
+                high=body_rect.top() - MIN_LABEL_GAP - half_height
             )
-        elif self.label_side == "below":
-            top_left = QPointF(
-                body_rect.center().x() - text_width / 2.0,
-                body_rect.bottom() + LABEL_GAP
+            left_x = body_rect.center().x() - text_width / 2.0
+        elif side == "below":
+            center_y = fit_between_rows(
+                body_rect.bottom() + LABEL_GAP + half_height,
+                text_height,
+                spacing,
+                low=body_rect.bottom() + MIN_LABEL_GAP + half_height
             )
-        elif self.label_side == "right":
-            top_left = QPointF(
-                body_rect.right() + LABEL_GAP,
-                body_rect.center().y() - text_height / 2.0
-            )
+            left_x = body_rect.center().x() - text_width / 2.0
         else:
-            top_left = QPointF(
-                body_rect.left() - LABEL_GAP - text_width,
-                body_rect.center().y() - text_height / 2.0
-            )
+            center_y = snap_between_rows(body_rect.center().y(), spacing)
 
-        # text_rect() starts at (0, 0), so its top-left is the item position.
-        self.label_item.setPos(top_left - text_rect.topLeft())
+            if side == "right":
+                left_x = body_rect.right() + LABEL_GAP
+            else:
+                left_x = body_rect.left() - LABEL_GAP - text_width
+
+        return QPointF(left_x, center_y - half_height)
+
+    def place_label(self):
+        """
+        Put the label at this item's position plus its offset.
+
+        The label is a top-level item, so its position is in scene
+        coordinates, the same as this (top-level) item's position.
+
+        :returns: None
+        """
+        self.label_item.setPos(self.pos() + self.label_offset)
+
+    def itemChange(self, change, value):
+        """
+        Keep the separate label in the same scene and next to this item.
+
+        :param change: What is changing.
+        :type change: QGraphicsItem.GraphicsItemChange
+        :param value: The new value.
+        :returns: The value Qt should use.
+        """
+        if change == self.ItemSceneChange:
+            old_scene = self.scene()
+
+            if old_scene is not None and self.label_item.scene() is old_scene:
+                old_scene.removeItem(self.label_item)
+        elif change == self.ItemSceneHasChanged:
+            if value is not None and self.label_item.scene() is not value:
+                value.addItem(self.label_item)
+        elif change == self.ItemPositionHasChanged:
+            self.place_label()
+
+        return super().itemChange(change, value)
 
     def build_tool_tip(self):
         """
