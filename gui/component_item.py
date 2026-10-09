@@ -55,7 +55,7 @@ from core.components import (
     get_panel_parameter_definitions,
 )
 from core.exceptions import ComponentError
-from gui.component_symbols import build_symbol_paths, get_body_rect
+from gui.component_symbols import build_symbol_paths, get_body_path
 
 BACKGROUND_COLOR = "#1f2933"
 SYMBOL_COLOR = "#d9e2ec"
@@ -479,8 +479,7 @@ class ComponentItem(QGraphicsItem):
         stroke_path, fill_path = build_symbol_paths(
             component.kind, component.rotation
         )
-        body_path = QPainterPath()
-        body_path.addRect(get_body_rect(component.kind))
+        body_path = get_body_path(component.kind)
 
         self.stroke_path = transform.map(stroke_path)
         self.fill_path = transform.map(fill_path)
@@ -531,7 +530,7 @@ class ComponentItem(QGraphicsItem):
 
         text_rect = self.label_item.text_rect()
         free_sides = free_label_sides(
-            self.component.get_pin_offsets(),
+            self.get_label_steering_pin_offsets(),
             self.component.get_body_center_offset()
         )
         placements = [
@@ -551,6 +550,26 @@ class ComponentItem(QGraphicsItem):
         self.label_offset = top_left - text_rect.topLeft()
         self.place_label()
 
+    def get_label_steering_pin_offsets(self):
+        """
+        Return the rotated pins that keep the label off their side.
+
+        A kind may list pins in "label_ignores_pins" (the op-amp's V+ and
+        V-): with all five op-amp pins counted, every side would be taken
+        at 90 and 270 degrees and the label would sit on a lead.
+
+        :returns: Rotated pins as (pin_name, dx, dy).
+        :rtype: list
+        """
+        ignored_pins = COMPONENT_DEFINITIONS[self.component.kind].get(
+            "label_ignores_pins", ()
+        )
+
+        return [
+            pin for pin in self.component.get_pin_offsets()
+            if pin[0] not in ignored_pins
+        ]
+
     def get_label_candidates(self):
         """
         Return every place the scene's label layout may put the text.
@@ -568,7 +587,7 @@ class ComponentItem(QGraphicsItem):
         candidates = []
 
         for side in free_label_sides(
-                self.component.get_pin_offsets(),
+                self.get_label_steering_pin_offsets(),
                 self.component.get_body_center_offset()):
             normal_top_left = self.get_label_top_left(side, text_rect)
 
