@@ -607,3 +607,38 @@ def test_setting_definitions_are_not_shared_through_copies():
     assert get_parameter_definitions("ac_source")[0][
         "default_value_text"
     ] == "1k"
+
+
+def test_covered_half_steps_are_exact():
+    expected = {
+        "resistor": [(1, 0)], "capacitor": [(1, 0)],
+        "capacitor_polarized": [(1, 0)], "inductor": [(1, 0)],
+        "diode": [(1, 0)], "led": [(1, 0)],
+        "dc_source": [(0, 1)], "ac_source": [(0, 1)],
+        "npn": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "pnp": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "ground": [(0, 1)],
+    }
+
+    assert {
+        kind: definition["covered_half_steps"]
+        for kind, definition in COMPONENT_DEFINITIONS.items()
+    } == expected
+
+
+def test_covered_half_points_of_a_turned_transistor():
+    # At 90 deg rotate_offset maps (-1,0)->(0,-1), (0,-1)->(1,0) and
+    # (0,1)->(-1,0); doubled anchor (8, 8) plus (dy, dx).
+    transistor = Component("npn", "Q1", "2N3904", 4, 4, 90)
+
+    assert transistor.get_covered_half_points() == {
+        (8, 8), (7, 8), (8, 9), (8, 7)
+    }
+
+
+def test_covered_half_point_of_a_two_pin_body_and_pin_half_points():
+    resistor = Component("resistor", "R1", "1k", 2, 2, 270)
+
+    # Pins (2,2) and (1,2): body halfway at doubled (3, 4).
+    assert resistor.get_covered_half_points() == {(3, 4)}
+    assert resistor.get_pin_half_points() == {(4, 4), (2, 4)}

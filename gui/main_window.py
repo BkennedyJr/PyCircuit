@@ -572,7 +572,7 @@ class MainWindow(QMainWindow):
                 "Part Not Placed",
                 str(error),
                 "Check the value, or pick a point where every pin lands "
-                "on the grid and no identical part is already there."
+                "on the grid and no other part is drawn there."
             )
             return
 
@@ -652,7 +652,7 @@ class MainWindow(QMainWindow):
             self.show_error_message(
                 "Part Not Rotated",
                 str(error),
-                "Move the part away from the grid edge or from an identical "
+                "Move the part away from the grid edge or from the other "
                 "part, or enlarge the grid."
             )
             return

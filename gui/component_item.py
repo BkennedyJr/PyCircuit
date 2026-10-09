@@ -19,8 +19,8 @@ under its centre. One-step parts have their body between two grid points.
 The scene (ConnectionGridScene.layout_component_labels) may move a label to
 another candidate spot to keep it off neighbouring parts and labels. A
 child item always stacks with its parent, so the label is a separate
-top-level scene item: ComponentItem adds it to, and removes it
-from, the scene with itself and keeps it next to itself when moved.
+top-level scene item: ComponentItem adds it to, and removes it from, the
+scene with itself and keeps it next to itself when moved.
 
 This module must not import gui.grid_editor (the scene will import this
 module). The scene sets the item position.
