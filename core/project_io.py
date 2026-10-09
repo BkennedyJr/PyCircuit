@@ -1,9 +1,10 @@
 """
 Circuit Workbench project-file input and output.
 
-The initial project format persists connection-grid dimensions and selected
-signal-pickoff points. Component instances, wires, reusable nodes, and
-simulation settings will be added to this format in later increments.
+The project format persists connection-grid dimensions, selected
+signal-pickoff points and net labels such as Vcc. Component instances,
+wires and simulation settings will be added to this format in later
+increments.
 """
 
 import json

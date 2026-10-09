@@ -7,11 +7,16 @@ it can later be used by the GUI, command-line scripts, test code, and the
 SPICE netlist-generation layer.
 """
 
+import re
+
 from core.exceptions import GridConfigurationError
 
 
 MINIMUM_GRID_DIMENSION = 1
 MAXIMUM_GRID_DIMENSION = 50
+# Vcc, Vss, Vdd and similar names. The first character is a letter so a
+# value such as 5V is not stored as a name. Matching ignores case.
+NET_LABEL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,15}$")
 
 
 class ConnectionPoint(object):
@@ -37,6 +42,9 @@ class ConnectionPoint(object):
         # Signal-pickoff state will later identify nodes for Bode plotting
         # and other analysis outputs.
         self.is_signal_pickoff = False
+        # A name such as Vcc. Every point with the same name, ignoring
+        # case, is one electrical node. Empty means this point has no name.
+        self.net_label = ""
 
 
 class ConnectionGrid(object):
@@ -130,13 +138,47 @@ class ConnectionGrid(object):
 
         return grid_dimension
 
+    @staticmethod
+    def normalize_net_label(net_label):
+        """
+        Return a net label ready to store, or an empty string to clear it.
+
+        Leading and trailing spaces are removed. ``Vcc`` and ``vcc`` are
+        kept as typed; callers compare them without regard to case.
+
+        :param net_label: Requested name, such as ``Vcc``.
+        :type net_label: str
+        :returns: The stored name, or ``""`` when the label is cleared.
+        :rtype: str
+        :raises GridConfigurationError: If the name is not allowed.
+        """
+        if not isinstance(net_label, str):
+            raise GridConfigurationError(
+                "A net label must be text, such as Vcc."
+            )
+
+        net_label = net_label.strip()
+
+        if net_label == "":
+            return ""
+
+        if NET_LABEL_PATTERN.fullmatch(net_label) is None:
+            raise GridConfigurationError(
+                "A net label must start with a letter and use only "
+                "letters, digits and underscores, up to 16 characters. "
+                f"'{net_label}' is not allowed."
+            )
+
+        return net_label
+
     def configure(self, row_count, column_count):
         """
         Create or resize the connection-point grid.
 
-        Signal pickoffs that still exist after a resize are preserved. For
-        example, a pickoff at row 2, column 3 remains when changing from an
-        8x8 grid to a 10x10 grid. Pickoffs outside a reduced grid are removed.
+        Signal pickoffs and net labels that still exist after a resize are
+        preserved. For example, a pickoff or a Vcc label at row 2, column 3
+        remains when changing from an 8x8 grid to a 10x10 grid. Anything
+        outside a reduced grid is removed.
 
         :param row_count: Requested number of rows.
         :type row_count: int
@@ -160,6 +202,7 @@ class ConnectionGrid(object):
         existing_pickoff_identifiers = set(
             self.get_signal_pickoff_identifiers()
         )
+        existing_net_labels = self.get_net_labels()
 
         new_connection_points_by_identifier = {}
 
@@ -191,6 +234,12 @@ class ConnectionGrid(object):
                 new_connection_points_by_identifier[
                     pickoff_identifier
                 ].is_signal_pickoff = True
+
+        for identifier, net_label in existing_net_labels.items():
+            if identifier in new_connection_points_by_identifier:
+                new_connection_points_by_identifier[
+                    identifier
+                ].net_label = net_label
 
         removed_pickoff_identifiers = sorted(
             existing_pickoff_identifiers.difference(
@@ -260,6 +309,48 @@ class ConnectionGrid(object):
 
         return connection_point.is_signal_pickoff
 
+    def set_net_label(self, connection_point_identifier, net_label):
+        """
+        Name one connection point, or clear its name.
+
+        Points that share a name, ignoring case, are the same electrical
+        node. An empty name clears the label. A refused name leaves the
+        previous one in place.
+
+        :param connection_point_identifier: Point to name.
+        :type connection_point_identifier: str
+        :param net_label: Name such as ``Vcc``, or blank to clear.
+        :type net_label: str
+        :returns: The stored name, or ``""`` when cleared.
+        :rtype: str
+        :raises GridConfigurationError: If the point or the name is invalid.
+        """
+        connection_point = self.get_connection_point(
+            connection_point_identifier
+        )
+        normalized_net_label = self.normalize_net_label(net_label)
+        connection_point.net_label = normalized_net_label
+
+        return normalized_net_label
+
+    def get_net_labels(self):
+        """
+        Return the name of every labeled connection point.
+
+        :returns: Identifier to name, for example
+            ``{"NODE_R02_C05": "Vcc"}``.
+        :rtype: dict
+        """
+        net_labels = {}
+
+        for connection_point in self.connection_points_by_identifier.values():
+            if connection_point.net_label:
+                net_labels[connection_point.identifier] = (
+                    connection_point.net_label
+                )
+
+        return net_labels
+
     def get_signal_pickoff_identifiers(self):
         """
         Return all selected signal-pickoff identifiers.
@@ -289,7 +380,8 @@ class ConnectionGrid(object):
             "column_count": self.column_count,
             "signal_pickoff_identifiers": (
                 self.get_signal_pickoff_identifiers()
-            )
+            ),
+            "net_labels": self.get_net_labels()
         }
 
     @classmethod
@@ -349,5 +441,33 @@ class ConnectionGrid(object):
                 pickoff_identifier
             )
             connection_point.is_signal_pickoff = True
+
+        # Older project files have no net labels. A missing field means
+        # every point is unnamed.
+        net_labels = connection_grid_data.get("net_labels", {})
+
+        if not isinstance(net_labels, dict):
+            raise GridConfigurationError(
+                "'net_labels' must be a JSON object mapping a point "
+                "such as NODE_R02_C03 to a name such as Vcc."
+            )
+
+        for identifier, net_label in net_labels.items():
+            if not isinstance(identifier, str):
+                raise GridConfigurationError(
+                    "Each net-label point must be text."
+                )
+
+            normalized_net_label = cls.normalize_net_label(net_label)
+
+            if normalized_net_label == "":
+                raise GridConfigurationError(
+                    "A saved net label cannot be blank."
+                )
+
+            connection_grid.set_net_label(
+                identifier,
+                normalized_net_label
+            )
 
         return connection_grid

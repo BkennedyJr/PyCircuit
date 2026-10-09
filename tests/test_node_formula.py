@@ -25,7 +25,7 @@ def formulas(*parts, wires=()):
     for start, end, bridged in wires:
         collection.add_wire(start, end, grid, bridged)
 
-    return build_node_formulas(parts, collection)
+    return build_node_formulas(parts, collection, grid)
 
 
 def same(expression, expected):

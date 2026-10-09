@@ -68,6 +68,11 @@ Using it
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
   is not a connection. Diodes and transistors have no formula. An
   op-amp uses the ideal rule that its two inputs match.
+- Type a name such as Vcc in that panel and press Apply (or Enter).
+  Every point with the same name is one node, so a DC source wired to
+  one of them sets the voltage at the others. Vcc and vcc match.
+  Leave the name blank and Apply to clear it. The name is drawn beside
+  the point and is saved with the grid.
 - Node > Toggle Signal Pickoff marks the selected point green.
 - The Grid toolbar at the top sets the rows and columns. Press Apply,
   or tab to Apply and press Enter.

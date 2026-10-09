@@ -21,7 +21,8 @@ PROJECT FACTS
   it while Esc cancels.
 - Wires: a wire connects every dot it crosses, horizontal or vertical only,
   unless that crossing is a bridge (the wire hops and does not connect
-  there). One function decides connectivity; reuse it everywhere.
+  there). One function decides connectivity; reuse it everywhere. A net
+  label such as Vcc joins every point with that name, ignoring case.
 - Sources: dc_source (battery), ac_source (sine, peak amplitude, frequency,
   offset, phase), current_source. Op-amps: generic OPAMP and LM741
   (Logipipe, CC BY 4.0, credited in the README).
@@ -56,7 +57,8 @@ TALKING TO BILLIE
 
 ROADMAP (status)
 Done: grid, parts and symbols, values, labels, ghost placement, drag, wires,
-zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node.
+zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node,
+named nets (Vcc, Vss: same name, same node).
 Next: netlist builder, ngspice runner, probes (Direct, 1 Mohm, 10x scope,
 Differential, Current), a dockable oscilloscope with Start/Stop, then Bode
 and FFT docks, then saving parts, wires and probes.
