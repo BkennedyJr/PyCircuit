@@ -70,3 +70,15 @@ and FFT docks, then saving parts, wires and probes.
 
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.
+
+## Cursor Cloud specific instructions
+
+- `python`, `pip`, `pytest`, and `ruff` on PATH are Python 3.13 from
+  `/opt/pycircuit-venv` (PyQt5, pytest, ruff, and numpy). ngspice is the
+  Ubuntu package (`ngspice`; 42 on Ubuntu 24.04). `tests/test_opamp_ngspice.py`
+  runs when `ngspice` is on PATH.
+- From the repo root, `python -m pytest -q` is the full suite. Tests already
+  set the offscreen Qt platform in `tests/conftest.py`. Do not create a
+  QApplication in a test file.
+- The desktop app is `python main.py`. Cloud Agent VMs already have a display
+  on `DISPLAY=:1`. There is no dev server to start.
