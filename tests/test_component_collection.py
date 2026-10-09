@@ -274,3 +274,39 @@ def test_set_value_text_keeps_pair_on_error():
 
     capacitor.set_value_text(" 2.2u ")
     assert (capacitor.value_text, capacitor.value) == ("2.2u", 2.2e-06)
+
+
+# Argument checks and read-only fields -------------------------------------
+
+
+@pytest.mark.parametrize("bad_component", [None, "R1", 5])
+def test_ensure_pins_fit_grid_rejects_non_component(grid, bad_component):
+    with pytest.raises(ComponentError):
+        ComponentCollection.ensure_pins_fit_grid(bad_component, grid)
+
+
+@pytest.mark.parametrize("bad_grid", [None, (8, 8), "grid"])
+def test_ensure_pins_fit_grid_rejects_non_grid(bad_grid):
+    resistor = Component("resistor", "R1", "1k", 4, 4)
+
+    with pytest.raises(ComponentError):
+        ComponentCollection.ensure_pins_fit_grid(resistor, bad_grid)
+
+
+def test_ensure_pins_fit_grid_accepts_fitting_part(grid):
+    resistor = Component("resistor", "R1", "1k", 4, 4)
+
+    assert ComponentCollection.ensure_pins_fit_grid(resistor, grid) is None
+
+
+def test_kind_and_reference_are_read_only(collection, grid):
+    resistor = collection.add_component("resistor", 4, 4, "1k", grid)
+
+    with pytest.raises(ComponentError):
+        resistor.reference = "R99"
+
+    with pytest.raises(ComponentError):
+        resistor.kind = "capacitor"
+
+    assert (resistor.kind, resistor.reference) == ("resistor", "R1")
+    assert collection.get_component("R1") is resistor

@@ -314,8 +314,10 @@ class Component:
         self.validate_reference(reference, component_definition)
         clean_text, value = validate_value_text(kind, value_text)
 
-        self.kind = kind
-        self.reference = reference
+        # kind and reference are fixed for the life of the part; the
+        # collection keys parts by reference and the prefix follows kind.
+        self._kind = kind
+        self._reference = reference
         self.value_text = clean_text
         self.value = value
 
@@ -324,6 +326,37 @@ class Component:
         self.row_number = row_number
         self.column_number = column_number
         self.rotation = rotation
+
+    @property
+    def kind(self):
+        """
+        Component kind, for example "resistor". Read-only.
+
+        :rtype: str
+        """
+        return self._kind
+
+    @kind.setter
+    def kind(self, unused_kind):
+        raise ComponentError(
+            f"The kind of {self._reference} cannot be changed. Delete the "
+            "part and place a new one instead."
+        )
+
+    @property
+    def reference(self):
+        """
+        Reference designator, for example "R1". Read-only.
+
+        :rtype: str
+        """
+        return self._reference
+
+    @reference.setter
+    def reference(self, unused_reference):
+        raise ComponentError(
+            f"The reference of {self._reference} cannot be changed."
+        )
 
     @property
     def row_number(self):
@@ -624,8 +657,19 @@ class ComponentCollection:
         :param connection_grid: Grid the part must fit on.
         :type connection_grid: ConnectionGrid
         :returns: None
-        :raises ComponentError: If any pin lies outside the grid.
+        :raises ComponentError: If component is not a Component,
+            connection_grid is not a ConnectionGrid, or any pin lies
+            outside the grid.
         """
+        # Check the argument types first so callers always get a
+        # ComponentError, never an AttributeError.
+        if not isinstance(component, Component):
+            raise ComponentError(
+                f"Expected a Component, not {type(component).__name__}."
+            )
+
+        _validate_connection_grid(connection_grid)
+
         if component.pins_fit_grid(
                 connection_grid.row_count,
                 connection_grid.column_count):
