@@ -64,25 +64,26 @@ def test_next_reference_rejects_unknown_kind(collection):
 
 
 def test_resistor_at_corner_raises(collection, grid):
+    # From the top-right corner the second pin would be at column 9.
     with pytest.raises(ComponentError) as error_info:
-        collection.add_component("resistor", 1, 1, "1k", grid)
+        collection.add_component("resistor", 1, 8, "1k", grid)
 
     assert "further inside the grid" in str(error_info.value)
     assert collection.get_components() == []
 
 
 def test_resistor_at_left_edge(collection, grid):
-    # Pins of a resistor at (4,1) would be at columns 0 and 2.
+    # Turned 180 deg at (4,1), the second pin would be at column 0.
     with pytest.raises(ComponentError):
-        collection.add_component("resistor", 4, 1, "1k", grid)
+        collection.add_component("resistor", 4, 1, "1k", grid, 180)
 
-    resistor = collection.add_component("resistor", 4, 2, "1k", grid)
-    assert resistor.get_pin_positions() == [("1", 4, 1), ("2", 4, 3)]
+    resistor = collection.add_component("resistor", 4, 1, "1k", grid)
+    assert resistor.get_pin_positions() == [("1", 4, 1), ("2", 4, 2)]
 
 
 def test_failed_add_does_not_use_up_a_reference(collection, grid):
     with pytest.raises(ComponentError):
-        collection.add_component("resistor", 1, 1, "1k", grid)
+        collection.add_component("resistor", 1, 8, "1k", grid)
 
     assert collection.add_component("resistor", 4, 4, "1k", grid).reference \
         == "R1"
@@ -108,7 +109,7 @@ def test_ground_can_sit_in_a_corner(collection, grid):
 def test_add_with_rotation(collection, grid):
     resistor = collection.add_component("resistor", 4, 4, "4k7", grid, 90)
 
-    assert resistor.get_pin_positions() == [("1", 3, 4), ("2", 5, 4)]
+    assert resistor.get_pin_positions() == [("1", 4, 4), ("2", 5, 4)]
 
 
 def test_add_rejects_bad_value_and_stores_nothing(collection, grid):
@@ -165,7 +166,8 @@ def test_rotate_cycles_through_all_angles(collection, grid):
 
 
 def test_rotation_off_grid_raises_and_keeps_old_rotation(collection, grid):
-    collection.add_component("resistor", 1, 4, "1k", grid)
+    # On the bottom row, a quarter turn would put pin 2 on row 9.
+    collection.add_component("resistor", 8, 4, "1k", grid)
 
     with pytest.raises(ComponentError) as error_info:
         collection.rotate_component("R1", grid)
@@ -173,7 +175,7 @@ def test_rotation_off_grid_raises_and_keeps_old_rotation(collection, grid):
     assert "cannot be rotated" in str(error_info.value)
     assert collection.get_component("R1").rotation == 0
     assert collection.get_component("R1").get_pin_positions() == [
-        ("1", 1, 3), ("2", 1, 5)
+        ("1", 8, 4), ("2", 8, 5)
     ]
 
 
@@ -261,7 +263,7 @@ def test_valid_row_assignment_moves_pins():
     resistor = Component("resistor", "R1", "1k", 4, 4)
     resistor.row_number = 6
 
-    assert resistor.get_pin_positions() == [("1", 6, 3), ("2", 6, 5)]
+    assert resistor.get_pin_positions() == [("1", 6, 4), ("2", 6, 5)]
 
 
 def test_set_value_text_keeps_pair_on_error():
@@ -312,24 +314,35 @@ def test_kind_and_reference_are_read_only(collection, grid):
     assert collection.get_component("R1") is resistor
 
 
-# Identical placements (QC PR #10 issue 1) ------------------------------------
+# Overlaps: the same pin points (any kind, either order) or the same body
+# centre are refused; sharing single pins is how parts connect. -------------
 
 
-def test_identical_placement_is_rejected_with_a_clear_message(
-        collection, grid):
-    collection.add_component("resistor", 4, 4, "1k", grid)
+def add_stacked(collection, kind, reference, value_text, row, column,
+                rotation):
+    """
+    Store a part directly, bypassing add_component's checks, so the
+    rotate guards can still be tested on an overlapping pair.
+    """
+    component = Component(kind, reference, value_text, row, column, rotation)
+    collection.components_by_reference[reference] = component
+    return component
+
+
+def test_same_pins_are_refused_with_a_clear_message(collection, grid):
+    collection.add_component("resistor", 2, 2, "1k", grid)
 
     with pytest.raises(ComponentError) as error_info:
-        collection.add_component("resistor", 4, 4, "2k2", grid)
+        collection.add_component("resistor", 2, 2, "2k2", grid)
 
     assert str(error_info.value) == (
-        "R1 (Resistor at row 4, column 4, 0 deg) already sits on exactly "
-        "these grid points. Pick another grid point or rotation, or select "
-        "R1 to edit it."
+        "R1 (Resistor) already connects exactly these grid points: "
+        "NODE_R02_C02, NODE_R02_C03. Pick other grid points or another "
+        "rotation, or select R1 to edit it."
     )
 
 
-def test_identical_placement_stores_nothing_and_keeps_numbering(
+def test_refused_overlap_stores_nothing_and_keeps_numbering(
         collection, grid):
     collection.add_component("resistor", 4, 4, "1k", grid)
 
@@ -342,133 +355,119 @@ def test_identical_placement_stores_nothing_and_keeps_numbering(
         == "R2"
 
 
-def test_identical_rotated_placement_is_rejected(collection, grid):
-    collection.add_component("capacitor", 4, 4, "100n", grid, rotation=90)
-
-    with pytest.raises(
-            ComponentError,
-            match=r"^C1 \(Capacitor at row 4, column 4, 90 deg\)"):
-        collection.add_component("capacitor", 4, 4, "1n", grid, rotation=90)
-
-
-def test_half_turn_on_the_same_points_is_rejected(collection, grid):
-    # A resistor at 180 deg covers the same two points as at 0 deg.
+@pytest.mark.parametrize("kind, value", [
+    ("capacitor", "100n"), ("capacitor_polarized", "10u"),
+    ("inductor", "10u"), ("diode", "1N4148"), ("led", "LED_RED"),
+])
+def test_another_kind_on_the_same_pins_is_refused(collection, grid, kind,
+                                                  value):
     collection.add_component("resistor", 4, 4, "1k", grid)
 
-    with pytest.raises(ComponentError, match=r"^R1 \(Resistor at row 4"):
-        collection.add_component("resistor", 4, 4, "1k", grid, rotation=180)
+    with pytest.raises(ComponentError, match=r"^R1 \(Resistor\) already "
+                       r"connects exactly these grid points: NODE_R04_C04, "
+                       r"NODE_R04_C05\."):
+        collection.add_component(kind, 4, 4, value, grid)
 
     assert len(collection.get_components()) == 1
 
 
-def test_identical_ground_is_rejected(collection, grid):
-    collection.add_component("ground", 6, 2, "", grid)
-
-    with pytest.raises(ComponentError, match=r"^GND1 \(Ground at row 6"):
-        collection.add_component("ground", 6, 2, "", grid)
-
-
-def add_stacked(collection, kind, reference, value_text, row, column,
-                rotation):
-    """
-    Store a part directly, bypassing add_component's checks, so the
-    rotate guards can still be tested on a stacked pair.
-    """
-    component = Component(kind, reference, value_text, row, column, rotation)
-    collection.components_by_reference[reference] = component
-    return component
-
-
-def test_another_kind_on_the_same_anchor_is_refused(collection, grid):
-    collection.add_component("resistor", 4, 4, "1k", grid)
-
-    with pytest.raises(ComponentError) as error_info:
-        collection.add_component("capacitor", 4, 4, "100n", grid)
-
-    assert str(error_info.value) == (
-        "R1 (Resistor) already has its centre at row 4, column 4. Pick "
-        "another grid point, or select R1 to edit it."
-    )
-    assert [c.reference for c in collection.get_components()] == ["R1"]
-    assert collection.next_reference("capacitor") == "C1"
-
-
-def test_same_anchor_with_a_quarter_turn_is_refused(collection, grid):
+def test_same_pins_in_the_other_order_are_refused(collection, grid):
+    # R1 runs C4 -> C5; a capacitor anchored on C5 turned 180 deg runs
+    # C5 -> C4: the same two points.
     collection.add_component("resistor", 4, 4, "1k", grid)
 
     with pytest.raises(ComponentError, match=r"^R1 \(Resistor\) already "):
+        collection.add_component("capacitor", 4, 5, "100n", grid, 180)
+
+
+def test_vertical_parts_on_the_same_pins_are_refused(collection, grid):
+    # V1 runs R4 -> R5 down; a resistor at 90 deg runs the same way, and a
+    # diode anchored on R5 at 270 deg runs R5 -> R4.
+    collection.add_component("voltage_source", 4, 4, "9", grid)
+
+    with pytest.raises(ComponentError, match=r"^V1 \(Voltage source\)"):
         collection.add_component("resistor", 4, 4, "1k", grid, 90)
 
-    assert len(collection.get_components()) == 1
+    with pytest.raises(ComponentError, match=r"^V1 \(Voltage source\)"):
+        collection.add_component("diode", 5, 4, "1N4148", grid, 270)
 
 
-def test_led_on_a_diode_centre_is_refused(collection, grid):
-    collection.add_component("diode", 5, 5, "1N4148", grid)
-
-    with pytest.raises(ComponentError, match=r"^D1 \(Diode\) already has"):
-        collection.add_component("led", 5, 5, "LED_RED", grid)
-
-
-def test_current_source_on_a_voltage_source_centre_is_refused(grid):
+def test_current_source_on_a_voltage_source_is_refused(grid):
     collection = ComponentCollection()
     collection.add_component("voltage_source", 5, 5, "9", grid)
 
-    with pytest.raises(
-            ComponentError, match=r"^V1 \(Voltage source\) already has"):
+    with pytest.raises(ComponentError, match=r"^V1 \(Voltage source\)"):
         collection.add_component("current_source", 5, 5, "1m", grid)
 
 
-def test_resistor_on_a_ground_is_refused(collection, grid):
-    collection.add_component("ground", 4, 4, "", grid)
+def test_identical_ground_is_refused(collection, grid):
+    collection.add_component("ground", 6, 2, "", grid)
 
-    with pytest.raises(ComponentError, match=r"^GND1 \(Ground\) already"):
-        collection.add_component("resistor", 4, 4, "1k", grid)
+    with pytest.raises(ComponentError, match=r"^GND1 \(Ground\) already "
+                       r"connects exactly these grid points: NODE_R06_C02\."):
+        collection.add_component("ground", 6, 2, "", grid)
 
 
-def test_parts_sharing_a_pin_are_allowed(collection, grid):
-    # R1 pins (4,3)-(4,5); R2 pins (4,5)-(4,7): they connect at (4,5).
-    collection.add_component("resistor", 4, 4, "1k", grid)
-    second = collection.add_component("resistor", 4, 6, "1k", grid)
+def test_transistor_on_another_transistors_centre_is_refused(
+        collection, grid):
+    # A quarter turn gives different pins but the same body centre.
+    collection.add_component("npn", 4, 4, "2N3904", grid)
 
-    assert second.reference == "R2"
-    assert set(collection.get_component("R1").get_pin_identifiers()) & set(
+    with pytest.raises(ComponentError) as error_info:
+        collection.add_component("pnp", 4, 4, "2N3906", grid, 90)
+
+    assert str(error_info.value) == (
+        "Q1 (NPN transistor) already has its centre at row 4, column 4. "
+        "Pick another grid point, or select Q1 to edit it."
+    )
+
+
+def test_ground_on_a_transistor_centre_is_refused(collection, grid):
+    collection.add_component("npn", 4, 4, "2N3904", grid)
+
+    with pytest.raises(ComponentError, match=r"^Q1 \(NPN transistor\) "
+                       r"already has its centre"):
+        collection.add_component("ground", 4, 4, "", grid)
+
+
+def test_parts_sharing_one_pin_are_allowed(collection, grid):
+    # R1 runs C2 -> C3 and R2 runs C3 -> C4: they connect at C3.
+    first = collection.add_component("resistor", 2, 2, "1k", grid)
+    second = collection.add_component("resistor", 2, 3, "1k", grid)
+
+    assert set(first.get_pin_identifiers()) & set(
         second.get_pin_identifiers()
-    ) == {"NODE_R04_C05"}
+    ) == {"NODE_R02_C03"}
 
 
-def test_resistors_sharing_a_middle_pin_are_allowed(collection, grid):
-    first = collection.add_component("resistor", 4, 3, "1k", grid)
-    second = collection.add_component("resistor", 4, 5, "1k", grid)
+def test_parts_sharing_an_anchor_are_allowed(collection, grid):
+    # Anchors are pins now: three parts can start on one point.
+    collection.add_component("resistor", 4, 4, "1k", grid)
+    collection.add_component("capacitor", 4, 4, "1n", grid, 90)
+    collection.add_component("diode", 4, 4, "1N4148", grid, 180)
 
-    assert "NODE_R04_C04" in first.get_pin_identifiers()
-    assert "NODE_R04_C04" in second.get_pin_identifiers()
+    assert [c.reference for c in collection.get_components()] == [
+        "C1", "D1", "R1"
+    ]
 
 
 def test_ground_on_a_resistor_pin_is_allowed(collection, grid):
     collection.add_component("resistor", 4, 4, "1k", grid)
-    ground = collection.add_component("ground", 4, 5, "", grid)
+    collection.add_component("ground", 4, 5, "", grid)
+    ground = collection.add_component("ground", 4, 4, "", grid)
 
-    assert ground.reference == "GND1"
-
-
-def test_turned_led_sharing_a_resistor_pin_is_allowed(collection, grid):
-    resistor = collection.add_component("resistor", 4, 4, "1k", grid)
-    led = collection.add_component("led", 3, 5, "LED_RED", grid, 90)
-
-    assert set(resistor.get_pin_identifiers()) & set(
-        led.get_pin_identifiers()
-    ) == {"NODE_R04_C05"}
+    assert ground.reference == "GND2"
 
 
-def test_identical_spot_is_free_again_after_removal(collection, grid):
-    collection.add_component("resistor", 4, 4, "1k", grid)
-    collection.remove_component("R1")
+def test_transistor_pin_on_a_resistor_pin_is_allowed(collection, grid):
+    # Q1's base is at (4, 3), R1's second pin.
+    collection.add_component("resistor", 4, 2, "1k", grid)
+    transistor = collection.add_component("npn", 4, 4, "2N3904", grid)
 
-    assert collection.add_component("resistor", 4, 4, "1k", grid).reference \
-        == "R1"
+    assert "NODE_R04_C03" in transistor.get_pin_identifiers()
 
 
-def test_anchor_is_free_for_another_kind_after_removal(collection, grid):
+def test_spot_is_free_again_after_removal(collection, grid):
     collection.add_component("resistor", 4, 4, "1k", grid)
     collection.remove_component("R1")
 
@@ -476,64 +475,163 @@ def test_anchor_is_free_for_another_kind_after_removal(collection, grid):
         == "C1"
 
 
-def test_find_component_at_anchor(collection, grid):
+def test_find_component_with_same_pins(collection, grid):
     resistor = collection.add_component("resistor", 4, 4, "1k", grid)
+    twin = Component("capacitor", "C1", "1n", 4, 5, 180)
+    neighbour = Component("capacitor", "C1", "1n", 4, 5, 0)
 
-    assert collection.find_component_at_anchor(4, 4) is resistor
-    assert collection.find_component_at_anchor(4, 5) is None
-    assert collection.find_component_at_anchor(4, 4, skip=resistor) is None
+    assert collection.find_component_with_same_pins(twin) is resistor
+    assert collection.find_component_with_same_pins(neighbour) is None
+    assert collection.find_component_with_same_pins(resistor) is None
 
 
-def test_rotation_onto_an_identical_part_is_refused(collection, grid):
-    collection.add_component("resistor", 4, 4, "1k", grid, rotation=90)
-    add_stacked(collection, "resistor", "R2", "2k2", 4, 4, 0)
+def test_find_component_with_body_center(collection, grid):
+    transistor = collection.add_component("npn", 4, 4, "2N3904", grid)
+
+    assert collection.find_component_with_body_center(
+        Component("pnp", "Q2", "2N3906", 4, 4, 180)
+    ) is transistor
+    assert collection.find_component_with_body_center(transistor) is None
+    assert collection.find_component_with_body_center(
+        Component("npn", "Q2", "2N3904", 4, 6)
+    ) is None
+
+
+def test_rotation_onto_the_same_pins_is_refused(collection, grid):
+    # R1 runs C4 -> C5. R2 starts on C5 pointing down; one quarter turn
+    # would point it left, back onto C4.
+    collection.add_component("resistor", 4, 4, "1k", grid)
+    collection.add_component("resistor", 4, 5, "2k2", grid, 90)
 
     with pytest.raises(ComponentError) as error_info:
         collection.rotate_component("R2", grid)
 
     assert str(error_info.value) == (
-        "R2 cannot be rotated to 90 deg: R1 (Resistor at row 4, column 4, "
-        "90 deg) already sits on exactly these grid points. Pick another "
-        "grid point or rotation, or select R1 to edit it."
+        "R2 cannot be rotated to 180 deg: R1 (Resistor) already connects "
+        "exactly these grid points: NODE_R04_C04, NODE_R04_C05. Pick other "
+        "grid points or another rotation, or select R1 to edit it."
     )
-    assert collection.get_component("R2").rotation == 0
-
-
-def test_rotation_onto_a_half_turned_twin_is_refused(collection, grid):
-    collection.add_component("resistor", 4, 4, "1k", grid)
-    add_stacked(collection, "resistor", "R2", "2k2", 4, 4, 90)
-
-    with pytest.raises(ComponentError, match=r"^R2 cannot be rotated to 180"):
-        collection.rotate_component("R2", grid)
-
     assert collection.get_component("R2").rotation == 90
 
 
-def test_rotation_of_a_part_sharing_a_centre_is_refused(collection, grid):
-    # A stacked pair can only come from outside add_component (e.g. a
-    # future file load). Rotating either part is refused until one moves.
+def test_rotation_onto_a_transistor_centre_is_refused(collection, grid):
+    # Only an overlapping pair stored outside add_component (e.g. a later
+    # file load) can share a centre; rotating it is refused.
     collection.add_component("npn", 4, 4, "2N3904", grid)
     add_stacked(collection, "npn", "Q2", "2N3904", 4, 4, 90)
 
-    with pytest.raises(ComponentError) as error_info:
+    with pytest.raises(ComponentError, match=r"^Q2 cannot be rotated to 180 "
+                       r"deg: Q1 \(NPN transistor\) already has its "
+                       r"centre at row 4, column 4\."):
         collection.rotate_component("Q2", grid)
 
-    assert str(error_info.value) == (
-        "Q2 cannot be rotated to 180 deg: Q1 (NPN transistor) already has "
-        "its centre at row 4, column 4. Pick another grid point, or select "
-        "Q1 to edit it."
-    )
     assert collection.get_component("Q2").rotation == 90
 
 
-def test_rotation_with_a_free_centre_is_allowed(collection, grid):
+def test_rotation_with_free_pins_is_allowed(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid)
+    collection.add_component("resistor", 4, 4, "1k", grid, 90)
+
+    # R2 turns to 180 (C4 -> C3): free, it only shares the anchor.
+    assert collection.rotate_component("R2", grid) == 180
+
+
+# --- QC #11 issue 1: a symbol drawn over another part's body or pin ----------
+
+
+def assert_drawn_over_refused(collection, grid, other_reference, kind, row,
+                              column, rotation=0, value=""):
+    stored_before = [part.reference for part in collection.get_components()]
+
+    with pytest.raises(ComponentError) as error_info:
+        collection.add_component(kind, row, column, value, grid, rotation)
+
+    message = str(error_info.value)
+    assert message.startswith(other_reference)
+    assert "is already drawn there" in message
+    assert [part.reference for part in collection.get_components()] == (
+        stored_before
+    )
+
+
+def test_resistor_pin_on_a_transistor_centre_is_refused(collection, grid):
     collection.add_component("npn", 4, 4, "2N3904", grid)
-    collection.add_component("npn", 4, 6, "2N3904", grid)
 
-    assert collection.rotate_component("Q2", grid) == 90
+    assert_drawn_over_refused(collection, grid, "Q1", "resistor", 4, 4)
 
 
-def test_find_identical_component_skips_itself(collection, grid):
-    component = collection.add_component("resistor", 4, 4, "1k", grid)
+def test_resistor_turned_180_onto_a_transistor_centre_is_refused(
+        collection, grid):
+    collection.add_component("npn", 4, 4, "2N3904", grid)
 
-    assert collection.find_identical_component(component) is None
+    # Pins (4,5) and (4,4): the second pin is on Q1's centre.
+    assert_drawn_over_refused(collection, grid, "Q1", "resistor", 4, 5, 180)
+
+
+def test_resistor_from_the_collector_into_the_centre_is_refused(
+        collection, grid):
+    collection.add_component("npn", 4, 4, "2N3904", grid)
+
+    # Pins (3,4) and (4,4), body at half point (3.5, 4): over Q1's body.
+    assert_drawn_over_refused(collection, grid, "Q1", "resistor", 3, 4, 90)
+
+
+def test_transistor_over_a_resistor_pin_is_refused(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid)
+
+    assert_drawn_over_refused(collection, grid, "R1", "npn", 4, 4,
+                              value="2N3904")
+
+
+def test_ground_bars_over_a_vertical_resistor_body_are_refused(
+        collection, grid):
+    # R1 runs (4,4) -> (5,4) with its body at (4.5, 4); ground at (4,4)
+    # draws its bars at (4.5, 4).
+    collection.add_component("resistor", 4, 4, "1k", grid, 90)
+
+    assert_drawn_over_refused(collection, grid, "R1", "ground", 4, 4)
+
+
+def test_transistor_over_ground_bars_is_refused(collection, grid):
+    # Ground at (4,4) covers (4.5, 4); an npn at (5,4) covers (4.5, 4)
+    # toward its collector.
+    collection.add_component("ground", 4, 4, "", grid)
+
+    assert_drawn_over_refused(collection, grid, "GND1", "npn", 5, 4,
+                              value="2N3904")
+
+
+def test_rotation_onto_ground_bars_is_refused(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid)
+    collection.add_component("ground", 4, 4, "", grid)
+
+    with pytest.raises(ComponentError) as error_info:
+        collection.rotate_component("R1", grid)
+
+    assert str(error_info.value).startswith(
+        "R1 cannot be rotated to 90 deg: GND1 (Ground) is already drawn there"
+    )
+    assert collection.get_component("R1").rotation == 0
+
+
+@pytest.mark.parametrize("first, second", [
+    (("resistor", 4, 4, "1k", 90), ("ground", 5, 4, "", 0)),
+    (("resistor", 4, 4, "1k", 0), ("ground", 4, 4, "", 0)),
+    (("resistor", 4, 4, "1k", 0), ("ground", 4, 5, "", 0)),
+    (("resistor", 4, 2, "1k", 0), ("npn", 4, 4, "2N3904", 0)),
+    (("voltage_source", 4, 4, "5", 0), ("npn", 4, 6, "2N3904", 0)),
+])
+def test_neighbours_that_only_share_pins_are_allowed(collection, grid, first,
+                                                     second):
+    for kind, row, column, value, rotation in (first, second):
+        collection.add_component(kind, row, column, value, grid, rotation)
+
+    assert len(collection.get_components()) == 2
+
+
+def test_three_parts_fanning_out_of_one_anchor_are_allowed(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid, 0)
+    collection.add_component("capacitor", 4, 4, "100n", grid, 90)
+    collection.add_component("diode", 4, 4, "1N4148", grid, 180)
+
+    assert len(collection.get_components()) == 3

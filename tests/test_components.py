@@ -64,18 +64,18 @@ def test_valid_rotations():
 
 def test_plan_definitions_are_exact():
     expected = {
-        "resistor": ("R", [("1", -1, 0), ("2", 1, 0)], "positive", "1k"),
-        "capacitor": ("C", [("1", -1, 0), ("2", 1, 0)], "positive", "100n"),
+        "resistor": ("R", [("1", 0, 0), ("2", 1, 0)], "positive", "1k"),
+        "capacitor": ("C", [("1", 0, 0), ("2", 1, 0)], "positive", "100n"),
         "capacitor_polarized": (
-            "C", [("plus", -1, 0), ("minus", 1, 0)], "positive", "10u"),
-        "inductor": ("L", [("1", -1, 0), ("2", 1, 0)], "positive", "10u"),
+            "C", [("plus", 0, 0), ("minus", 1, 0)], "positive", "10u"),
+        "inductor": ("L", [("1", 0, 0), ("2", 1, 0)], "positive", "10u"),
         "voltage_source": (
-            "V", [("plus", 0, -1), ("minus", 0, 1)], "any", "5"),
-        "current_source": ("I", [("in", 0, 1), ("out", 0, -1)], "any", "1m"),
+            "V", [("plus", 0, 0), ("minus", 0, 1)], "any", "5"),
+        "current_source": ("I", [("in", 0, 0), ("out", 0, 1)], "any", "1m"),
         "diode": (
-            "D", [("anode", -1, 0), ("cathode", 1, 0)], "model", "1N4148"),
+            "D", [("anode", 0, 0), ("cathode", 1, 0)], "model", "1N4148"),
         "led": (
-            "D", [("anode", -1, 0), ("cathode", 1, 0)], "model", "LED_RED"),
+            "D", [("anode", 0, 0), ("cathode", 1, 0)], "model", "LED_RED"),
         "npn": (
             "Q",
             [("base", -1, 0), ("collector", 0, -1), ("emitter", 0, 1)],
@@ -100,6 +100,76 @@ def test_plan_definitions_are_exact():
         assert definition["value_kind"] == value_kind
         assert definition["default_value_text"] == default_text
         assert definition["display_name"]
+
+
+def test_body_centres_are_exact():
+    expected = {
+        "resistor": (1, 0), "capacitor": (1, 0),
+        "capacitor_polarized": (1, 0), "inductor": (1, 0),
+        "diode": (1, 0), "led": (1, 0),
+        "voltage_source": (0, 1), "current_source": (0, 1),
+        "npn": (0, 0), "pnp": (0, 0), "ground": (0, 0),
+    }
+
+    assert {
+        kind: definition["body_center_half_steps"]
+        for kind, definition in COMPONENT_DEFINITIONS.items()
+    } == expected
+
+
+TWO_PIN_KINDS = [
+    kind for kind, definition in sorted(COMPONENT_DEFINITIONS.items())
+    if len(definition["pins"]) == 2
+]
+
+
+def test_every_two_pin_part_is_listed():
+    assert TWO_PIN_KINDS == [
+        "capacitor", "capacitor_polarized", "current_source", "diode",
+        "inductor", "led", "resistor", "voltage_source",
+    ]
+
+
+@pytest.mark.parametrize("kind", TWO_PIN_KINDS)
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_two_pin_parts_span_one_step_from_the_anchor(kind, rotation):
+    prefix = COMPONENT_DEFINITIONS[kind]["prefix"]
+    default_text = COMPONENT_DEFINITIONS[kind]["default_value_text"]
+    component = Component(kind, prefix + "1", default_text, 4, 4, rotation)
+
+    (_first, row_1, column_1), (_second, row_2, column_2) = (
+        component.get_pin_positions()
+    )
+
+    # The first pin is the anchor; the second is a neighbouring point.
+    assert (row_1, column_1) == (4, 4)
+    assert abs(row_2 - row_1) + abs(column_2 - column_1) == 1
+    # The body centre is exactly halfway between the two pins.
+    assert component.get_body_center_position() == (
+        (row_1 + row_2) / 2, (column_1 + column_2) / 2
+    )
+
+
+@pytest.mark.parametrize(
+    "rotation, expected_offset",
+    [(0, (0.5, 0.0)), (90, (0.0, 0.5)), (180, (-0.5, 0.0)),
+     (270, (0.0, -0.5))],
+)
+def test_resistor_body_center_offset(rotation, expected_offset):
+    resistor = Component("resistor", "R1", "1k", 4, 4, rotation)
+
+    assert resistor.get_body_center_offset() == expected_offset
+
+
+@pytest.mark.parametrize("kind, value", [("npn", "2N3904"), ("ground", "")])
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_transistor_and_ground_centre_stays_on_the_anchor(
+        kind, value, rotation):
+    prefix = COMPONENT_DEFINITIONS[kind]["prefix"]
+    component = Component(kind, prefix + "1", value, 4, 4, rotation)
+
+    assert component.get_body_center_offset() == (0.0, 0.0)
+    assert component.get_body_center_position() == (4.0, 4.0)
 
 
 @pytest.mark.parametrize("kind", sorted(COMPONENT_DEFINITIONS))
@@ -135,10 +205,10 @@ def test_pins_stay_on_distinct_grid_points(kind, rotation):
 @pytest.mark.parametrize(
     "rotation, expected_positions",
     [
-        (0, [("1", 4, 3), ("2", 4, 5)]),
-        (90, [("1", 3, 4), ("2", 5, 4)]),
-        (180, [("1", 4, 5), ("2", 4, 3)]),
-        (270, [("1", 5, 4), ("2", 3, 4)]),
+        (0, [("1", 4, 4), ("2", 4, 5)]),
+        (90, [("1", 4, 4), ("2", 5, 4)]),
+        (180, [("1", 4, 4), ("2", 4, 3)]),
+        (270, [("1", 4, 4), ("2", 3, 4)]),
     ]
 )
 def test_resistor_pin_positions(rotation, expected_positions):
@@ -150,7 +220,7 @@ def test_resistor_pin_positions(rotation, expected_positions):
 def test_resistor_identifiers_value_and_label():
     resistor = Component("resistor", "R1", "4k7", 4, 4)
 
-    assert resistor.get_pin_identifiers() == ["NODE_R04_C03", "NODE_R04_C05"]
+    assert resistor.get_pin_identifiers() == ["NODE_R04_C04", "NODE_R04_C05"]
     assert resistor.value == 4700.0
     assert resistor.label_text() == "R1 4k7"
 
@@ -178,13 +248,13 @@ def test_pnp_has_emitter_on_top():
 def test_voltage_source_rotated_90():
     source = Component("voltage_source", "V1", "5", 4, 4, 90)
 
-    assert source.get_pin_positions() == [("plus", 4, 5), ("minus", 4, 3)]
+    assert source.get_pin_positions() == [("plus", 4, 4), ("minus", 4, 3)]
 
 
 def test_polarized_capacitor_pins():
     capacitor = Component("capacitor_polarized", "C1", "10u", 4, 4, 270)
 
-    assert capacitor.get_pin_positions() == [("plus", 5, 4), ("minus", 3, 4)]
+    assert capacitor.get_pin_positions() == [("plus", 4, 4), ("minus", 3, 4)]
     assert capacitor.value == 1e-05
 
 
@@ -200,10 +270,10 @@ def test_ground():
 @pytest.mark.parametrize(
     "rotation, expected_positions",
     [
-        (0, [("in", 5, 4), ("out", 3, 4)]),
-        (90, [("in", 4, 3), ("out", 4, 5)]),
-        (180, [("in", 3, 4), ("out", 5, 4)]),
-        (270, [("in", 4, 5), ("out", 4, 3)]),
+        (0, [("in", 4, 4), ("out", 5, 4)]),
+        (90, [("in", 4, 4), ("out", 4, 3)]),
+        (180, [("in", 4, 4), ("out", 3, 4)]),
+        (270, [("in", 4, 4), ("out", 4, 5)]),
     ]
 )
 def test_current_source_pin_positions(rotation, expected_positions):
@@ -219,10 +289,10 @@ def test_current_source_pin_positions(rotation, expected_positions):
 @pytest.mark.parametrize(
     "rotation, expected_positions",
     [
-        (0, [("anode", 4, 3), ("cathode", 4, 5)]),
-        (90, [("anode", 3, 4), ("cathode", 5, 4)]),
-        (180, [("anode", 4, 5), ("cathode", 4, 3)]),
-        (270, [("anode", 5, 4), ("cathode", 3, 4)]),
+        (0, [("anode", 4, 4), ("cathode", 4, 5)]),
+        (90, [("anode", 4, 4), ("cathode", 5, 4)]),
+        (180, [("anode", 4, 4), ("cathode", 4, 3)]),
+        (270, [("anode", 4, 4), ("cathode", 3, 4)]),
     ]
 )
 def test_diode_and_led_pin_positions(
@@ -235,10 +305,10 @@ def test_diode_and_led_pin_positions(
 @pytest.mark.parametrize(
     "rotation, expected_positions",
     [
-        (0, [("plus", 4, 3), ("minus", 4, 5)]),
-        (90, [("plus", 3, 4), ("minus", 5, 4)]),
-        (180, [("plus", 4, 5), ("minus", 4, 3)]),
-        (270, [("plus", 5, 4), ("minus", 3, 4)]),
+        (0, [("plus", 4, 4), ("minus", 4, 5)]),
+        (90, [("plus", 4, 4), ("minus", 5, 4)]),
+        (180, [("plus", 4, 4), ("minus", 4, 3)]),
+        (270, [("plus", 4, 4), ("minus", 3, 4)]),
     ]
 )
 def test_polarized_capacitor_pin_positions(rotation, expected_positions):
@@ -253,7 +323,7 @@ def test_get_component_definition_returns_a_copy():
     definition["prefix"] = "X"
 
     assert COMPONENT_DEFINITIONS["resistor"]["pins"] == [
-        ("1", -1, 0), ("2", 1, 0)
+        ("1", 0, 0), ("2", 1, 0)
     ]
     assert COMPONENT_DEFINITIONS["resistor"]["prefix"] == "R"
     assert get_component_definition("resistor")["prefix"] == "R"
@@ -265,10 +335,18 @@ def test_get_component_definition_rejects_unknown_kind():
 
 
 def test_pins_fit_grid():
-    assert not Component("resistor", "R1", "1k", 1, 1).pins_fit_grid(8, 8)
+    # One-step parts fit right up to the corner, pointing inward.
+    assert Component("resistor", "R1", "1k", 1, 1).pins_fit_grid(8, 8)
     assert Component("resistor", "R1", "1k", 4, 4).pins_fit_grid(8, 8)
     assert not Component("resistor", "R1", "1k", 4, 8).pins_fit_grid(8, 8)
-    assert not Component("resistor", "R1", "1k", 1, 4, 90).pins_fit_grid(8, 8)
+    assert Component("resistor", "R1", "1k", 4, 8, 180).pins_fit_grid(8, 8)
+    assert not Component("resistor", "R1", "1k", 1, 1, 180).pins_fit_grid(
+        8, 8
+    )
+    assert not Component("resistor", "R1", "1k", 8, 4, 90).pins_fit_grid(8, 8)
+    assert not Component("resistor", "R1", "1k", 1, 4, 270).pins_fit_grid(
+        8, 8
+    )
     assert Component("ground", "GND1", "", 8, 8).pins_fit_grid(8, 8)
 
 
@@ -370,3 +448,38 @@ def test_bad_rotation_raises_in_constructor_and_setter():
         resistor.rotation = 90.0
 
     assert resistor.rotation == 90
+
+
+def test_covered_half_steps_are_exact():
+    expected = {
+        "resistor": [(1, 0)], "capacitor": [(1, 0)],
+        "capacitor_polarized": [(1, 0)], "inductor": [(1, 0)],
+        "diode": [(1, 0)], "led": [(1, 0)],
+        "voltage_source": [(0, 1)], "current_source": [(0, 1)],
+        "npn": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "pnp": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "ground": [(0, 1)],
+    }
+
+    assert {
+        kind: definition["covered_half_steps"]
+        for kind, definition in COMPONENT_DEFINITIONS.items()
+    } == expected
+
+
+def test_covered_half_points_of_a_turned_transistor():
+    # At 90 deg rotate_offset maps (-1,0)->(0,-1), (0,-1)->(1,0) and
+    # (0,1)->(-1,0); doubled anchor (8, 8) plus (dy, dx).
+    transistor = Component("npn", "Q1", "2N3904", 4, 4, 90)
+
+    assert transistor.get_covered_half_points() == {
+        (8, 8), (7, 8), (8, 9), (8, 7)
+    }
+
+
+def test_covered_half_point_of_a_two_pin_body_and_pin_half_points():
+    resistor = Component("resistor", "R1", "1k", 2, 2, 270)
+
+    # Pins (2,2) and (1,2): body halfway at doubled (3, 4).
+    assert resistor.get_covered_half_points() == {(3, 4)}
+    assert resistor.get_pin_half_points() == {(4, 4), (2, 4)}

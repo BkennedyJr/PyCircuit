@@ -1,11 +1,21 @@
 """
 Standard schematic symbols drawn with QPainterPath.
 
-Every symbol is built in pitch units: 1.0 is one grid step, the origin is
-the part's anchor grid point, and y points down, the same as Qt. Lead ends
-land exactly on the pin offsets in core.components.COMPONENT_DEFINITIONS,
-so a symbol scaled by the grid spacing and rotated in 90-degree steps keeps
+Every symbol is built in pitch units: 1.0 is one grid step and y points
+down, the same as Qt. Builders draw each symbol around its body centre;
+build_symbol_paths() then shifts it by the kind's body_center_half_steps
+(core.components) so the origin is the part's anchor grid point and the
+lead ends land exactly on the pin offsets. A symbol scaled by the grid
+spacing and rotated in 90-degree steps about the anchor therefore keeps
 its pins on grid points.
+
+Two-pin parts span ONE grid step: leads run from -0.5 to +0.5 around the
+body centre, so at 60 px per step the body is about 36 px long. Grid dots
+(16 px) sit under the lead ends; bodies stay about 0.2 of a step (12 px)
+from each pin, so a few pixels of lead show past each dot.
+
+Transistors and ground are drawn around their anchor (no shift) and keep
+their earlier size: transistors span two steps with three pins.
 
 Each builder returns two paths: a stroke path for lines and outlines, and a
 fill path for solid shapes such as arrowheads. Keeping them apart means
@@ -15,7 +25,7 @@ open shapes like the resistor zigzag are never filled by accident.
 import math
 
 from PyQt5.QtCore import QPointF, QRectF
-from PyQt5.QtGui import QPainterPath
+from PyQt5.QtGui import QPainterPath, QTransform
 
 from core.components import COMPONENT_DEFINITIONS
 from core.exceptions import ComponentError
@@ -25,23 +35,28 @@ from core.exceptions import ComponentError
 ARROW_HEAD_LENGTH = 0.14
 ARROW_HEAD_HALF_WIDTH = 0.07
 
-# Body area of each symbol, excluding the leads, in pitch units. The item
+# Half the span of a two-pin part: its leads end at +/-0.5 around the body.
+HALF_SPAN = 0.5
+
+# Body area of each symbol, excluding the leads, in pitch units and around
+# the body centre (build_symbol_paths shifts them with the paths). The item
 # paints this area in the background color and uses it as the click area.
 BODY_RECTS = {
-    "resistor": QRectF(-0.65, -0.25, 1.3, 0.5),
-    "capacitor": QRectF(-0.15, -0.4, 0.3, 0.8),
-    "inductor": QRectF(-0.65, -0.2, 1.3, 0.35),
+    "resistor": QRectF(-0.32, -0.16, 0.64, 0.32),
+    "capacitor": QRectF(-0.12, -0.3, 0.24, 0.6),
+    "inductor": QRectF(-0.32, -0.16, 0.64, 0.24),
     "ground": QRectF(-0.35, 0.25, 0.7, 0.35),
-    "capacitor_polarized": QRectF(-0.4, -0.4, 0.6, 0.8),
-    "voltage_source": QRectF(-0.45, -0.45, 0.9, 0.9),
-    "current_source": QRectF(-0.45, -0.45, 0.9, 0.9),
-    "diode": QRectF(-0.3, -0.3, 0.6, 0.6),
-    "led": QRectF(-0.3, -0.55, 0.65, 0.85),
+    "capacitor_polarized": QRectF(-0.3, -0.3, 0.44, 0.6),
+    "voltage_source": QRectF(-0.32, -0.32, 0.64, 0.64),
+    "current_source": QRectF(-0.32, -0.32, 0.64, 0.64),
+    "diode": QRectF(-0.2, -0.2, 0.4, 0.4),
+    "led": QRectF(-0.2, -0.4, 0.5, 0.6),
     "npn": QRectF(-0.55, -0.5, 1.0, 1.0),
     "pnp": QRectF(-0.55, -0.5, 1.0, 1.0),
 }
 
-SOURCE_RADIUS = 0.4
+# Sources: a 36 px circle with 12 px leads at the 60 px spacing.
+SOURCE_RADIUS = 0.3
 TRANSISTOR_CIRCLE_CENTER_X = -0.05
 TRANSISTOR_CIRCLE_RADIUS = 0.5
 
@@ -106,27 +121,39 @@ def _add_arrow(stroke_path, fill_path, x1, y1, x2, y2):
     fill_path.closeSubpath()
 
 
+def _add_horizontal_leads(stroke_path, body_half_width):
+    """
+    Add the two leads of a horizontal two-pin part (pins at +/-HALF_SPAN).
+
+    :param stroke_path: Path to extend.
+    :type stroke_path: QPainterPath
+    :param body_half_width: Where each lead meets the body.
+    :type body_half_width: float
+    :returns: None
+    """
+    _add_line(stroke_path, -HALF_SPAN, 0.0, -body_half_width, 0.0)
+    _add_line(stroke_path, body_half_width, 0.0, HALF_SPAN, 0.0)
+
+
 def _resistor_paths():
     """
-    ANSI resistor: leads to +/-1 and a six-peak zigzag between them.
+    ANSI resistor: short leads and a six-peak zigzag 0.6 of a step long.
 
     :returns: (stroke_path, fill_path)
     :rtype: tuple
     """
     stroke_path = QPainterPath()
 
-    _add_line(stroke_path, -1.0, 0.0, -0.6, 0.0)
+    _add_horizontal_leads(stroke_path, 0.3)
 
     zigzag_points = [
-        (-0.6, 0.0), (-0.5, -0.2), (-0.3, 0.2), (-0.1, -0.2),
-        (0.1, 0.2), (0.3, -0.2), (0.5, 0.2), (0.6, 0.0),
+        (-0.3, 0.0), (-0.25, -0.13), (-0.15, 0.13), (-0.05, -0.13),
+        (0.05, 0.13), (0.15, -0.13), (0.25, 0.13), (0.3, 0.0),
     ]
     stroke_path.moveTo(QPointF(*zigzag_points[0]))
 
     for point in zigzag_points[1:]:
         stroke_path.lineTo(QPointF(*point))
-
-    _add_line(stroke_path, 0.6, 0.0, 1.0, 0.0)
 
     return (stroke_path, QPainterPath())
 
@@ -140,35 +167,34 @@ def _capacitor_paths():
     """
     stroke_path = QPainterPath()
 
-    _add_line(stroke_path, -1.0, 0.0, -0.1, 0.0)
-    _add_line(stroke_path, 0.1, 0.0, 1.0, 0.0)
-    _add_line(stroke_path, -0.1, -0.35, -0.1, 0.35)
-    _add_line(stroke_path, 0.1, -0.35, 0.1, 0.35)
+    _add_horizontal_leads(stroke_path, 0.07)
+    _add_line(stroke_path, -0.07, -0.26, -0.07, 0.26)
+    _add_line(stroke_path, 0.07, -0.26, 0.07, 0.26)
 
     return (stroke_path, QPainterPath())
 
 
 def _inductor_paths():
     """
-    Inductor: two leads and four semicircular loops bulging upward.
+    Inductor: two leads and three semicircular loops bulging upward.
 
     :returns: (stroke_path, fill_path)
     :rtype: tuple
     """
     stroke_path = QPainterPath()
 
-    _add_line(stroke_path, -1.0, 0.0, -0.6, 0.0)
+    _add_line(stroke_path, -HALF_SPAN, 0.0, -0.3, 0.0)
 
     # Each arc starts at its left end (180 degrees) and sweeps clockwise on
     # screen over the top to its right end, where the next arc begins.
-    for loop_index in range(4):
+    for loop_index in range(3):
         stroke_path.arcTo(
-            QRectF(-0.6 + 0.3 * loop_index, -0.15, 0.3, 0.3),
+            QRectF(-0.3 + 0.2 * loop_index, -0.1, 0.2, 0.2),
             180,
             -180
         )
 
-    _add_line(stroke_path, 0.6, 0.0, 1.0, 0.0)
+    _add_line(stroke_path, 0.3, 0.0, HALF_SPAN, 0.0)
 
     return (stroke_path, QPainterPath())
 
@@ -201,26 +227,26 @@ def _polarized_capacitor_paths():
     """
     stroke_path = QPainterPath()
 
-    _add_line(stroke_path, -1.0, 0.0, -0.1, 0.0)
-    _add_line(stroke_path, 0.1, 0.0, 1.0, 0.0)
-    _add_line(stroke_path, -0.1, -0.35, -0.1, 0.35)
+    _add_horizontal_leads(stroke_path, 0.07)
+    _add_line(stroke_path, -0.07, -0.26, -0.07, 0.26)
 
-    # Arc of an ellipse centered at (0.6, 0) with radii 0.5 and 0.7, from
-    # 150 to 210 degrees: (0.167, -0.35) through (0.1, 0) to (0.167, 0.35).
-    curved_plate_rect = QRectF(0.1, -0.7, 1.0, 1.4)
+    # Arc of an ellipse centered at (0.42, 0) with radii 0.35 and 0.52, from
+    # 150 to 210 degrees: about (0.117, -0.26) through (0.07, 0) to
+    # (0.117, 0.26).
+    curved_plate_rect = QRectF(0.07, -0.52, 0.7, 1.04)
     stroke_path.arcMoveTo(curved_plate_rect, 150)
     stroke_path.arcTo(curved_plate_rect, 150, 60)
 
-    _add_line(stroke_path, -0.36, -0.3, -0.24, -0.3)
-    _add_line(stroke_path, -0.3, -0.36, -0.3, -0.24)
+    _add_line(stroke_path, -0.27, -0.2, -0.15, -0.2)
+    _add_line(stroke_path, -0.21, -0.26, -0.21, -0.14)
 
     return (stroke_path, QPainterPath())
 
 
 def _source_circle_paths():
     """
-    Circle and vertical leads shared by both sources (pins at (0, -1) and
-    (0, 1)).
+    Circle and vertical leads shared by both sources (pins at +/-HALF_SPAN
+    above and below the centre).
 
     :returns: (stroke_path, fill_path)
     :rtype: tuple
@@ -228,8 +254,8 @@ def _source_circle_paths():
     stroke_path = QPainterPath()
 
     stroke_path.addEllipse(QPointF(0.0, 0.0), SOURCE_RADIUS, SOURCE_RADIUS)
-    _add_line(stroke_path, 0.0, -1.0, 0.0, -SOURCE_RADIUS)
-    _add_line(stroke_path, 0.0, SOURCE_RADIUS, 0.0, 1.0)
+    _add_line(stroke_path, 0.0, -HALF_SPAN, 0.0, -SOURCE_RADIUS)
+    _add_line(stroke_path, 0.0, SOURCE_RADIUS, 0.0, HALF_SPAN)
 
     return (stroke_path, QPainterPath())
 
@@ -244,24 +270,24 @@ def _voltage_source_paths():
     """
     stroke_path, fill_path = _source_circle_paths()
 
-    _add_line(stroke_path, -0.08, -0.2, 0.08, -0.2)
-    _add_line(stroke_path, 0.0, -0.28, 0.0, -0.12)
-    _add_line(stroke_path, -0.08, 0.2, 0.08, 0.2)
+    _add_line(stroke_path, -0.07, -0.14, 0.07, -0.14)
+    _add_line(stroke_path, 0.0, -0.21, 0.0, -0.07)
+    _add_line(stroke_path, -0.07, 0.14, 0.07, 0.14)
 
     return (stroke_path, fill_path)
 
 
 def _current_source_paths():
     """
-    DC current source: circle with an arrow pointing at the "out" pin (top),
-    the direction of conventional current through the source.
+    DC current source: circle with an arrow pointing at the "out" pin
+    (bottom), the direction of conventional current through the source.
 
     :returns: (stroke_path, fill_path)
     :rtype: tuple
     """
     stroke_path, fill_path = _source_circle_paths()
 
-    _add_arrow(stroke_path, fill_path, 0.0, 0.25, 0.0, -0.25)
+    _add_arrow(stroke_path, fill_path, 0.0, -0.18, 0.0, 0.18)
 
     return (stroke_path, fill_path)
 
@@ -277,18 +303,17 @@ def _diode_paths():
     stroke_path = QPainterPath()
     fill_path = QPainterPath()
 
-    _add_line(stroke_path, -1.0, 0.0, -0.25, 0.0)
-    _add_line(stroke_path, 0.25, 0.0, 1.0, 0.0)
+    _add_horizontal_leads(stroke_path, 0.16)
 
     # The triangle is outlined (so it has the same edge as the other lines)
     # and also filled.
     for path in (stroke_path, fill_path):
-        path.moveTo(-0.25, -0.25)
-        path.lineTo(-0.25, 0.25)
-        path.lineTo(0.25, 0.0)
+        path.moveTo(-0.16, -0.17)
+        path.lineTo(-0.16, 0.17)
+        path.lineTo(0.16, 0.0)
         path.closeSubpath()
 
-    _add_line(stroke_path, 0.25, -0.25, 0.25, 0.25)
+    _add_line(stroke_path, 0.16, -0.17, 0.16, 0.17)
 
     return (stroke_path, fill_path)
 
@@ -303,8 +328,8 @@ def _led_paths():
     """
     stroke_path, fill_path = _diode_paths()
 
-    _add_arrow(stroke_path, fill_path, -0.05, -0.3, 0.15, -0.5)
-    _add_arrow(stroke_path, fill_path, 0.1, -0.3, 0.3, -0.5)
+    _add_arrow(stroke_path, fill_path, -0.06, -0.2, 0.1, -0.38)
+    _add_arrow(stroke_path, fill_path, 0.08, -0.2, 0.24, -0.38)
 
     return (stroke_path, fill_path)
 
@@ -407,7 +432,10 @@ def build_symbol_paths(kind):
             f"The {kind} symbol is not drawn yet (planned for Step 5)."
         )
 
-    return _SYMBOL_BUILDERS[kind]()
+    stroke_path, fill_path = _SYMBOL_BUILDERS[kind]()
+    to_anchor = _get_anchor_transform(kind)
+
+    return (to_anchor.map(stroke_path), to_anchor.map(fill_path))
 
 
 def get_body_rect(kind):
@@ -429,4 +457,18 @@ def get_body_rect(kind):
             f"The {kind} symbol is not drawn yet (planned for Step 5)."
         )
 
-    return QRectF(BODY_RECTS[kind])
+    return _get_anchor_transform(kind).mapRect(BODY_RECTS[kind])
+
+
+def _get_anchor_transform(kind):
+    """
+    Return the shift from body-centre coordinates to anchor coordinates.
+
+    :param kind: Known component kind.
+    :type kind: str
+    :returns: Translation by the unrotated body centre offset.
+    :rtype: QTransform
+    """
+    half_dx, half_dy = COMPONENT_DEFINITIONS[kind]["body_center_half_steps"]
+
+    return QTransform().translate(half_dx / 2, half_dy / 2)

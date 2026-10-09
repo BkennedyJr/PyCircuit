@@ -75,40 +75,48 @@ def test_plan_resistor_example():
     component = Component("resistor", "R1", "4k7", 4, 4, 90)
     item = ComponentItem(component, 60)
 
+    # One-step part: anchor pin at (0, 0), second pin one step down.
     assert item.label_item.text() == "R1 4k7"
-    assert item.boundingRect().contains(QPointF(0, -60))
+    assert item.boundingRect().contains(QPointF(0, 0))
     assert item.boundingRect().contains(QPointF(0, 60))
-    assert not item.shape().boundingRect().contains(QPointF(0, -60))
+    assert not item.boundingRect().contains(QPointF(0, -30))
+    assert not item.shape().boundingRect().contains(QPointF(0, 0))
+    assert not item.shape().boundingRect().contains(QPointF(0, 60))
 
     component.rotation = 0
     item.refresh_from_component()
 
-    assert item.boundingRect().contains(QPointF(-60, 0))
+    assert item.boundingRect().contains(QPointF(0, 0))
     assert item.boundingRect().contains(QPointF(60, 0))
+    assert not item.boundingRect().contains(QPointF(-30, 0))
 
 
 def test_paths_are_scaled_to_pixels():
     item = make_item("resistor")
 
-    # Pitch-unit extents (-1, -0.2, 2, 0.4) times 60 px.
+    # Pitch-unit extents (0, -0.13, 1, 0.26) times 60 px.
     stroke_rect = item.stroke_path.boundingRect()
     assert (stroke_rect.x(), stroke_rect.y(), stroke_rect.width(),
-            stroke_rect.height()) == pytest.approx((-60, -12, 120, 24), abs=1e-9)
+            stroke_rect.height()) == pytest.approx(
+                (0, -7.8, 60, 15.6), abs=1e-9)
 
-    # Body (-0.65, -0.25, 1.3, 0.5) times 60 px, and a 3 px margin outside.
+    # Body (0.18, -0.16, 0.64, 0.32) times 60 px, and a 3 px margin outside
+    # the union of the stroke and the body.
     body_rect = item.body_path.boundingRect()
     assert (body_rect.x(), body_rect.y(), body_rect.width(),
-            body_rect.height()) == pytest.approx((-39, -15, 78, 30), abs=1e-9)
+            body_rect.height()) == pytest.approx(
+                (10.8, -9.6, 38.4, 19.2), abs=1e-9)
     bounding_rect = item.boundingRect()
     assert (bounding_rect.x(), bounding_rect.y(), bounding_rect.width(),
-            bounding_rect.height()) == pytest.approx((-63, -18, 126, 36), abs=1e-9)
+            bounding_rect.height()) == pytest.approx(
+                (-3, -12.6, 66, 25.2), abs=1e-9)
 
 
 def test_other_grid_spacing_scales_the_drawing():
     component = Component("resistor", "R1", "1k", 4, 4, 0)
     item = ComponentItem(component, 40.0)
 
-    assert item.stroke_path.boundingRect().width() == pytest.approx(80.0)
+    assert item.stroke_path.boundingRect().width() == pytest.approx(40.0)
 
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
@@ -142,6 +150,30 @@ def test_pin_direction(dx, dy, expected):
     assert pin_direction(dx, dy) == expected
 
 
+def test_label_sides_are_measured_from_the_body_centre():
+    # A one-step resistor: pins at (0, 0) and (1, 0), body at (0.5, 0).
+    # From the anchor the first pin points nowhere and left looks free;
+    # from the body centre both left and right are taken.
+    pins = [("1", 0, 0), ("2", 1, 0)]
+
+    assert free_label_sides(pins) == ["above", "below", "left"]
+    assert free_label_sides(pins, (0.5, 0.0)) == ["above", "below"]
+
+
+@pytest.mark.parametrize(
+    "rotation, expected_sides",
+    [(0, ["above", "below"]), (90, ["right", "left"]),
+     (180, ["above", "below"]), (270, ["right", "left"])],
+)
+def test_one_step_part_label_sides_at_every_rotation(rotation,
+                                                     expected_sides):
+    component = Component("resistor", "R1", "1k", 4, 4, rotation)
+
+    assert free_label_sides(
+        component.get_pin_offsets(), component.get_body_center_offset()
+    ) == expected_sides
+
+
 def test_choose_label_side_falls_back_to_above_when_every_side_has_a_pin():
     pins = [("a", 0, -1), ("b", 1, 0), ("c", 0, 1), ("d", -1, 0)]
 
@@ -162,9 +194,9 @@ def test_choose_label_side_falls_back_to_above_when_every_side_has_a_pin():
         ("npn", 90, "below"),
         ("npn", 180, "left"),
         ("npn", 270, "above"),
-        # Above is free, but the LED arrows push an above label onto the
-        # row of dots; right has the cathode pin; below fits between rows.
-        ("led", 0, "below"),
+        # Above is free, and the one-step LED's arrows leave room for the
+        # label between the rows (the two-step LED went below).
+        ("led", 0, "above"),
     ]
 )
 def test_label_goes_on_the_first_side_without_a_pin(kind, rotation, expected_side):
@@ -298,8 +330,8 @@ def test_click_area_is_only_the_body():
     item = make_item("resistor")
     shape = item.shape()
 
-    assert shape.contains(QPointF(0, 0))
-    assert not shape.contains(QPointF(-60, 0))
+    assert shape.contains(QPointF(30, 0))
+    assert not shape.contains(QPointF(0, 0))
     assert not shape.contains(QPointF(60, 0))
     assert not shape.contains(label_text_rect_in_item(item).center())
     assert item.label_item.acceptedMouseButtons() == Qt.NoButton
@@ -316,11 +348,11 @@ def test_flags_and_z_value():
 def test_tool_tip_lists_kind_reference_value_and_pin_nodes():
     tool_tip = make_item("resistor", 90, "4k7").toolTip()
 
-    # Anchor R4 C4 rotated 90: pin 1 at R3 C4, pin 2 at R5 C4.
+    # Anchor R4 C4 rotated 90: pin 1 on the anchor, pin 2 at R5 C4.
     assert tool_tip.splitlines() == [
         "R1 (Resistor)",
         "Value: 4k7",
-        "1: NODE_R03_C04",
+        "1: NODE_R04_C04",
         "2: NODE_R05_C04",
     ]
 
@@ -350,7 +382,10 @@ def test_refresh_repaints_the_item_in_the_scene(qt_application):
     for region in changed_regions:
         repainted = repainted.united(region)
 
-    assert repainted.contains(item.mapRectToScene(item.boundingRect()))
+    # Half a pixel of slack: both rectangles end on the same float edge.
+    assert repainted.adjusted(-0.5, -0.5, 0.5, 0.5).contains(
+        item.mapRectToScene(item.boundingRect())
+    )
 
 
 def test_refresh_picks_up_value_and_rotation_changes():
@@ -403,21 +438,21 @@ def pixel_at(image, scene_rect, scene_point):
 def test_body_hides_what_is_underneath_and_selection_turns_yellow():
     scene = QGraphicsScene()
     scene_rect = QRectF(-100, -100, 200, 200)
-    # A red "grid dot" under the capacitor's center, between the plates.
-    red_dot = QGraphicsEllipseItem(-8, -8, 16, 16)
+    # A red patch under the capacitor's centre (30, 0), between the plates.
+    red_dot = QGraphicsEllipseItem(22, -8, 16, 16)
     red_dot.setBrush(QColor("#ff0000"))
     scene.addItem(red_dot)
     item = make_item("capacitor")
     scene.addItem(item)
 
     image = render_scene(scene, scene_rect)
-    assert pixel_at(image, scene_rect, QPointF(0, 0)) == BACKGROUND_COLOR
-    # A point on the left lead, halfway to the pin.
-    assert pixel_at(image, scene_rect, QPointF(-30, 0)) == SYMBOL_COLOR
+    assert pixel_at(image, scene_rect, QPointF(30, 0)) == BACKGROUND_COLOR
+    # A point on the left lead, between the anchor pin and the plate.
+    assert pixel_at(image, scene_rect, QPointF(15, 0)) == SYMBOL_COLOR
 
     item.setSelected(True)
     image = render_scene(scene, scene_rect)
-    assert pixel_at(image, scene_rect, QPointF(-30, 0)) == SELECTED_COLOR
+    assert pixel_at(image, scene_rect, QPointF(15, 0)) == SELECTED_COLOR
 
 
 def test_label_patch_hides_what_is_behind_the_label():
@@ -474,16 +509,18 @@ def click(view, scene_point):
 
 def test_clicking_the_body_selects_the_part(click_scene):
     scene, view, item, _dots = click_scene
-    click(view, QPointF(0, 20))
+    # The vertical one-step body is centred at (0, 30).
+    click(view, QPointF(0, 30))
 
     assert scene.selectedItems() == [item]
 
 
 def test_clicking_a_pin_selects_the_grid_point_not_the_part(click_scene):
     scene, view, _item, dots = click_scene
-    click(view, QPointF(0, -60))
+    # (0, 60) is the second pin; the body stops well short of its dot.
+    click(view, QPointF(0, 60))
 
-    assert scene.selectedItems() == [dots[(0, -60)]]
+    assert scene.selectedItems() == [dots[(0, 60)]]
 
 
 def test_clicking_the_label_does_not_select_the_part(click_scene):
@@ -504,3 +541,42 @@ def test_clicking_a_label_over_a_grid_point_selects_the_point(click_scene):
     click(view, QPointF(60, 0))
 
     assert scene.selectedItems() == [dots[(60, 0)]]
+
+
+def test_label_candidates_are_free_sides_nudged_along_the_side():
+    item = make_item("resistor", 0)
+    candidates = item.get_label_candidates()
+    text_rect = item.label_item.text_rect()
+    above = item.get_label_top_left("above", text_rect)
+    below = item.get_label_top_left("below", text_rect)
+
+    # Horizontal one-step part: pins left and right of the body, so only
+    # above and below, each moved sideways by 0, -1, 1, -2, 2 half steps.
+    assert [(side, nudge) for side, nudge, _spot in candidates] == [
+        ("above", 0), ("above", -1), ("above", 1), ("above", -2),
+        ("above", 2), ("below", 0), ("below", -1), ("below", 1),
+        ("below", -2), ("below", 2),
+    ]
+    assert candidates[3][2] == above + QPointF(-60, 0)
+    assert candidates[7][2] == below + QPointF(30, 0)
+
+
+def test_vertical_part_label_candidates_move_up_and_down():
+    item = make_item("resistor", 90)
+    right = item.get_label_top_left("right", item.label_item.text_rect())
+
+    candidates = item.get_label_candidates()
+    assert {side for side, _nudge, _spot in candidates} == {"right", "left"}
+    assert candidates[2] == ("right", 1, right + QPointF(0, 30))
+
+
+def test_apply_label_placement_moves_the_label():
+    item = make_item("resistor", 0)
+    spot = QPointF(5, -40)
+
+    item.apply_label_placement("below", spot)
+
+    assert item.label_side == "below"
+    assert item.label_item.mapRectToParent(
+        item.label_item.text_rect()
+    ).topLeft() == item.pos() + spot

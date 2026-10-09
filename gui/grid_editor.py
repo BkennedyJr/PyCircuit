@@ -19,7 +19,12 @@ from PyQt5.QtWidgets import QGraphicsScene
 from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
-from gui.component_item import ComponentItem
+from gui.component_item import (
+    LABEL_PATCH_PADDING,
+    LABEL_SIDES,
+    ComponentItem,
+    text_touches_a_grid_dot,
+)
 
 GRID_POINT_SPACING = 60
 GRID_ORIGIN_X = 90
@@ -294,6 +299,7 @@ class ConnectionGridScene(QGraphicsScene):
                     component.reference
                 ] = component_item
 
+        self.layout_component_labels()
         self.update_scene_extent()
 
     def refresh_component(self, reference):
@@ -316,7 +322,90 @@ class ConnectionGridScene(QGraphicsScene):
                 component_item.component.column_number
             )
         )
+        # A turn or a longer value can change the best spot for the
+        # neighbours' labels too, so lay out every label again.
+        self.layout_component_labels()
         self.update_scene_extent()
+
+    def layout_component_labels(self):
+        """
+        Place every part's label where it is easiest to read.
+
+        One-step parts sit side by side, so a label wider than a grid step
+        would run into its neighbour's label or symbol. Each label (in
+        reference order) takes the lowest-scoring candidate from
+        ComponentItem.get_label_candidates(), compared worst problem first:
+
+        1. the text crosses a part's symbol or body (unreadable, because
+           parts draw above labels);
+        2. the text, with its patch, overlaps a label placed before it;
+        3. the text touches a grid dot (a few letters under a dot);
+        4. how far it was moved from the side's normal spot;
+        5. side order: above, right, below, left.
+
+        With no neighbours this gives the single-part rule of
+        ComponentItem.refresh_label().
+
+        :returns: None
+        """
+        component_items = [
+            component_item
+            for component_item in self.component_items_by_reference.values()
+            if component_item.scene() is self
+        ]
+        obstacles = [
+            component_item.obstacle_path.translated(component_item.pos())
+            for component_item in component_items
+        ]
+        obstacle_rects = [path.boundingRect() for path in obstacles]
+        placed_label_rects = []
+
+        for component_item in component_items:
+            if not component_item.label_item.isVisible():
+                continue
+
+            text_size = component_item.label_item.text_rect().size()
+            best_score = None
+            best_placement = None
+
+            for side, nudge, top_left in (
+                    component_item.get_label_candidates()):
+                item_rect = QRectF(top_left, text_size)
+                scene_rect = item_rect.translated(component_item.pos())
+                patch_rect = scene_rect.adjusted(
+                    -LABEL_PATCH_PADDING, -LABEL_PATCH_PADDING,
+                    LABEL_PATCH_PADDING, LABEL_PATCH_PADDING
+                )
+
+                crosses_a_part = any(
+                    obstacle_rect.intersects(scene_rect) and
+                    obstacle.intersects(scene_rect)
+                    for obstacle, obstacle_rect in zip(
+                        obstacles, obstacle_rects
+                    )
+                )
+                overlaps_a_label = any(
+                    patch_rect.intersects(placed_rect)
+                    for placed_rect in placed_label_rects
+                )
+                touches_a_dot = text_touches_a_grid_dot(
+                    item_rect, component_item.grid_spacing
+                )
+                score = (
+                    crosses_a_part,
+                    overlaps_a_label,
+                    touches_a_dot,
+                    abs(nudge),
+                    LABEL_SIDES.index(side),
+                )
+
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_placement = (side, top_left, patch_rect)
+
+            side, top_left, patch_rect = best_placement
+            component_item.apply_label_placement(side, top_left)
+            placed_label_rects.append(patch_rect)
 
     def get_grid_rect(self):
         """

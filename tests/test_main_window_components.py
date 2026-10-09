@@ -510,8 +510,8 @@ def test_placing_twice_on_the_same_spot_is_refused(window):
         "Part Not Placed"
     ]
     assert window.recorded_errors[0][1].startswith(
-        "R1 (Resistor at row 4, column 4, 0 deg) already sits on exactly "
-        "these grid points."
+        "R1 (Resistor) already connects exactly these grid points: "
+        "NODE_R04_C04, NODE_R04_C05."
     )
 
 
@@ -519,9 +519,9 @@ def test_refused_duplicate_shows_a_status_message(window):
     place(window, "NODE_R04_C04", "resistor", "1k")
     window.place_component("resistor", "2k2")
     assert window.statusBar().currentMessage() == (
-        "Part not placed: R1 (Resistor at row 4, column 4, 0 deg) already "
-        "sits on exactly these grid points. Pick another grid point or "
-        "rotation, or select R1 to edit it."
+        "Part not placed: R1 (Resistor) already connects exactly these grid "
+        "points: NODE_R04_C04, NODE_R04_C05. Pick other grid points or "
+        "another rotation, or select R1 to edit it."
     )
 
 
@@ -551,18 +551,19 @@ def test_another_kind_on_the_same_point_is_refused(window):
     window.place_component("capacitor", "100n")
     assert references(window) == ["R1"]
     assert window.recorded_errors[-1][0] == "Part Not Placed"
-    assert window.recorded_errors[-1][1] == (
-        "R1 (Resistor) already has its centre at row 4, column 4. Pick "
-        "another grid point, or select R1 to edit it."
+    assert window.recorded_errors[-1][1].startswith(
+        "R1 (Resistor) already connects exactly these grid points: "
+        "NODE_R04_C04, NODE_R04_C05."
     )
     assert window.statusBar().currentMessage().startswith(
-        "Part not placed: R1 (Resistor) already has its centre"
+        "Part not placed: R1 (Resistor) already connects"
     )
 
 
 def test_parts_sharing_a_pin_can_both_be_placed(window):
+    # R1 runs C3 -> C4 and R2 runs C4 -> C5: they connect at C4.
     place(window, "NODE_R04_C03", "resistor", "1k")
-    place(window, "NODE_R04_C05", "resistor", "2k2")
+    place(window, "NODE_R04_C04", "resistor", "2k2")
     assert references(window) == ["R1", "R2"]
     assert window.recorded_errors == []
 
@@ -747,3 +748,21 @@ def test_rotated_label_past_the_grid_edge_is_visible(window):
     for _turn in range(3):
         window.rotate_selected_component()
         assert visible_scene_rect(window).contains(label_rect(window, "Q1"))
+
+
+def test_one_step_resistor_lands_on_two_neighbouring_points(window):
+    # Billie's example: R1 from R2 C2 to R2 C3.
+    place(window, "NODE_R02_C02", "resistor", "1k")
+    assert window.component_collection.get_component(
+        "R1"
+    ).get_pin_identifiers() == ["NODE_R02_C02", "NODE_R02_C03"]
+
+
+def test_a_part_can_start_on_the_last_column_pointing_inward(window):
+    place(window, "NODE_R04_C08", "resistor", "1k")
+    assert window.recorded_errors[0][0] == "Part Not Placed"
+    window.recorded_errors.clear()
+    place(window, "NODE_R04_C07", "resistor", "1k")
+    assert window.component_collection.get_component(
+        "R1"
+    ).get_pin_identifiers() == ["NODE_R04_C07", "NODE_R04_C08"]
