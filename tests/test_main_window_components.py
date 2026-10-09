@@ -72,14 +72,14 @@ def test_both_left_docks_are_present(window):
     assert sorted(titles) == ["Components", "Grid Configuration"]
 
 
-def test_component_menu_has_rotate_and_delete(window):
+def test_component_menu_has_rotate_delete_and_wire_mode(window):
     menus = {
         action.text(): action.menu()
         for action in window.menuBar().actions()
     }
     assert "&Component" in menus
     assert [a.text() for a in menus["&Component"].actions()] == [
-        "Rotate Part", "Delete Part"
+        "Rotate Part", "Delete", "", "Wire Mode"
     ]
 
 

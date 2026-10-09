@@ -1,8 +1,12 @@
 """
 PyQt5 graphics-scene classes for the connection-grid editor.
 
-This module draws and manages selectable connection points. It remains
-separate from the core data model so future command-line or test workflows
+This module draws and manages selectable connection points, the placed
+parts and the wires. In Wire mode a left press on a grid point starts a
+wire: a dashed rubber-band line follows the mouse, and releasing on another
+grid point adds a straight wire between the two points (Esc cancels). Out
+of Wire mode, presses behave as before (select, rubber-band select, drag a
+part). It remains separate from the core data model so future command-line or test workflows
 can use the connection-grid model without importing PyQt5.
 """
 
@@ -16,18 +20,22 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from PyQt5.QtGui import QPainter
 from PyQt5.QtGui import QPen
+from PyQt5.QtCore import QLineF
 from PyQt5.QtWidgets import QGraphicsEllipseItem
+from PyQt5.QtWidgets import QGraphicsLineItem
 from PyQt5.QtWidgets import QGraphicsScene
 from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
 from core.exceptions import ComponentError
+from core.wires import find_junction_identifiers
 from gui.component_item import (
     LABEL_PATCH_PADDING,
     LABEL_SIDES,
     ComponentItem,
     text_touches_a_grid_dot,
 )
+from gui.wire_item import WIRE_COLOR, WireItem, build_preview_pen
 
 GRID_POINT_SPACING = 60
 GRID_ORIGIN_X = 90
@@ -41,6 +49,15 @@ HEADER_POSITION = 25
 HEADER_GAP = 8
 # Extra room around everything when the scene grows to fit the parts.
 SCENE_MARGIN = 20
+# In Wire mode a press or release counts as "on" a grid point within this
+# distance of its centre (a third of a step: generous, never ambiguous).
+WIRE_SNAP_DISTANCE = 20
+# The rubber-band line draws above everything while a wire is drawn.
+WIRE_PREVIEW_Z_VALUE = 3
+# Junction dots (core.wires.find_junction_identifiers) sit on top of the
+# grid dot, in the wire color, below the parts.
+JUNCTION_DIAMETER = 14
+JUNCTION_Z_VALUE = 0.5
 
 
 def grid_point_to_scene_position(row_number, column_number):
@@ -169,6 +186,11 @@ class ConnectionGridScene(QGraphicsScene):
     # (reference, reason); in both cases it is already drawn in place.
     component_moved = pyqtSignal(str)
     component_move_refused = pyqtSignal(str, str)
+    # A wire was drawn (reference) or refused (reason). wires_selected
+    # carries the references of the selected wires (possibly empty).
+    wire_added = pyqtSignal(str)
+    wire_refused = pyqtSignal(str)
+    wires_selected = pyqtSignal(object)
 
     def __init__(self, connection_grid, parent=None):
         super(ConnectionGridScene, self).__init__(parent)
@@ -177,8 +199,17 @@ class ConnectionGridScene(QGraphicsScene):
         self.connection_point_items_by_identifier = {}
         self.component_collection = None
         self.component_items_by_reference = {}
+        self.wire_collection = None
+        self.wire_items_by_reference = {}
+        self.junction_items_by_identifier = {}
         self.column_header_items = []
         self.row_header_items = []
+
+        # Wire drawing: the mode flag, the grid point where the current
+        # drag started (None when not drawing) and the rubber-band line.
+        self.is_wire_mode = False
+        self.wire_start_identifier = None
+        self.wire_preview_item = None
 
         # Report selection changes to the main window so it can update the
         # selected-node panel and signal-pickoff controls.
@@ -280,8 +311,14 @@ class ConnectionGridScene(QGraphicsScene):
                 connection_point.identifier
             ] = connection_point_item
 
-        # clear() above already deleted the old component items and labels.
+        # clear() above already deleted the old component items, labels,
+        # wires and any rubber-band line.
         self.component_items_by_reference = {}
+        self.wire_items_by_reference = {}
+        self.junction_items_by_identifier = {}
+        self.wire_start_identifier = None
+        self.wire_preview_item = None
+        self.rebuild_wire_items()
         self.rebuild_component_items()
 
         # Clear the selected-node display after a rebuild because old item
@@ -329,6 +366,7 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.rebuild_junction_items()
         self.update_scene_extent()
 
     def refresh_component(self, reference):
@@ -354,7 +392,288 @@ class ConnectionGridScene(QGraphicsScene):
         # A turn or a longer value can change the best spot for the
         # neighbours' labels too, so lay out every label again.
         self.layout_component_labels()
+        # A moved or turned pin can start or stop meeting a wire.
+        self.rebuild_junction_items()
         self.update_scene_extent()
+
+    def set_wire_collection(self, wire_collection):
+        """
+        Show the wires of a wire collection on the grid.
+
+        :param wire_collection: Wires to display, or None for none.
+        :type wire_collection: core.wires.WireCollection
+        :returns: None
+        """
+        self.wire_collection = wire_collection
+        self.rebuild_wire_items()
+
+    def rebuild_wire_items(self):
+        """
+        Replace every wire item with fresh ones from the collection.
+
+        :returns: None
+        """
+        for wire_item in self.wire_items_by_reference.values():
+            if not sip.isdeleted(wire_item) and wire_item.scene() is self:
+                self.removeItem(wire_item)
+
+        self.wire_items_by_reference = {}
+
+        if self.wire_collection is not None:
+            for wire in self.wire_collection.get_wires():
+                wire_item = WireItem(
+                    wire,
+                    grid_point_to_scene_position(*wire.start_point),
+                    grid_point_to_scene_position(*wire.end_point)
+                )
+                self.addItem(wire_item)
+                self.wire_items_by_reference[wire.reference] = wire_item
+
+        self.rebuild_junction_items()
+
+    def rebuild_junction_items(self):
+        """
+        Draw a junction dot wherever three or more connections meet.
+
+        Wires connect every point they cover (breadboard strips), so a dot
+        shows where a wire passes a part pin or meets another wire
+        mid-span. The dots ignore the mouse: a click reaches the grid
+        point underneath.
+
+        :returns: None
+        """
+        for junction_item in self.junction_items_by_identifier.values():
+            if (not sip.isdeleted(junction_item) and
+                    junction_item.scene() is self):
+                self.removeItem(junction_item)
+
+        self.junction_items_by_identifier = {}
+
+        if self.wire_collection is None:
+            return
+
+        pin_identifiers = []
+
+        if self.component_collection is not None:
+            for component in self.component_collection.get_components():
+                pin_identifiers.extend(component.get_pin_identifiers())
+
+        # Junctions are always on a wire, so the wires give their points.
+        point_by_identifier = {}
+
+        for wire in self.wire_collection.get_wires():
+            point_by_identifier.update(
+                zip(wire.get_point_identifiers(), wire.get_points())
+            )
+
+        for identifier in find_junction_identifiers(
+                self.wire_collection, pin_identifiers):
+            center = grid_point_to_scene_position(
+                *point_by_identifier[identifier]
+            )
+            radius = JUNCTION_DIAMETER / 2
+            junction_item = QGraphicsEllipseItem(
+                center.x() - radius, center.y() - radius,
+                JUNCTION_DIAMETER, JUNCTION_DIAMETER
+            )
+            junction_item.setBrush(QColor(WIRE_COLOR))
+            junction_item.setPen(QPen(Qt.NoPen))
+            junction_item.setZValue(JUNCTION_Z_VALUE)
+            junction_item.setAcceptedMouseButtons(Qt.NoButton)
+            self.addItem(junction_item)
+            self.junction_items_by_identifier[identifier] = junction_item
+
+    def set_wire_mode(self, is_wire_mode):
+        """
+        Switch Wire mode on or off; switching off cancels a wire in progress.
+
+        :param is_wire_mode: True to draw wires on press-drag.
+        :type is_wire_mode: bool
+        :returns: None
+        """
+        self.is_wire_mode = bool(is_wire_mode)
+
+        if not self.is_wire_mode:
+            self.cancel_wire_drawing()
+
+    def find_grid_point_near(self, scene_position):
+        """
+        Return the identifier of the grid point within WIRE_SNAP_DISTANCE.
+
+        :param scene_position: Position in scene coordinates.
+        :type scene_position: QPointF
+        :returns: Identifier such as "NODE_R02_C03", or None when no grid
+            point of the current grid is that close.
+        :rtype: str or None
+        """
+        row_number, column_number = scene_position_to_grid_point(
+            scene_position
+        )
+
+        if not (1 <= row_number <= self.connection_grid.row_count and
+                1 <= column_number <= self.connection_grid.column_count):
+            return None
+
+        center = grid_point_to_scene_position(row_number, column_number)
+
+        if QLineF(center, scene_position).length() > WIRE_SNAP_DISTANCE:
+            return None
+
+        return self.connection_grid.build_connection_point_identifier(
+            row_number,
+            column_number
+        )
+
+    def get_connection_point_position(self, identifier):
+        """
+        Return the scene position of a grid point by identifier.
+
+        :rtype: QPointF
+        """
+        connection_point = self.connection_grid.get_connection_point(
+            identifier
+        )
+
+        return grid_point_to_scene_position(
+            connection_point.row_number,
+            connection_point.column_number
+        )
+
+    def start_wire_drawing(self, identifier):
+        """
+        Begin a wire at a grid point and show the rubber-band line.
+
+        :param identifier: Start grid point.
+        :type identifier: str
+        :returns: None
+        """
+        self.cancel_wire_drawing()
+        start_position = self.get_connection_point_position(identifier)
+
+        self.wire_start_identifier = identifier
+        self.wire_preview_item = QGraphicsLineItem(
+            QLineF(start_position, start_position)
+        )
+        self.wire_preview_item.setPen(build_preview_pen())
+        self.wire_preview_item.setZValue(WIRE_PREVIEW_Z_VALUE)
+        # The preview never takes clicks.
+        self.wire_preview_item.setAcceptedMouseButtons(Qt.NoButton)
+        self.addItem(self.wire_preview_item)
+
+    def update_wire_drawing(self, scene_position):
+        """
+        Stretch the rubber-band line to the mouse.
+
+        :param scene_position: Mouse position in scene coordinates.
+        :type scene_position: QPointF
+        :returns: None
+        """
+        if self.wire_preview_item is None:
+            return
+
+        line = self.wire_preview_item.line()
+        self.wire_preview_item.setLine(QLineF(line.p1(), scene_position))
+
+    def cancel_wire_drawing(self):
+        """
+        Stop drawing and remove the rubber-band line, if any.
+
+        :returns: None
+        """
+        if (self.wire_preview_item is not None and
+                not sip.isdeleted(self.wire_preview_item) and
+                self.wire_preview_item.scene() is self):
+            self.removeItem(self.wire_preview_item)
+
+        self.wire_preview_item = None
+        self.wire_start_identifier = None
+
+    def finish_wire_drawing(self, scene_position):
+        """
+        Add a wire from the start point to the grid point under the mouse.
+
+        Releasing on the start point (a click) cancels quietly. Releasing
+        away from any grid point, or a wire the collection refuses, emits
+        wire_refused with the reason.
+
+        :param scene_position: Release position in scene coordinates.
+        :type scene_position: QPointF
+        :returns: None
+        """
+        start_identifier = self.wire_start_identifier
+        self.cancel_wire_drawing()
+
+        if start_identifier is None or self.wire_collection is None:
+            return
+
+        end_identifier = self.find_grid_point_near(scene_position)
+
+        if end_identifier == start_identifier:
+            return
+
+        if end_identifier is None:
+            self.wire_refused.emit(
+                f"release on a grid point to finish the wire from "
+                f"{start_identifier}."
+            )
+            return
+
+        try:
+            wire = self.wire_collection.add_wire(
+                start_identifier,
+                end_identifier,
+                self.connection_grid
+            )
+        except ComponentError as error:
+            self.wire_refused.emit(str(error))
+            return
+
+        self.rebuild_wire_items()
+        self.wire_added.emit(wire.reference)
+
+    def mousePressEvent(self, event):
+        """
+        In Wire mode, a left press on a grid point starts a wire.
+
+        Every other press (and any press out of Wire mode) goes to the
+        items as usual: select, rubber-band select or drag a part.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        if self.is_wire_mode and event.button() == Qt.LeftButton:
+            identifier = self.find_grid_point_near(event.scenePos())
+
+            if identifier is not None:
+                self.start_wire_drawing(identifier)
+                event.accept()
+                return
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """
+        Stretch the rubber-band line while a wire is being drawn.
+        """
+        if self.wire_start_identifier is not None:
+            self.update_wire_drawing(event.scenePos())
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """
+        Finish a wire on left release.
+        """
+        if (self.wire_start_identifier is not None and
+                event.button() == Qt.LeftButton):
+            self.finish_wire_drawing(event.scenePos())
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
 
     def check_component_drop(self, reference, anchor_position):
         """
@@ -386,19 +705,26 @@ class ConnectionGridScene(QGraphicsScene):
 
     def keyPressEvent(self, event):
         """
-        Esc cancels a part drag; other keys go to the items as usual.
+        Esc cancels a part drag or a wire being drawn.
+
+        Other keys go to the items as usual.
 
         :param event: Key event.
         :type event: QKeyEvent
         :returns: None
         """
-        grabber = self.mouseGrabberItem()
+        if event.key() == Qt.Key_Escape:
+            grabber = self.mouseGrabberItem()
 
-        if (event.key() == Qt.Key_Escape and
-                isinstance(grabber, ComponentItem) and grabber.is_dragging):
-            grabber.cancel_drag()
-            event.accept()
-            return
+            if isinstance(grabber, ComponentItem) and grabber.is_dragging:
+                grabber.cancel_drag()
+                event.accept()
+                return
+
+            if self.wire_start_identifier is not None:
+                self.cancel_wire_drawing()
+                event.accept()
+                return
 
         super().keyPressEvent(event)
 
@@ -637,6 +963,11 @@ class ConnectionGridScene(QGraphicsScene):
         """
         selected_connection_point = None
         selected_component = None
+        selected_wire_references = [
+            selected_item.wire.reference
+            for selected_item in self.selectedItems()
+            if isinstance(selected_item, WireItem)
+        ]
 
         for selected_item in self.selectedItems():
             if isinstance(selected_item, ConnectionPointItem):
@@ -652,6 +983,7 @@ class ConnectionGridScene(QGraphicsScene):
 
         self.connection_point_selected.emit(selected_connection_point)
         self.component_selected.emit(selected_component)
+        self.wires_selected.emit(selected_wire_references)
 
     def drawBackground(self, painter, rectangle):
         """
