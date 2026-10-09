@@ -2,8 +2,9 @@
 Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
-DC and AC voltage sources, diodes, transistors, and ground), their connection pins, and the
-Component class that holds one placed part. It contains no PyQt5 imports so
+DC and AC voltage sources, a DC current source, diodes, transistors, and
+ground), their connection pins, and the Component class that holds one
+placed part. It contains no PyQt5 imports so
 the same objects can be used by the GUI label, the later SPICE netlist
 builder, and the solver.
 
@@ -139,6 +140,20 @@ COMPONENT_DEFINITIONS = {
                 "shown_in_panel": False,
             },
         ),
+    },
+    "current_source": {
+        # SPICE "I1 in out <amps>": the source pushes its current out of
+        # the "out" pin (where the arrow points) into the circuit and takes
+        # it back at "in". The arrow points up at rotation 0.
+        "display_name": "Current source",
+        "prefix": "I",
+        "pins": [("out", 0, 0), ("in", 0, 1)],
+        "body_center_half_steps": (0, 1),
+        "covered_half_steps": [(0, 1)],
+        "value_kind": "any",
+        "default_value_text": "1m",
+        "value_label": "Current",
+        "value_unit": "A",
     },
     "diode": {
         "display_name": "Diode",
