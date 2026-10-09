@@ -63,13 +63,13 @@ def test_components_dock_is_on_the_left(window):
     )
 
 
-def test_both_left_docks_are_present(window):
+def test_the_left_dock_is_components(window):
     titles = [
         dock.windowTitle()
         for dock in window.findChildren(QDockWidget)
         if window.dockWidgetArea(dock) == Qt.LeftDockWidgetArea
     ]
-    assert sorted(titles) == ["Components", "Grid Configuration"]
+    assert titles == ["Components"]
 
 
 def test_component_menu_has_rotate_delete_and_wire_mode(window):
@@ -637,7 +637,7 @@ def test_delete_does_not_delete_from_the_dock(window, widget_name):
     assert references(window) == ["R1"]
 
 
-def test_delete_does_not_delete_from_the_grid_dock(window):
+def test_delete_does_not_delete_from_the_grid_toolbar(window):
     place(window, "NODE_R04_C04", "resistor", "1k")
     focus_and_press(
         window,
