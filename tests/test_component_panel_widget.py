@@ -244,7 +244,7 @@ def test_frequency_row_shows_only_for_the_ac_source(panel, kind):
 def test_selecting_the_ac_source_fills_both_defaults(panel):
     select_kind(panel, "ac_source")
 
-    assert panel.value_label.text() == "Amplitude (V):"
+    assert panel.value_label.text() == "Peak amplitude (V):"
     assert panel.value_line_edit.text() == "1"
     assert panel.parameter_line_edits["frequency"].text() == "1k"
 
@@ -293,7 +293,7 @@ def test_selected_ac_source_shows_and_sends_its_frequency(panel):
     )
 
     assert selected_frequency_row_hidden(panel) == (False, False)
-    assert panel.selected_value_label.text() == "Amplitude (V):"
+    assert panel.selected_value_label.text() == "Peak amplitude (V):"
     assert panel.selected_parameter_line_edits["frequency"].text() == "60"
 
     panel.selected_parameter_line_edits["frequency"].setText("400")

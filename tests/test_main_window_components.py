@@ -822,6 +822,32 @@ def test_bad_frequency_shows_an_error_and_restores_the_boxes(window):
     assert window.is_project_modified is False
 
 
+def test_clearing_the_selected_frequency_is_refused(window):
+    # QC #12 item 1: an empty Frequency box no longer resets to 1k.
+    select_point(window, "NODE_R02_C02")
+    window.place_component("ac_source", "1", {"frequency": "60"})
+    window.is_project_modified = False
+    frequency_box = panel(window).selected_parameter_line_edits["frequency"]
+    frequency_box.setText("")
+    frequency_box.returnPressed.emit()
+
+    source = window.component_collection.get_component("V1")
+    assert source.parameter_texts["frequency"] == "60"
+    assert window.recorded_errors[-1] == (
+        "Part Value Not Changed",
+        (
+            "AC voltage source frequency is empty. Enter a number such as 50 "
+            "or 1k."
+        ),
+        (
+            "Enter a number with an optional prefix, for example 4k7, 100n, "
+            "50 or 1k."
+        ),
+    )
+    assert frequency_box.text() == "60"
+    assert window.is_project_modified is False
+
+
 def test_bad_frequency_on_place_places_nothing(window):
     select_point(window, "NODE_R02_C02")
     window.place_component("ac_source", "1", {"frequency": "0"})

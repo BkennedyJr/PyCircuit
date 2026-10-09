@@ -56,7 +56,7 @@ def get_all_panel_parameters():
 
 def get_value_field_label(kind):
     """
-    Return the label of the value row, for example "Amplitude (V):".
+    Return the label of the value row, for example "Peak amplitude (V):".
 
     :param kind: Component kind.
     :type kind: str

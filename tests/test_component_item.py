@@ -598,7 +598,7 @@ def test_ac_source_tool_tip_and_label_show_the_frequency():
 
     assert item.toolTip().splitlines()[:3] == [
         "V1 (AC voltage source)",
-        "Amplitude: 1V",
+        "Peak amplitude: 1V",
         "Frequency: 1kHz",
     ]
     assert item.label_item.text() == "V1 1V 1kHz"
