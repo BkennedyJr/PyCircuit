@@ -280,3 +280,50 @@ def test_click_area_is_the_triangle(qt, kind):
     assert item.shape().contains(QPointF(0, 0))
     # Inside the bounding box but outside the triangle (top-right corner).
     assert not item.shape().contains(QPointF(0.6 * SPACING, -0.6 * SPACING))
+
+
+# ----- QC #16: model names are checked when they are set ---------------------
+
+
+def test_opamp_value_must_be_a_known_model():
+    with pytest.raises(ComponentError) as error:
+        Component("opamp_generic", "X1", "TL072", 4, 4)
+
+    assert str(error.value) == (
+        "No op-amp model named 'TL072'. Known models: OPAMP, LM741."
+    )
+
+
+def test_opamp_value_must_match_the_kind():
+    with pytest.raises(ComponentError) as error:
+        Component("opamp_generic", "X1", "LM741", 4, 4)
+
+    assert str(error.value) == (
+        "Op-amp (generic) uses model OPAMP; for the LM741 choose the "
+        "Op-amp (741) part."
+    )
+
+    with pytest.raises(ComponentError) as error:
+        Component("opamp_741", "X1", "OPAMP", 4, 4)
+
+    assert str(error.value) == (
+        "Op-amp (741) uses model LM741; for the OPAMP choose the "
+        "Op-amp (generic) part."
+    )
+
+
+def test_opamp_model_name_is_stored_in_library_spelling():
+    opamp = Component("opamp_741", "X1", "lm741", 4, 4)
+
+    assert opamp.value_text == "LM741"
+    assert opamp.label_text() == "X1 LM741"
+
+
+def test_refused_opamp_value_edit_keeps_the_old_value():
+    collection = ComponentCollection()
+    collection.add_component("opamp_generic", 4, 4, "", ConnectionGrid(8, 8))
+
+    with pytest.raises(ComponentError):
+        collection.set_component_value("X1", "TL072")
+
+    assert collection.get_component("X1").value_text == "OPAMP"

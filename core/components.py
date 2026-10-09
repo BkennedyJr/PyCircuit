@@ -402,6 +402,32 @@ def validate_value_text(kind, value_text):
                 "the letters A-Z, digits, '_', '.', and '-', with no spaces."
             )
 
+        # Op-amps (prefix X) must name a bundled subcircuit, and the one
+        # that matches their kind; checked here so a bad name is refused
+        # when it is typed, not at netlist time (QC #16).
+        if component_definition["prefix"] == "X":
+            # Imported here to keep core.components importable on its own.
+            from core.subcircuit_models import (
+                DEFAULT_SUBCIRCUIT_BY_KIND,
+                get_subcircuit_model_name,
+            )
+
+            clean_text = get_subcircuit_model_name(clean_text)
+            expected_name = DEFAULT_SUBCIRCUIT_BY_KIND[kind]
+
+            if clean_text != expected_name:
+                other_kind = next(
+                    other for other, name in DEFAULT_SUBCIRCUIT_BY_KIND.items()
+                    if name == clean_text
+                )
+                other_display_name = COMPONENT_DEFINITIONS[other_kind][
+                    "display_name"
+                ]
+                raise ComponentError(
+                    f"{display_name} uses model {expected_name}; for the "
+                    f"{clean_text} choose the {other_display_name} part."
+                )
+
         return (clean_text, None)
 
     # Numeric parts: parse_value raises ComponentError for bad text.
