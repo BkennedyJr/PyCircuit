@@ -20,11 +20,16 @@ from gui.component_item import (
     BACKGROUND_COLOR,
     LABEL_GAP,
     LABEL_PATCH_PADDING,
+    MIN_LABEL_GAP,
     SELECTED_COLOR,
     SYMBOL_COLOR,
     ComponentItem,
     choose_label_side,
+    fit_between_rows,
+    free_label_sides,
     pin_direction,
+    snap_between_rows,
+    text_touches_a_grid_dot,
 )
 
 SPACING = 60
@@ -157,6 +162,9 @@ def test_choose_label_side_falls_back_to_above_when_every_side_has_a_pin():
         ("npn", 90, "below"),
         ("npn", 180, "left"),
         ("npn", 270, "above"),
+        # Above is free, but the LED arrows push an above label onto the
+        # row of dots; right has the cathode pin; below fits between rows.
+        ("led", 0, "below"),
     ]
 )
 def test_label_goes_on_the_first_side_without_a_pin(kind, rotation, expected_side):
@@ -165,27 +173,95 @@ def test_label_goes_on_the_first_side_without_a_pin(kind, rotation, expected_sid
     assert item.label_side == expected_side
 
 
-@pytest.mark.parametrize(
-    "kind, rotation",
-    [("resistor", 0), ("npn", 90), ("npn", 0), ("npn", 180)]
-)
-def test_label_sits_6_px_from_the_body(kind, rotation):
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+@pytest.mark.parametrize("kind", list(COMPONENT_DEFINITIONS))
+def test_label_position_rules(kind, rotation):
     item = make_item(kind, rotation)
+
+    if not item.label_item.isVisible():
+        return
+
     body = item.body_path.boundingRect()
     text = label_text_rect_in_item(item)
 
-    if item.label_side == "above":
-        assert text.bottom() == pytest.approx(body.top() - LABEL_GAP)
+    if item.label_side in ("above", "below"):
+        # Centered on the body, 2..6 px from it.
         assert text.center().x() == pytest.approx(body.center().x())
-    elif item.label_side == "below":
-        assert text.top() == pytest.approx(body.bottom() + LABEL_GAP)
-        assert text.center().x() == pytest.approx(body.center().x())
-    elif item.label_side == "right":
-        assert text.left() == pytest.approx(body.right() + LABEL_GAP)
-        assert text.center().y() == pytest.approx(body.center().y())
+        if item.label_side == "above":
+            gap = body.top() - text.bottom()
+        else:
+            gap = text.top() - body.bottom()
+        assert MIN_LABEL_GAP - 1e-9 <= gap <= LABEL_GAP + 1e-9
     else:
-        assert text.right() == pytest.approx(body.left() - LABEL_GAP)
-        assert text.center().y() == pytest.approx(body.center().y())
+        # 6 px from the body, centered on a gap between rows (an odd
+        # multiple of half a step from the anchor).
+        if item.label_side == "right":
+            assert text.left() == pytest.approx(body.right() + LABEL_GAP)
+        else:
+            assert text.right() == pytest.approx(body.left() - LABEL_GAP)
+        assert (text.center().y() / (SPACING / 2)) % 2 == pytest.approx(1)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+@pytest.mark.parametrize("kind", list(COMPONENT_DEFINITIONS))
+def test_label_text_stays_off_grid_dots_and_its_own_body(kind, rotation):
+    item = make_item(kind, rotation)
+    text = label_text_rect_in_item(item)
+
+    assert not text_touches_a_grid_dot(text, SPACING)
+    assert not text.intersects(item.body_path.boundingRect())
+
+
+@pytest.mark.parametrize(
+    "center_y, expected",
+    [(0, -30), (1.5, 30), (-1.5, -30), (-28.5, -30), (44, 30), (60, 30),
+     (61, 90), (-89, -90)]
+)
+def test_snap_between_rows(center_y, expected):
+    assert snap_between_rows(center_y, 60) == expected
+
+
+@pytest.mark.parametrize(
+    "center_y, low, high, expected",
+    [
+        # Already clear of the dots (band -51..-9 for a 21 px text).
+        (-30, None, None, -30),
+        # Top would be at -54: pushed down to -40.5 (top on -51).
+        (-43.5, None, None, -40.5),
+        # Same, but the body allows no lower than -42: not moved.
+        (-43.5, None, -42, -43.5),
+        # Below the body: pushed up so the bottom is on +51.
+        (43.5, None, None, 40.5),
+        (43.5, 42, None, 43.5),
+    ]
+)
+def test_fit_between_rows(center_y, low, high, expected):
+    assert fit_between_rows(center_y, 21, 60, low=low, high=high) == expected
+
+
+def test_fit_between_rows_leaves_text_taller_than_the_gap():
+    assert fit_between_rows(-30, 50, 60) == -30
+
+
+@pytest.mark.parametrize(
+    "rect, expected",
+    [
+        (QRectF(10, -50, 40, 40), False),     # inside one cell
+        (QRectF(10, -50, 60, 45), True),      # reaches the dot at (60, 0)
+        (QRectF(-200, -51, 400, 42), False),  # long, between rows
+        (QRectF(-15, -5, 10, 10), True),      # on the anchor dot
+        (QRectF(9, -51, 42, 42), False),      # touching edges only
+    ]
+)
+def test_text_touches_a_grid_dot(rect, expected):
+    assert text_touches_a_grid_dot(rect, 60) == expected
+
+
+def test_free_label_sides_order_and_fallback():
+    assert free_label_sides([("1", -1, 0), ("2", 1, 0)]) == ["above", "below"]
+    assert free_label_sides(
+        [("a", 0, -1), ("b", 1, 0), ("c", 0, 1), ("d", -1, 0)]
+    ) == ["above"]
 
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
@@ -347,8 +423,11 @@ def test_body_hides_what_is_underneath_and_selection_turns_yellow():
 def test_label_patch_hides_what_is_behind_the_label():
     scene = QGraphicsScene()
     scene_rect = QRectF(-100, -100, 200, 200)
+    # Stand-in for the guide lines, which the scene draws in its background
+    # (below every item, including the label at z -0.5).
     red_block = scene.addRect(QRectF(-100, -100, 200, 200))
     red_block.setBrush(QColor("#ff0000"))
+    red_block.setZValue(-1)
     item = make_item("resistor")
     scene.addItem(item)
 
@@ -407,11 +486,19 @@ def test_clicking_a_pin_selects_the_grid_point_not_the_part(click_scene):
     assert scene.selectedItems() == [dots[(0, -60)]]
 
 
-def test_clicking_the_label_selects_the_grid_point_under_it(click_scene):
-    scene, view, item, dots = click_scene
-    # The vertical resistor's label sits to the right, over the (60, 0) dot.
-    assert item.label_side == "right"
+def test_clicking_the_label_does_not_select_the_part(click_scene):
+    scene, view, item, _dots = click_scene
     label = item.label_item
+    click(view, label.mapRectToScene(label.text_rect()).center())
+
+    assert scene.selectedItems() == []
+
+
+def test_clicking_a_label_over_a_grid_point_selects_the_point(click_scene):
+    scene, view, item, dots = click_scene
+    # Labels avoid the dots, so move this one over the (60, 0) dot.
+    label = item.label_item
+    label.setPos(QPointF(40, -10) - label.text_rect().topLeft())
     assert label.mapRectToScene(label.boundingRect()).contains(QPointF(60, 0))
 
     click(view, QPointF(60, 0))

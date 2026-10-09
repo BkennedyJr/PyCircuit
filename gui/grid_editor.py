@@ -6,7 +6,9 @@ separate from the core data model so future command-line or test workflows
 can use the connection-grid model without importing PyQt5.
 """
 
+from PyQt5 import sip
 from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QRectF
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
@@ -17,11 +19,39 @@ from PyQt5.QtWidgets import QGraphicsScene
 from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
+from gui.component_item import ComponentItem
 
 GRID_POINT_SPACING = 60
 GRID_ORIGIN_X = 90
 GRID_ORIGIN_Y = 80
 CONNECTION_POINT_DIAMETER = 16
+# Grid points stack above component labels (-0.5) and below parts (1).
+CONNECTION_POINT_Z_VALUE = 0
+# Default header positions: column headers at this y, row headers at this x.
+HEADER_POSITION = 25
+# Space kept between the headers and any part or label.
+HEADER_GAP = 8
+# Extra room around everything when the scene grows to fit the parts.
+SCENE_MARGIN = 20
+
+
+def grid_point_to_scene_position(row_number, column_number):
+    """
+    Return the scene position of a grid point (1-based row and column).
+
+    Same formula as ConnectionGridScene.rebuild_connection_point_items.
+
+    :param row_number: Row of the grid point.
+    :type row_number: int
+    :param column_number: Column of the grid point.
+    :type column_number: int
+    :returns: Scene position of the point's center.
+    :rtype: QPointF
+    """
+    return QPointF(
+        GRID_ORIGIN_X + ((column_number - 1) * GRID_POINT_SPACING),
+        GRID_ORIGIN_Y + ((row_number - 1) * GRID_POINT_SPACING)
+    )
 
 
 class ConnectionPointItem(QGraphicsEllipseItem):
@@ -48,6 +78,7 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         # movement of fixed grid points.
         self.setFlag(self.ItemIsSelectable, True)
         self.setFlag(self.ItemIsMovable, False)
+        self.setZValue(CONNECTION_POINT_Z_VALUE)
 
         self.setToolTip(
             "{}\nRow: {}\nColumn: {}".format(
@@ -103,12 +134,17 @@ class ConnectionGridScene(QGraphicsScene):
     """
 
     connection_point_selected = pyqtSignal(object)
+    component_selected = pyqtSignal(object)
 
     def __init__(self, connection_grid, parent=None):
         super(ConnectionGridScene, self).__init__(parent)
 
         self.connection_grid = None
         self.connection_point_items_by_identifier = {}
+        self.component_collection = None
+        self.component_items_by_reference = {}
+        self.column_header_items = []
+        self.row_header_items = []
 
         # Report selection changes to the main window so it can update the
         # selected-node panel and signal-pickoff controls.
@@ -140,6 +176,8 @@ class ConnectionGridScene(QGraphicsScene):
         """
         self.clear()
         self.connection_point_items_by_identifier = {}
+        self.column_header_items = []
+        self.row_header_items = []
 
         row_count = self.connection_grid.row_count
         column_count = self.connection_grid.column_count
@@ -168,6 +206,7 @@ class ConnectionGridScene(QGraphicsScene):
                 25
             )
             self.addItem(column_label)
+            self.column_header_items.append(column_label)
 
         # Add row labels to make point selection understandable without
         # requiring users to infer grid coordinates from visual location.
@@ -182,6 +221,7 @@ class ConnectionGridScene(QGraphicsScene):
                 ((row_number - 1) * GRID_POINT_SPACING) - 10
             )
             self.addItem(row_label)
+            self.row_header_items.append(row_label)
 
         # Create one visible selectable item for every core-model point.
         for connection_point in (
@@ -206,9 +246,162 @@ class ConnectionGridScene(QGraphicsScene):
                 connection_point.identifier
             ] = connection_point_item
 
+        # clear() above already deleted the old component items and labels.
+        self.component_items_by_reference = {}
+        self.rebuild_component_items()
+
         # Clear the selected-node display after a rebuild because old item
         # references are no longer valid once the scene has been cleared.
         self.connection_point_selected.emit(None)
+
+    def set_component_collection(self, component_collection):
+        """
+        Show the parts of a component collection on the grid.
+
+        :param component_collection: Parts to display, or None for none.
+        :type component_collection: core.components.ComponentCollection
+        :returns: None
+        """
+        self.component_collection = component_collection
+        self.rebuild_component_items()
+
+    def rebuild_component_items(self):
+        """
+        Replace every component item with fresh ones from the collection.
+
+        :returns: None
+        """
+        for component_item in self.component_items_by_reference.values():
+            # Skip items Qt already deleted (for example by clear()).
+            if (not sip.isdeleted(component_item) and
+                    component_item.scene() is self):
+                self.removeItem(component_item)
+
+        self.component_items_by_reference = {}
+
+        if self.component_collection is not None:
+            for component in self.component_collection.get_components():
+                component_item = ComponentItem(component, GRID_POINT_SPACING)
+                component_item.setPos(
+                    grid_point_to_scene_position(
+                        component.row_number,
+                        component.column_number
+                    )
+                )
+                self.addItem(component_item)
+
+                self.component_items_by_reference[
+                    component.reference
+                ] = component_item
+
+        self.update_scene_extent()
+
+    def refresh_component(self, reference):
+        """
+        Redraw one part after its rotation, value or position changed.
+
+        :param reference: Reference of the part, for example "R1".
+        :type reference: str
+        :returns: None
+        """
+        component_item = self.component_items_by_reference.get(reference)
+
+        if component_item is None:
+            return
+
+        component_item.refresh_from_component()
+        component_item.setPos(
+            grid_point_to_scene_position(
+                component_item.component.row_number,
+                component_item.component.column_number
+            )
+        )
+        self.update_scene_extent()
+
+    def get_grid_rect(self):
+        """
+        Return the scene area covered by the grid points.
+
+        :returns: Rectangle around every grid point.
+        :rtype: QRectF
+        """
+        radius = CONNECTION_POINT_DIAMETER / 2.0
+        grid_width = (self.connection_grid.column_count - 1) * GRID_POINT_SPACING
+        grid_height = (self.connection_grid.row_count - 1) * GRID_POINT_SPACING
+
+        return QRectF(
+            GRID_ORIGIN_X - radius,
+            GRID_ORIGIN_Y - radius,
+            grid_width + CONNECTION_POINT_DIAMETER,
+            grid_height + CONNECTION_POINT_DIAMETER
+        )
+
+    def get_components_rect(self):
+        """
+        Return the scene area painted by the parts and their labels.
+
+        :returns: United rectangle; empty when there are no parts.
+        :rtype: QRectF
+        """
+        components_rect = QRectF()
+
+        for component_item in self.component_items_by_reference.values():
+            components_rect = components_rect.united(
+                component_item.mapRectToScene(component_item.boundingRect())
+            )
+
+            label_item = component_item.label_item
+
+            if label_item.isVisible():
+                components_rect = components_rect.united(
+                    label_item.mapRectToScene(label_item.boundingRect())
+                )
+
+        return components_rect
+
+    def update_scene_extent(self):
+        """
+        Keep the headers clear of the parts and the scene big enough.
+
+        Column headers move up and row headers move left when a part or
+        label reaches past the grid edge, so they are never covered. Then
+        the sceneRect grows to hold everything plus SCENE_MARGIN, so a view
+        can scroll to labels outside the grid. It never shrinks below the
+        default rectangle set in rebuild_connection_point_items().
+
+        :returns: None
+        """
+        content_rect = self.get_grid_rect().united(self.get_components_rect())
+
+        for column_header in self.column_header_items:
+            header_height = column_header.boundingRect().height()
+            column_header.setY(min(
+                HEADER_POSITION,
+                content_rect.top() - HEADER_GAP - header_height
+            ))
+
+        for row_header in self.row_header_items:
+            header_width = row_header.boundingRect().width()
+            row_header.setX(min(
+                HEADER_POSITION,
+                content_rect.left() - HEADER_GAP - header_width
+            ))
+
+        grid_width = (self.connection_grid.column_count - 1) * GRID_POINT_SPACING
+        grid_height = (self.connection_grid.row_count - 1) * GRID_POINT_SPACING
+        default_rect = QRectF(
+            0,
+            0,
+            GRID_ORIGIN_X + grid_width + 100,
+            GRID_ORIGIN_Y + grid_height + 100
+        )
+
+        scene_rect = default_rect.united(
+            self.itemsBoundingRect().adjusted(
+                -SCENE_MARGIN, -SCENE_MARGIN, SCENE_MARGIN, SCENE_MARGIN
+            )
+        )
+        self.setSceneRect(scene_rect)
 
     def refresh_connection_point(self, connection_point_identifier):
         """
@@ -227,11 +420,15 @@ class ConnectionGridScene(QGraphicsScene):
 
     def handle_connection_point_selection_change(self):
         """
-        Report the currently selected connection point to the main window.
+        Report the selected connection point and selected part.
+
+        Both signals fire on every selection change, with None when nothing
+        of that type is selected.
 
         :returns: None
         """
         selected_connection_point = None
+        selected_component = None
 
         for selected_item in self.selectedItems():
             if isinstance(selected_item, ConnectionPointItem):
@@ -240,7 +437,13 @@ class ConnectionGridScene(QGraphicsScene):
                 )
                 break
 
+        for selected_item in self.selectedItems():
+            if isinstance(selected_item, ComponentItem):
+                selected_component = selected_item.component
+                break
+
         self.connection_point_selected.emit(selected_connection_point)
+        self.component_selected.emit(selected_component)
 
     def drawBackground(self, painter, rectangle):
         """
