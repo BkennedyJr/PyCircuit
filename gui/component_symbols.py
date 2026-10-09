@@ -288,8 +288,9 @@ def _dc_source_paths():
 
 def _ac_source_paths():
     """
-    AC voltage source: circle with one period of a sine inside, leads to
-    the plus pin (top) and the minus pin (bottom).
+    AC voltage source: circle with leads to the plus pin (top) and the
+    minus pin (bottom). The sine inside is a separate glyph
+    (_sine_glyph_path) that build_symbol_paths keeps upright.
 
     :returns: (stroke_path, fill_path)
     :rtype: tuple
@@ -299,6 +300,19 @@ def _ac_source_paths():
     stroke_path.addEllipse(QPointF(0.0, 0.0), SOURCE_RADIUS, SOURCE_RADIUS)
     _add_line(stroke_path, 0.0, -HALF_SPAN, 0.0, -SOURCE_RADIUS)
     _add_line(stroke_path, 0.0, SOURCE_RADIUS, 0.0, HALF_SPAN)
+
+    return (stroke_path, QPainterPath())
+
+
+def _sine_glyph_path():
+    """
+    One full period of a sine, horizontal and centred on the body centre,
+    first half-wave up. Drawn upright at every rotation.
+
+    :returns: Stroke path of the sine.
+    :rtype: QPainterPath
+    """
+    stroke_path = QPainterPath()
 
     # y points down, so the minus sign makes the first half-wave go up.
     for point_index in range(SINE_POINT_COUNT):
@@ -311,7 +325,7 @@ def _ac_source_paths():
         else:
             stroke_path.lineTo(x, y)
 
-    return (stroke_path, QPainterPath())
+    return stroke_path
 
 
 def _diode_paths():
@@ -431,19 +445,33 @@ _SYMBOL_BUILDERS = {
     "ground": _ground_paths,
 }
 
+# Glyphs drawn inside a body that must read the same at every rotation
+# (Billie: the AC sine always stays horizontal). They are built around the
+# body centre and turned back by the part's rotation, so the item's own
+# rotation leaves them upright.
+_UPRIGHT_GLYPH_BUILDERS = {
+    "ac_source": _sine_glyph_path,
+}
 
-def build_symbol_paths(kind):
+ALLOWED_SYMBOL_ROTATIONS = (0, 90, 180, 270)
+
+
+def build_symbol_paths(kind, rotation=0):
     """
     Build the symbol paths for one component kind, in pitch units.
 
     A new pair of paths is returned on every call, so callers may change
-    or transform them freely.
+    or transform them freely. The paths are unrotated; the caller rotates
+    them by the part's rotation. Pass that same rotation here so glyphs
+    that must stay upright (the AC sine) are pre-turned the other way.
 
     :param kind: Component kind, a key of COMPONENT_DEFINITIONS.
     :type kind: str
+    :param rotation: The part's rotation in degrees: 0, 90, 180 or 270.
+    :type rotation: int
     :returns: (stroke_path, fill_path)
     :rtype: tuple
-    :raises ComponentError: If the kind is unknown.
+    :raises ComponentError: If the kind or the rotation is not valid.
     :raises NotImplementedError: If the kind has no symbol yet (Step 5).
     """
     if not isinstance(kind, str) or kind not in COMPONENT_DEFINITIONS:
@@ -454,7 +482,19 @@ def build_symbol_paths(kind):
             f"The {kind} symbol is not drawn yet (planned for Step 5)."
         )
 
+    if (isinstance(rotation, bool) or not isinstance(rotation, int) or
+            rotation not in ALLOWED_SYMBOL_ROTATIONS):
+        raise ComponentError(
+            f"Symbol rotation must be 0, 90, 180 or 270, not {rotation!r}."
+        )
+
     stroke_path, fill_path = _SYMBOL_BUILDERS[kind]()
+
+    if kind in _UPRIGHT_GLYPH_BUILDERS:
+        stroke_path.addPath(
+            QTransform().rotate(-rotation).map(_UPRIGHT_GLYPH_BUILDERS[kind]())
+        )
+
     to_anchor = _get_anchor_transform(kind)
 
     return (to_anchor.map(stroke_path), to_anchor.map(fill_path))
