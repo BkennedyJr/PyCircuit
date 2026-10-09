@@ -11,8 +11,8 @@ its pins on grid points.
 
 Two-pin parts span ONE grid step: leads run from -0.5 to +0.5 around the
 body centre, so at 60 px per step the body is about 36 px long. Grid dots
-(16 px) sit under the lead ends, so bodies stay at least 0.3 of a step
-(18 px) from each pin, leaving the lead visible past the dot.
+(16 px) sit under the lead ends; bodies stay about 0.2 of a step (12 px)
+from each pin, so a few pixels of lead show past each dot.
 
 Transistors and ground are drawn around their anchor (no shift) and keep
 their earlier size: transistors span two steps with three pins.
