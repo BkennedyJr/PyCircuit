@@ -29,3 +29,9 @@ class ProjectFileError(CircuitWorkbenchError):
     """
     Raised when a project file cannot be loaded, validated, or saved.
     """
+
+
+class ComponentError(CircuitWorkbenchError):
+    """
+    Raised when a component definition, value, or placement is invalid.
+    """
