@@ -29,34 +29,41 @@ SI_PREFIX_EXPONENTS = {
     "t": 12,
 }
 
+# Longest accepted value text after stripping whitespace. Real values are
+# short; the cap keeps pasted garbage from reaching the regular expressions.
+MAXIMUM_VALUE_TEXT_LENGTH = 64
+
 # Letter used in the "4r7" form to mark the decimal point with a scale of 1.
 RKM_UNITY_LETTER = "r"
 
 ALLOWED_VALUE_DESCRIPTION = (
     "Use a number with an optional SI prefix, for example 4700, 4.7k, 4k7, "
-    "10u, 100n, 2.2m, or 1meg. Accepted prefixes: f, p, n, u (or \u00b5), "
-    "m, k, meg, g, t. Do not add unit letters such as F, H, V, or Ohm."
+    "10u, 100n, 2.2m, or 1meg. Accepted prefixes: f, p, n, "
+    "u (or \u00b5 or \u03bc), m, k, meg, g, t. Do not add unit letters "
+    "such as F, H, V, or Ohm."
 )
 
-# Plain number: optional sign, digits with an optional decimal point, an
-# optional exponent, then an optional SI prefix. "meg" is listed before the
-# single letters so that "1meg" is not read as "1m" followed by "eg".
+# Plain number: optional sign, ASCII digits with an optional decimal point,
+# an optional exponent of at most four digits, then an optional SI prefix.
+# Case variants are listed explicitly instead of using re.IGNORECASE,
+# because Unicode case folding would map Greek capital Mu (U+039C, which
+# looks exactly like "M") onto the micro sign. "meg" is listed before the
+# single letters so that "1meg" is not read as "1m" followed by "eg". The
+# mantissa alternatives do not overlap, which keeps failed matches fast.
 _PLAIN_VALUE_PATTERN = re.compile(
-    r"^(?P<sign>[+-]?)"
-    r"(?P<mantissa>\d+\.?\d*|\.\d+)"
-    r"(?:[eE](?P<exponent>[+-]?\d+))?"
-    r"(?P<prefix>meg|[fpnumkgt\u00b5\u03bc])?$",
-    re.IGNORECASE
+    r"(?P<sign>[+-]?)"
+    r"(?P<mantissa>[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+    r"(?:[eE](?P<exponent>[+-]?[0-9]{1,4}))?"
+    r"(?P<prefix>[mM][eE][gG]|[fFpPnNuUmMkKgGtT\u00b5\u03bc])?"
 )
 
-# "4k7" form: digits, one prefix letter (or "r") in place of the decimal
-# point, then digits.
+# "4k7" form: ASCII digits, one prefix letter (or "r") in place of the
+# decimal point, then ASCII digits.
 _RKM_VALUE_PATTERN = re.compile(
-    r"^(?P<sign>[+-]?)"
-    r"(?P<whole>\d+)"
-    r"(?P<letter>[fpnumkgtr\u00b5\u03bc])"
-    r"(?P<fraction>\d+)$",
-    re.IGNORECASE
+    r"(?P<sign>[+-]?)"
+    r"(?P<whole>[0-9]+)"
+    r"(?P<letter>[fFpPnNuUmMkKgGtTrR\u00b5\u03bc])"
+    r"(?P<fraction>[0-9]+)"
 )
 
 
@@ -99,6 +106,14 @@ def _convert_decimal_text(value_text, decimal_text):
     if not math.isfinite(converted_value):
         raise _build_value_error(value_text, "the value is out of range.")
 
+    # Reject underflow such as "1e-400": a nonzero mantissa that converts
+    # to 0.0 would otherwise silently become zero.
+    mantissa_text = decimal_text.lower().split("e")[0]
+
+    if converted_value == 0.0 and any(
+            digit in mantissa_text for digit in "123456789"):
+        raise _build_value_error(value_text, "the value is too small.")
+
     return converted_value
 
 
@@ -127,8 +142,24 @@ def parse_value(value_text):
     if not cleaned_text:
         raise _build_value_error(value_text, "the value is empty.")
 
+    # Refuse very long text before any pattern matching runs.
+    if len(cleaned_text) > MAXIMUM_VALUE_TEXT_LENGTH:
+        raise _build_value_error(
+            value_text[:40] + "...",
+            "the value is too long."
+        )
+
+    # Greek capital Mu (U+039C) looks exactly like "M", for example in text
+    # pasted from a PDF. Reject it with the same advice as a plain "M".
+    if "\u039c" in cleaned_text:
+        raise _build_value_error(
+            value_text,
+            "'\u039c' (Greek capital Mu) looks like 'M', which is ambiguous. "
+            "Use 'm' for milli, 'meg' for mega, or 'u' for micro."
+        )
+
     # Try the ordinary "number plus optional prefix" form first.
-    plain_match = _PLAIN_VALUE_PATTERN.match(cleaned_text)
+    plain_match = _PLAIN_VALUE_PATTERN.fullmatch(cleaned_text)
 
     if plain_match is not None:
         prefix_text = plain_match.group("prefix") or ""
@@ -155,7 +186,7 @@ def parse_value(value_text):
         )
 
     # Then try the "4k7" form, where the letter is the decimal point.
-    rkm_match = _RKM_VALUE_PATTERN.match(cleaned_text)
+    rkm_match = _RKM_VALUE_PATTERN.fullmatch(cleaned_text)
 
     if rkm_match is not None:
         letter_text = rkm_match.group("letter")
