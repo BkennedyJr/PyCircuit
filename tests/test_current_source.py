@@ -111,3 +111,10 @@ def test_tooltip_says_current(qt_application):
     item = ComponentItem(Component("current_source", "I1", "2m", 4, 4), 60)
 
     assert "Current: 2mA" in item.toolTip()
+
+
+def test_unit_letter_advice_mentions_amps():
+    with pytest.raises(ComponentError) as error:
+        Component("current_source", "I1", "1mA", 4, 4)
+
+    assert "V, A, or Ohm" in str(error.value)
