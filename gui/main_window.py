@@ -33,6 +33,7 @@ from core.exceptions import ProjectFileError
 from core.project_io import load_project_file
 from core.project_io import save_project_file
 from core.wires import WireCollection
+from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
@@ -171,6 +172,13 @@ class MainWindow(QMainWindow):
         )
         self.connection_grid_scene.wire_refused.connect(
             self.handle_wire_refused
+        )
+        # Look the method up on each crossing, so a test can replace
+        # choose_wire_crossing without the scene keeping the old one.
+        self.connection_grid_scene.crossing_chooser = (
+            lambda start, end, crossings: self.choose_wire_crossing(
+                start, end, crossings
+            )
         )
         self.connection_grid_scene.wires_selected.connect(
             self.handle_wire_selection
@@ -628,11 +636,54 @@ class MainWindow(QMainWindow):
         if is_wire_mode:
             self.statusBar().showMessage(
                 "Wire mode: press on a grid point and drag to another grid "
-                "point. Esc cancels a wire; W leaves Wire mode.",
+                "point. If the wire crosses another wire, choose Connect "
+                "or Bridge. Esc cancels a wire; W leaves Wire mode.",
                 7000
             )
         else:
             self.statusBar().showMessage("Wire mode off.", 3000)
+
+    def choose_wire_crossing(self, start_identifier, end_identifier,
+                             crossings):
+        """
+        Ask whether a wire that crosses another wire should join or hop.
+
+        :param start_identifier: Where the new wire starts.
+        :type start_identifier: str
+        :param end_identifier: Where the new wire ends.
+        :type end_identifier: str
+        :param crossings: (identifier, wire references) from the collection.
+        :type crossings: list
+        :returns: "connect", "bridge" or "cancel".
+        :rtype: str
+        """
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Question)
+        message.setWindowTitle("Wire Crossing")
+        message.setText(
+            f"From {start_identifier} to {end_identifier}. "
+            + describe_crossings(crossings)
+        )
+        message.setInformativeText(
+            "Connect joins those points. Bridge hops over them, so this "
+            "wire does not connect there."
+        )
+        connect_button = message.addButton(
+            "Connect", QMessageBox.AcceptRole
+        )
+        bridge_button = message.addButton("Bridge", QMessageBox.AcceptRole)
+        message.addButton(QMessageBox.Cancel)
+        message.setDefaultButton(connect_button)
+        message.exec_()
+        clicked = message.clickedButton()
+
+        if clicked is bridge_button:
+            return "bridge"
+
+        if clicked is connect_button:
+            return "connect"
+
+        return "cancel"
 
     def handle_wire_added(self, reference):
         """

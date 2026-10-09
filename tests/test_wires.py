@@ -6,7 +6,7 @@ import pytest
 
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
-from core.wires import Wire, WireCollection
+from core.wires import Wire, WireCollection, describe_crossings
 
 
 @pytest.fixture
@@ -250,3 +250,64 @@ def test_get_wires_at_follows_the_connection_rule(wires, grid, monkeypatch):
 
     assert wires.get_wires_at("NODE_R02_C03") == []
     assert wires.get_wires_at("NODE_R02_C05") == [wire]
+
+
+def test_a_bridge_skips_that_point(wires, grid):
+    power = wires.add_wire("NODE_R02_C02", "NODE_R06_C02", grid)
+    wire = wires.add_wire(
+        "NODE_R04_C01", "NODE_R04_C05", grid, ["NODE_R04_C02"]
+    )
+
+    assert wire.bridged_identifiers == ("NODE_R04_C02",)
+    assert wire.get_joined_identifiers() == (
+        "NODE_R04_C01", "NODE_R04_C03", "NODE_R04_C04", "NODE_R04_C05"
+    )
+    assert wire.get_inner_point_identifiers() == (
+        "NODE_R04_C03", "NODE_R04_C04"
+    )
+    assert wire.describe() == (
+        "W2 from NODE_R04_C01 to NODE_R04_C05, bridging NODE_R04_C02"
+    )
+    assert wires.get_wires_at("NODE_R04_C02") == [power]
+    assert wires.get_wires_at("NODE_R04_C03") == [wire]
+
+
+def test_a_bridge_on_an_end_is_refused_and_stores_nothing(wires, grid):
+    with pytest.raises(ComponentError, match="between the wire's ends"):
+        wires.add_wire(
+            "NODE_R02_C02", "NODE_R02_C05", grid, ["NODE_R02_C02"]
+        )
+
+    assert wires.get_wires() == []
+
+
+def test_find_crossings_lists_another_wire_on_an_interior_point(wires, grid):
+    wires.add_wire("NODE_R02_C02", "NODE_R06_C02", grid)
+
+    assert wires.find_crossings(
+        "NODE_R04_C01", "NODE_R04_C05", grid
+    ) == [("NODE_R04_C02", ["W1"])]
+    assert describe_crossings([("NODE_R04_C02", ["W1"])]) == (
+        "This wire crosses NODE_R04_C02 (W1)."
+    )
+
+
+def test_ending_on_a_wire_is_not_a_crossing(wires, grid):
+    wires.add_wire("NODE_R02_C02", "NODE_R02_C06", grid)
+
+    assert wires.find_crossings("NODE_R02_C04", "NODE_R05_C04", grid) == []
+
+
+def test_two_crossings_are_named_in_order(wires, grid):
+    wires.add_wire("NODE_R02_C02", "NODE_R06_C02", grid)
+    wires.add_wire("NODE_R02_C04", "NODE_R06_C04", grid)
+
+    crossings = wires.find_crossings("NODE_R04_C01", "NODE_R04_C06", grid)
+
+    assert crossings == [
+        ("NODE_R04_C02", ["W1"]),
+        ("NODE_R04_C04", ["W2"]),
+    ]
+    assert describe_crossings(crossings) == (
+        "This wire crosses NODE_R04_C02 (W1) and NODE_R04_C04 (W2)."
+    )

@@ -54,6 +54,25 @@ def test_a_wire_joins_every_point_it_covers():
     assert nets.describe("NODE_R02_C04") == "to C1.2, R1.1 via W1"
 
 
+def test_a_bridge_keeps_both_sides_one_net_and_leaves_the_other_wire():
+    grid = ConnectionGrid(8, 8)
+    wires = WireCollection()
+    wires.add_wire("NODE_R01_C04", "NODE_R06_C04", grid)
+    wires.add_wire(
+        "NODE_R03_C01", "NODE_R03_C07", grid, ["NODE_R03_C04"]
+    )
+    nets = WireNets(wires)
+
+    assert nets.get_wire_references("NODE_R03_C01") == ("W2",)
+    assert nets.get_wire_references("NODE_R03_C07") == ("W2",)
+    assert nets.get_points("NODE_R03_C01") == (
+        "NODE_R03_C01", "NODE_R03_C02", "NODE_R03_C03",
+        "NODE_R03_C05", "NODE_R03_C06", "NODE_R03_C07",
+    )
+    assert nets.get_wire_references("NODE_R03_C04") == ("W1",)
+    assert "NODE_R03_C01" not in nets.get_points("NODE_R01_C04")
+
+
 def test_wires_sharing_any_point_are_one_net():
     nets = WireNets(make_wires(
         ("NODE_R02_C02", "NODE_R02_C06"),

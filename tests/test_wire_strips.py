@@ -123,6 +123,17 @@ def test_t_and_crossing_have_dots():
     ]
 
 
+def test_a_bridged_crossing_has_no_dot():
+    grid = ConnectionGrid(8, 8)
+    wires = WireCollection()
+    wires.add_wire("NODE_R02_C02", "NODE_R06_C02", grid)
+    wires.add_wire(
+        "NODE_R04_C01", "NODE_R04_C06", grid, ["NODE_R04_C02"]
+    )
+
+    assert find_junction_identifiers(wires) == []
+
+
 def test_a_plain_corner_has_no_dot_but_three_ends_do():
     corner = make_wires(
         ("NODE_R02_C02", "NODE_R02_C05"), ("NODE_R02_C05", "NODE_R06_C05")
