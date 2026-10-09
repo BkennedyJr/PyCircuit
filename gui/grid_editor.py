@@ -1081,17 +1081,19 @@ class ConnectionGridView(QGraphicsView):
 
     def update_scroll_area(self, *_unused):
         """
-        Let the view scroll half a viewport past every edge of the scene.
+        Let the view scroll one full viewport past every edge of the scene.
 
         Without this margin Qt centres a scene smaller than the view and
-        a zoom could not keep the point under the cursor still. Called when
+        a zoom could not keep the point under the cursor still. Half a
+        viewport was not enough: zooming out near the scene edge hit the
+        scroll limit (QC #15). Called when
         the scene grows, the zoom changes or the view is resized.
 
         :returns: None
         """
         zoom = self.get_zoom()
-        margin_x = self.viewport().width() / 2.0 / zoom
-        margin_y = self.viewport().height() / 2.0 / zoom
+        margin_x = self.viewport().width() / zoom
+        margin_y = self.viewport().height() / zoom
         self.setSceneRect(
             self.scene().sceneRect().adjusted(
                 -margin_x, -margin_y, margin_x, margin_y
@@ -1100,7 +1102,7 @@ class ConnectionGridView(QGraphicsView):
 
     def resizeEvent(self, event):
         """
-        Keep the scroll margin at half the new viewport size.
+        Keep the scroll margin at one full new viewport size.
 
         :param event: Resize event.
         :type event: QResizeEvent
