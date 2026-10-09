@@ -50,10 +50,18 @@ from core.units import parse_value
 VALID_ROTATIONS = (0, 90, 180, 270)
 
 # Value kinds: "positive" numbers (R, C, L), "any" number (sources),
-# "model" names (diodes, LEDs, transistors), and "none" (ground).
+# "model" names (diodes, LEDs, transistors), and "none" (ground). Settings
+# (parameters) may also be a "choice" from a fixed list (LED color).
 VALID_VALUE_KINDS = ("positive", "any", "model", "none")
 
 MAXIMUM_MODEL_NAME_LENGTH = 32
+
+# LED colors (Billie, Oct 9) and the default SPICE model of each. When an
+# LED's color changes and its model is still the old color's default, the
+# model follows the color; a model the user typed is kept.
+LED_COLORS = ("red", "green", "blue", "yellow", "white", "orange")
+LED_MODEL_BY_COLOR = {color: f"LED_{color.upper()}" for color in LED_COLORS}
+_MODEL_MAPS = {"LED_MODEL_BY_COLOR": LED_MODEL_BY_COLOR}
 
 # Points inside an op-amp triangle (left edge x = -0.6, apex x = 0.75, half
 # height 1.2), in half steps: the anchor, the half points toward out, V+,
@@ -186,6 +194,21 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(1, 0)],
         "value_kind": "model",
         "default_value_text": "LED_RED",
+        # The color is not written to SPICE. It picks the default model
+        # (LED_MODEL_BY_COLOR) and the GUI's lit color.
+        "parameters": (
+            {
+                "name": "color",
+                "display_name": "Color",
+                "unit": "",
+                "value_kind": "choice",
+                "choices": LED_COLORS,
+                "default_value_text": "red",
+                "shown_in_panel": True,
+                "shown_in_label": False,
+            },
+        ),
+        "model_follows_choice": ("color", "LED_MODEL_BY_COLOR"),
     },
     "npn": {
         "display_name": "NPN transistor",
@@ -531,18 +554,40 @@ def validate_parameter_texts(kind, parameter_texts, current_texts=None):
             )
 
         clean_text = value_text.strip()
+        name_lower = parameter["display_name"].lower()
+        is_choice = parameter["value_kind"] == "choice"
 
         # For a new part an empty box means "use the default", like the
         # main value. When editing, an empty box is an error, so a stray
         # select-all + Enter cannot silently reset the setting.
         if not clean_text:
             if current_texts is not None and name in parameter_texts:
+                if is_choice:
+                    raise ComponentError(
+                        f"{display_name} {name_lower} is empty. Pick one "
+                        f"of: {', '.join(parameter['choices'])}."
+                    )
+
                 raise ComponentError(
-                    f"{display_name} {parameter['display_name'].lower()} is "
+                    f"{display_name} {name_lower} is "
                     "empty. Enter a number such as 50 or 1k."
                 )
 
             clean_text = parameter["default_value_text"]
+
+        # A choice is stored in lower case and has no number.
+        if is_choice:
+            choice = clean_text.lower()
+
+            if choice not in parameter["choices"]:
+                raise ComponentError(
+                    f"{display_name} {name_lower} must be one of "
+                    f"{', '.join(parameter['choices'])}, not {clean_text!r}."
+                )
+
+            texts[name] = choice
+            values[name] = choice
+            continue
 
         try:
             numeric_value = parse_value(clean_text)
@@ -561,6 +606,63 @@ def validate_parameter_texts(kind, parameter_texts, current_texts=None):
         values[name] = numeric_value
 
     return (texts, values)
+
+
+def follow_choice_model(kind, value_text, old_texts, new_texts):
+    """
+    Return the model a part should use after its settings change.
+
+    For a kind with "model_follows_choice" (the LED's color): when the
+    choice changes and value_text is the old choice's default model (case
+    ignored), the new choice's default model is returned. Any other model
+    (one the user typed) is returned unchanged, and so is value_text when
+    either settings dict lacks the choice or names a choice the map does
+    not know.
+
+    :param kind: Component kind.
+    :type kind: str
+    :param value_text: Validated model text.
+    :type value_text: str
+    :param old_texts: Settings before the change.
+    :type old_texts: dict
+    :param new_texts: Validated settings after the change.
+    :type new_texts: dict
+    :returns: Model text to store.
+    :rtype: str
+    """
+    follow = COMPONENT_DEFINITIONS[kind].get("model_follows_choice")
+
+    if follow is None:
+        return value_text
+
+    name, map_name = follow
+    model_by_choice = _MODEL_MAPS[map_name]
+    old_choice = old_texts.get(name)
+    new_choice = new_texts.get(name)
+
+    if old_choice not in model_by_choice or new_choice not in model_by_choice:
+        return value_text
+
+    if (old_choice != new_choice and
+            value_text.upper() == model_by_choice[old_choice].upper()):
+        return model_by_choice[new_choice]
+
+    return value_text
+
+
+def get_default_parameter_texts(kind):
+    """
+    Return the default settings texts of a kind.
+
+    :param kind: Component kind.
+    :type kind: str
+    :returns: {setting name: default text}.
+    :rtype: dict
+    """
+    return {
+        parameter["name"]: parameter["default_value_text"]
+        for parameter in get_parameter_definitions(kind)
+    }
 
 
 class Component:
@@ -601,6 +703,9 @@ class Component:
 
         self.validate_reference(reference, component_definition)
         clean_text, value = validate_value_text(kind, value_text)
+        # The model is stored exactly as given (a saved LED_RED on a green
+        # LED stays LED_RED); only add_component, given empty text, picks
+        # the chosen color's default model.
         texts, values = validate_parameter_texts(kind, parameter_texts)
 
         # Extra settings such as an AC source's frequency: the text as
@@ -728,6 +833,9 @@ class Component:
             self.kind,
             parameter_texts,
             self.parameter_texts
+        )
+        clean_text = follow_choice_model(
+            self.kind, clean_text, self.parameter_texts, texts
         )
 
         self.value_text = clean_text
@@ -930,6 +1038,9 @@ class Component:
         ]
 
         for parameter in get_panel_parameter_definitions(self.kind):
+            if not parameter.get("shown_in_label", True):
+                continue
+
             parts.append(
                 self.parameter_texts[parameter["name"]] + parameter["unit"]
             )
@@ -1052,9 +1163,22 @@ class ComponentCollection:
         _validate_connection_grid(connection_grid)
         component_definition = _lookup_component_definition(kind)
 
-        # Empty text means "use the default", for example "1k".
+        # Empty text means "use the default", for example "1k". For an LED
+        # the default follows the chosen color: green gives LED_GREEN. Text
+        # the caller gave is never changed.
         if isinstance(value_text, str) and not value_text.strip():
             value_text = component_definition["default_value_text"]
+
+            if component_definition.get("model_follows_choice"):
+                texts, _values = validate_parameter_texts(
+                    kind, parameter_texts
+                )
+                value_text = follow_choice_model(
+                    kind,
+                    value_text,
+                    get_default_parameter_texts(kind),
+                    texts
+                )
 
         component = Component(
             kind,
