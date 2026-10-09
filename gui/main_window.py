@@ -718,8 +718,9 @@ class MainWindow(QMainWindow):
         """
         component = self.component_collection.get_component(reference)
 
-        if self.selected_component_reference == reference:
-            self.component_panel_widget.show_component(component)
+        # The moved part becomes the panel's part, even when several parts
+        # are selected.
+        self.handle_component_selection(component)
 
         self.reveal_component(reference)
         self.mark_project_modified(

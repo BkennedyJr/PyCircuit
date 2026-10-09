@@ -356,6 +356,52 @@ class ConnectionGridScene(QGraphicsScene):
         self.layout_component_labels()
         self.update_scene_extent()
 
+    def check_component_drop(self, reference, anchor_position):
+        """
+        Say whether dropping a dragged part here would be refused.
+
+        :param reference: Part being dragged.
+        :type reference: str
+        :param anchor_position: Current anchor position, scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None if the drop would be accepted (or puts the part
+            back on its own point), otherwise the reason.
+        :rtype: str or None
+        """
+        if self.component_collection is None:
+            return None
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            return None
+
+        return self.component_collection.check_move(
+            reference, row_number, column_number, self.connection_grid
+        )
+
+    def keyPressEvent(self, event):
+        """
+        Esc cancels a part drag; other keys go to the items as usual.
+
+        :param event: Key event.
+        :type event: QKeyEvent
+        :returns: None
+        """
+        grabber = self.mouseGrabberItem()
+
+        if (event.key() == Qt.Key_Escape and
+                isinstance(grabber, ComponentItem) and grabber.is_dragging):
+            grabber.cancel_drag()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
     def handle_component_drop(self, reference, anchor_position):
         """
         Finish a part drag: snap to the nearest grid point, or put it back.
