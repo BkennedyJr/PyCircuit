@@ -459,3 +459,19 @@ def test_move_is_checked_against_the_grid_size_after_a_shrink(collection,
         collection.move_component("R1", 2, 6, grid)
 
     assert position(collection.get_component("R1")) == (2, 2, 0)
+
+
+def test_move_drawing_over_another_part_is_refused(collection, grid):
+    # QC #11 rule through a move: R1 dragged so its pin lands on Q1's
+    # centre (covered by Q1's body, not a pin).
+    collection.add_component("npn", 4, 4, "2N3904", grid)
+    collection.add_component("resistor", 7, 2, "1k", grid)
+
+    with pytest.raises(ComponentError) as error_info:
+        collection.move_component("R1", 4, 4, grid)
+
+    assert str(error_info.value).startswith(
+        "R1 cannot be moved to row 4, column 4: Q1 (NPN transistor) is "
+        "already drawn there"
+    )
+    assert position(collection.get_component("R1")) == (7, 2, 0)
