@@ -1,0 +1,112 @@
+PyCircuit: netlist, ngspice run, probes, oscilloscope
+Repo: BkennedyJr/PyCircuit (main at dbd0f22, 1446 tests passing)
+Use: Cursor agent, high effort. Work in small PRs, one per milestone below.
+Run "python -m pytest -q" after every change. All tests must pass.
+
+PROJECT RULES (read first)
+- PyQt5, NOT PyQt6. Python 3.13. Billie uses Anaconda on Windows.
+- core/ is pure Python and never imports Qt. gui/ holds all Qt code.
+- New simulator code goes in its own package, sim/, which never imports Qt
+  and is never imported by core/.
+- Every bad input raises core.exceptions.ComponentError (or a new
+  SimulationError in core/exceptions.py) with a plain-English message.
+- Use the shared qt_application fixture in tests/conftest.py. Never create
+  a QApplication in a test file.
+- Values come from the existing Component objects. Use core.units.parse_value;
+  never re-parse values by hand.
+- Wire rule (already built): a wire connects every grid dot it crosses; no
+  diagonals. Use the existing single connection/net function; don't write a
+  second one.
+- Read pycircuit-plan.txt sections M3-M7 if they are in the repo; otherwise
+  follow this file.
+
+GOAL
+Billie must be able to build a unity-gain buffer on the grid (AC source
+into op-amp +in, output wired back to -in, ground, supplies), press Start,
+and see the input and output signals on a dockable oscilloscope, then drag a
+probe to another node and see that node's signal.
+
+MILESTONE 1: Netlist builder (core/netlist.py, pure Python)
+- build_netlist(components, wires, grid) -> str (a SPICE netlist).
+- Nets come from the existing net function. A net touching a ground part
+  is node 0. Other nets are named N001, N002... in a stable order.
+- Lines per part (use the part's reference as the SPICE name):
+  resistor        R1 a b 4.7k
+  capacitor       C1 a b 100n  (polarized: same, + pin first)
+  inductor        L1 a b 10u
+  diode / LED     D1 anode cathode MODEL   (LED model from its colour)
+  NPN / PNP       Q1 c b e MODEL
+  dc_source       V1 plus minus DC 9
+  ac_source       V2 plus minus DC <offset> AC <peak> SIN(<offset> <peak> <freq>)
+  current_source  I1 a out DC 1m   (current flows out of the "out" pin)
+  op-amps         X1 inp inn out vplus vminus OPAMP|LM741
+- Write numbers in SPICE form ("4.7k", "100n", "1meg"; never "1M").
+- Add .model / .subckt text from a new core/spice_models.py: 1N4148,
+  LED_RED/GREEN/BLUE/YELLOW/WHITE/ORANGE, 2N3904, 2N2222, 2N3906, the generic
+  OPAMP subckt and the bundled LM741 file already in the repo. Model-name
+  lookup ignores case.
+- Plain-English errors (SimulationError) for: no ground ("Add a ground
+  part."), no source ("Add a source before running."), a floating node
+  (only one connection), a part shorted by both pins on one net, and an
+  unknown model.
+- Tests: hand-checked netlists for a 10k/10k divider, an RC low-pass, an LED
+  with a resistor, and the op-amp buffer. Check each error message.
+
+MILESTONE 2: Simulation runner (sim/runner.py)
+- Use PySpice with the ngspice shared library. Add PySpice and numpy to
+  requirements.txt. Install note for Windows/Anaconda in the README:
+  "conda install -c conda-forge ngspice" is the easy route.
+- run_op(netlist) -> {node: volts}, plus branch currents.
+- run_tran(netlist, step, stop) -> time array plus {node: array}.
+- run_ac(netlist, start, stop, points_per_decade) -> freq array plus
+  {node: complex array}.
+- ngspice returns node names in lowercase; map them back.
+- If ngspice isn't installed, raise SimulationError("ngspice is not
+  installed. See README: Installing ngspice.").
+- Tests (skip cleanly if ngspice is missing):
+  10k/10k divider from 10 V gives 5.000 V;
+  1k + 159n low-pass: -3.0 dB and -45 degrees at 1 kHz;
+  RC step reaches 6.32 V at 1 ms (10 V, 1k, 1u);
+  buffer with LM741 at 1 V 1 kHz: output peak within 1% of input.
+
+MILESTONE 3: Probes (core/probes.py + gui)
+- A Probe tool button (toolbar and Component menu). In probe mode, clicking
+  a grid dot places a probe marker (small coloured flag) on that dot. Each
+  probe gets a name (P1, P2...) and its own trace colour.
+- Probes can be dragged to another dot and snap to it. Del removes a probe.
+- Per-probe method (dropdown in a small Probe panel, default "Direct"):
+  Direct (ideal node voltage, no loading),
+  1 Mohm (adds a 1meg resistor from the node to ground, Billie's method),
+  10x scope (adds 10meg in parallel with 10p to ground),
+  Differential (between two dots: click the first, then the second),
+  Current (reads a part's current: click a part instead of a dot).
+- Loading probes add their extra lines to the netlist; Direct adds nothing.
+- Tests: the 1 Mohm probe on the 10k/10k divider reads 4.975 V; the 10x probe
+  reads 4.9975 V.
+
+MILESTONE 4: Oscilloscope dock (gui/scope_widget.py)
+- A QDockWidget named "Oscilloscope" that docks in the main window or floats
+  as its own window (the normal dock float button). View menu toggle.
+- Use pyqtgraph (add it to requirements.txt).
+- Start and Stop buttons. Start builds the netlist, runs a transient in a
+  QThread worker (never block the UI), and plots each probe's trace in its
+  colour with a legend. Stop cancels the run. Errors show in the status bar
+  and a dialog, in plain words.
+- Controls: time per division and volts per division (or Auto), a run time
+  (default: 5 periods of the lowest AC source frequency, or 10 ms), and a
+  per-channel on/off checkbox.
+- Moving a probe re-plots from the last run if that node is in the results;
+  otherwise it asks to press Start again.
+- After a run, light any LED with current above 1 mA by calling the existing
+  ComponentItem.set_lit(True) (re-light after scene rebuilds).
+- Tests: the dock exists and floats; Start with no source shows "Add a source
+  before running."; with ngspice installed, the buffer run gives two traces
+  that match within 1%.
+
+LATER (do not build yet; leave notes in the plan)
+- Bode plot dock (AC sweep, needs an AC source), FFT dock (from the
+  transient), saving parts/wires/probes in the project file.
+
+DONE WHEN
+All four milestones are merged, the full test suite passes, and the buffer
+demo works in the running app on Windows.
