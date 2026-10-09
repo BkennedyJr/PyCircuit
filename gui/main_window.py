@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt5.QtCore import QStandardPaths
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QAction
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QDockWidget
@@ -23,11 +24,14 @@ from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QToolBar
 from PyQt5.QtWidgets import QWidget
 
+from core.components import ComponentCollection
 from core.connection_grid import ConnectionGrid
+from core.exceptions import ComponentError
 from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
 from core.project_io import load_project_file
 from core.project_io import save_project_file
+from gui.component_panel_widget import ComponentPanelWidget
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
 from gui.grid_editor import ConnectionGridView
@@ -51,10 +55,15 @@ class MainWindow(QMainWindow):
         self.current_project_file_path = None
         self.is_project_modified = False
         self.selected_connection_point_identifier = None
+        self.component_collection = ComponentCollection()
+        self.selected_component_reference = None
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
             self
+        )
+        self.connection_grid_scene.set_component_collection(
+            self.component_collection
         )
         self.connection_grid_view = ConnectionGridView(
             self.connection_grid_scene,
@@ -84,6 +93,7 @@ class MainWindow(QMainWindow):
         self.create_menu_bar()
         self.create_tool_bar()
         self.create_grid_configuration_dock()
+        self.create_component_dock()
         self.create_selected_node_dock()
 
         self.statusBar().showMessage(
@@ -98,6 +108,9 @@ class MainWindow(QMainWindow):
         """
         self.connection_grid_scene.connection_point_selected.connect(
             self.handle_connection_point_selection
+        )
+        self.connection_grid_scene.component_selected.connect(
+            self.handle_component_selection
         )
 
     def create_actions(self):
@@ -129,6 +142,20 @@ class MainWindow(QMainWindow):
         )
         self.toggle_pickoff_action.setEnabled(False)
 
+        self.rotate_component_action = QAction("Rotate Part", self)
+        self.rotate_component_action.setShortcut(QKeySequence("R"))
+        self.rotate_component_action.triggered.connect(
+            self.rotate_selected_component
+        )
+        self.rotate_component_action.setEnabled(False)
+
+        self.delete_component_action = QAction("Delete Part", self)
+        self.delete_component_action.setShortcut(QKeySequence.Delete)
+        self.delete_component_action.triggered.connect(
+            self.delete_selected_component
+        )
+        self.delete_component_action.setEnabled(False)
+
         self.fit_grid_action = QAction("Fit Grid", self)
         self.fit_grid_action.triggered.connect(
             self.connection_grid_view.fit_grid_in_view
@@ -155,6 +182,10 @@ class MainWindow(QMainWindow):
         node_menu = self.menuBar().addMenu("&Node")
         node_menu.addAction(self.toggle_pickoff_action)
 
+        component_menu = self.menuBar().addMenu("&Component")
+        component_menu.addAction(self.rotate_component_action)
+        component_menu.addAction(self.delete_component_action)
+
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.fit_grid_action)
 
@@ -172,6 +203,10 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.save_project_action)
         main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.toggle_pickoff_action)
+        main_tool_bar.addSeparator()
+        main_tool_bar.addAction(self.rotate_component_action)
+        main_tool_bar.addAction(self.delete_component_action)
+        main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.fit_grid_action)
 
     def create_grid_configuration_dock(self):
@@ -198,6 +233,34 @@ class MainWindow(QMainWindow):
         self.addDockWidget(
             Qt.LeftDockWidgetArea,
             grid_configuration_dock
+        )
+
+    def create_component_dock(self):
+        """
+        Create the left-side Components dock for placing and editing parts.
+
+        :returns: None
+        """
+        self.component_panel_widget = ComponentPanelWidget(self)
+        self.component_panel_widget.place_requested.connect(
+            self.place_component
+        )
+        self.component_panel_widget.rotate_requested.connect(
+            self.rotate_selected_component
+        )
+        self.component_panel_widget.value_change_requested.connect(
+            self.apply_component_value
+        )
+        self.component_panel_widget.delete_requested.connect(
+            self.delete_selected_component
+        )
+
+        self.component_dock = QDockWidget("Components", self)
+        self.component_dock.setWidget(self.component_panel_widget)
+
+        self.addDockWidget(
+            Qt.LeftDockWidgetArea,
+            self.component_dock
         )
 
     def create_selected_node_dock(self):
@@ -279,10 +342,21 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Drop the parts that no longer fit, before the scene is rebuilt
+        # from the collection.
+        removed_component_references = (
+            self.component_collection.remove_components_outside_grid(
+                self.connection_grid
+            )
+        )
+
         # Rebuild the editor after the validated model update succeeds.
+        # The rebuild drops the part selection, so restore it afterwards.
+        selected_component_reference = self.selected_component_reference
         self.connection_grid_scene.set_connection_grid(
             self.connection_grid
         )
+        self.select_component_by_reference(selected_component_reference)
         self.selected_connection_point_identifier = None
         self.is_project_modified = True
 
@@ -293,12 +367,27 @@ class MainWindow(QMainWindow):
             self.connection_grid_view.fit_grid_in_view
         )
 
-        if removed_pickoff_identifiers:
+        if removed_pickoff_identifiers or removed_component_references:
+            removed_descriptions = []
+
+            if removed_pickoff_identifiers:
+                removed_descriptions.append(
+                    f"{len(removed_pickoff_identifiers)} signal pickoff(s)"
+                )
+
+            if removed_component_references:
+                removed_references_text = ", ".join(
+                    removed_component_references
+                )
+                removed_descriptions.append(
+                    f"{len(removed_component_references)} part(s) "
+                    f"({removed_references_text})"
+                )
+
+            removed_text = " and ".join(removed_descriptions)
             self.statusBar().showMessage(
-                "Grid updated. Removed {} signal pickoff(s) outside the "
-                "new grid boundary.".format(
-                    len(removed_pickoff_identifiers)
-                ),
+                f"Grid updated. Removed {removed_text} outside the new grid "
+                "boundary.",
                 7000
             )
         else:
@@ -355,6 +444,224 @@ class MainWindow(QMainWindow):
 
         self.toggle_pickoff_action.setEnabled(True)
         self.toggle_pickoff_button.setEnabled(True)
+
+    def handle_component_selection(self, component):
+        """
+        Update the Components dock and part actions after a selection change.
+
+        :param component: Selected part, or None when no part is selected.
+        :type component: core.components.Component or None
+        :returns: None
+        """
+        if component is None:
+            self.selected_component_reference = None
+        else:
+            self.selected_component_reference = component.reference
+
+        self.component_panel_widget.show_component(component)
+        self.rotate_component_action.setEnabled(component is not None)
+        self.delete_component_action.setEnabled(component is not None)
+
+    def select_component_by_reference(self, reference):
+        """
+        Select a part's item again after the scene rebuilt every item.
+
+        A rebuild drops the selection, which clears the Components dock;
+        selecting the new item by reference shows the part again.
+
+        :param reference: Part to select, or None for no change.
+        :type reference: str or None
+        :returns: None
+        """
+        if reference is None:
+            return
+
+        component_item = (
+            self.connection_grid_scene.component_items_by_reference.get(
+                reference
+            )
+        )
+
+        if component_item is not None:
+            component_item.setSelected(True)
+
+    def get_selected_component(self):
+        """
+        Return the selected part, or None.
+
+        :returns: Selected part.
+        :rtype: core.components.Component or None
+        """
+        if self.selected_component_reference is None:
+            return None
+
+        try:
+            return self.component_collection.get_component(
+                self.selected_component_reference
+            )
+
+        except ComponentError:
+            return None
+
+    def mark_project_modified(self, status_message):
+        """
+        Flag unsaved changes, refresh the title, and report what changed.
+
+        :param status_message: Status-bar text.
+        :type status_message: str
+        :returns: None
+        """
+        self.is_project_modified = True
+        self.update_window_title()
+        self.statusBar().showMessage(status_message, 5000)
+
+    def place_component(self, kind, value_text):
+        """
+        Place a new part with its anchor on the selected grid point.
+
+        :param kind: Component kind, for example "resistor".
+        :type kind: str
+        :param value_text: Value as typed, for example "4k7".
+        :type value_text: str
+        :returns: None
+        """
+        if self.selected_connection_point_identifier is None:
+            self.show_error_message(
+                "No Connection Point Selected",
+                "A part is placed on the selected connection point, and no "
+                "point is selected.",
+                "Click a grid point first, then place the part."
+            )
+            return
+
+        connection_point = self.connection_grid.get_connection_point(
+            self.selected_connection_point_identifier
+        )
+
+        try:
+            component = self.component_collection.add_component(
+                kind,
+                connection_point.row_number,
+                connection_point.column_number,
+                value_text,
+                self.connection_grid
+            )
+
+        except ComponentError as error:
+            self.show_error_message(
+                "Part Not Placed",
+                str(error),
+                "Check the value, or pick a point where every pin lands "
+                "on the grid."
+            )
+            return
+
+        # The rebuild drops the selection; select the new part so it can be
+        # rotated (R) or edited at once.
+        self.connection_grid_scene.rebuild_component_items()
+        self.select_component_by_reference(component.reference)
+
+        placed_text = component.label_text() or component.reference
+        self.mark_project_modified(
+            f"Placed {placed_text} at {connection_point.identifier}."
+        )
+
+    def rotate_selected_component(self):
+        """
+        Rotate the selected part 90 degrees clockwise.
+
+        :returns: None
+        """
+        component = self.get_selected_component()
+
+        if component is None:
+            return
+
+        try:
+            self.component_collection.rotate_component(
+                component.reference,
+                self.connection_grid
+            )
+
+        except ComponentError as error:
+            self.show_error_message(
+                "Part Not Rotated",
+                str(error),
+                "Move the part away from the grid edge or enlarge the grid."
+            )
+            return
+
+        # refresh_component keeps the item and its selection, but the
+        # panel text must be refreshed by hand.
+        self.connection_grid_scene.refresh_component(component.reference)
+        self.component_panel_widget.show_component(component)
+        self.mark_project_modified(
+            f"Rotated {component.reference} to {component.rotation} degrees."
+        )
+
+    def apply_component_value(self, value_text):
+        """
+        Change the value of the selected part.
+
+        :param value_text: New value as typed, for example "2k2".
+        :type value_text: str
+        :returns: None
+        """
+        component = self.get_selected_component()
+
+        if component is None:
+            return
+
+        try:
+            self.component_collection.set_component_value(
+                component.reference,
+                value_text
+            )
+
+        except ComponentError as error:
+            self.show_error_message(
+                "Part Value Not Changed",
+                str(error),
+                "Enter a value such as 4k7, 100n or 10u."
+            )
+            # Put the unchanged value back in the box.
+            self.component_panel_widget.show_component(component)
+            return
+
+        self.connection_grid_scene.refresh_component(component.reference)
+        self.component_panel_widget.show_component(component)
+        self.mark_project_modified(
+            f"Set {component.reference} to {component.value_text}."
+        )
+
+    def delete_selected_component(self):
+        """
+        Delete the selected part.
+
+        :returns: None
+        """
+        component = self.get_selected_component()
+
+        if component is None:
+            return
+
+        self.component_collection.remove_component(component.reference)
+
+        # The rebuild clears the selection, which clears the panel.
+        self.connection_grid_scene.rebuild_component_items()
+        self.mark_project_modified(f"Deleted {component.reference}.")
+
+    def reset_component_collection(self):
+        """
+        Start with no parts (project files do not store parts yet).
+
+        :returns: None
+        """
+        self.component_collection = ComponentCollection()
+        self.selected_component_reference = None
+        self.connection_grid_scene.set_component_collection(
+            self.component_collection
+        )
 
     def toggle_selected_signal_pickoff(self):
         """
@@ -428,6 +735,7 @@ class MainWindow(QMainWindow):
         self.current_project_file_path = None
         self.is_project_modified = False
         self.selected_connection_point_identifier = None
+        self.reset_component_collection()
 
         self.connection_grid_scene.set_connection_grid(
             self.connection_grid
@@ -487,6 +795,7 @@ class MainWindow(QMainWindow):
         self.current_project_file_path = selected_project_file_path
         self.is_project_modified = False
         self.selected_connection_point_identifier = None
+        self.reset_component_collection()
 
         self.connection_grid_scene.set_connection_grid(
             self.connection_grid
@@ -587,10 +896,16 @@ class MainWindow(QMainWindow):
         self.is_project_modified = False
         self.update_window_title()
 
-        self.statusBar().showMessage(
-            "Saved project '{}'.".format(project_file_path.name),
-            4000
-        )
+        saved_message = f"Saved project '{project_file_path.name}'."
+
+        # Project files do not store parts yet (components-plan, LATER).
+        if self.component_collection.get_components():
+            saved_message += (
+                " Note: parts are not saved to project files yet and will "
+                "not be there when the project is opened again."
+            )
+
+        self.statusBar().showMessage(saved_message, 10000)
 
         return True
 
