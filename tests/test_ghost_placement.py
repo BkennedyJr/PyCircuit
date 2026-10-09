@@ -13,14 +13,15 @@ Error dialogs are replaced with a recorder, so no modal box opens.
 
 import pytest
 from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
-from PyQt5.QtGui import QColor, QImage, QPainter
+from PyQt5.QtGui import QColor, QHelpEvent, QImage, QPainter
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QToolTip
 
 from gui.component_item import (
     BACKGROUND_COLOR,
     PENDING_ALLOWED_COLOR,
     PENDING_OPACITY,
+    PENDING_TOOL_TIP,
     PENDING_Z_VALUE,
 )
 from gui.main_window import MainWindow
@@ -128,6 +129,50 @@ def test_ghost_takes_no_clicks_or_selection(window):
 
     assert item.acceptedMouseButtons() == Qt.NoButton
     assert not item.flags() & item.ItemIsSelectable
+
+
+def test_ghost_tool_tip_explains_how_to_rotate_and_place(window):
+    start_ghost(window, "NODE_R04_C04", "resistor", "4k7")
+
+    assert ghost(window).toolTip() == PENDING_TOOL_TIP
+    press(window, Qt.Key_Down)
+
+    # Turning rebuilds the ghost; the instructions stay.
+    assert ghost(window).toolTip() == PENDING_TOOL_TIP
+    assert "Rotate with the arrow keys or W/A/S/D." in PENDING_TOOL_TIP
+    assert "Enter or a right-click places it." in PENDING_TOOL_TIP
+
+
+def test_hovering_the_ghost_shows_the_placing_tooltip(window):
+    window.resize(1000, 800)
+    window.show()
+    QTest.qWaitForWindowExposed(window)
+    start_ghost(window, "NODE_R04_C04", "resistor", "1k")
+    item = ghost(window)
+    scene_point = item.mapToScene(item.body_path.boundingRect().center())
+    local_point = view(window).mapFromScene(scene_point)
+    help_event = QHelpEvent(
+        QEvent.ToolTip,
+        local_point,
+        view(window).viewport().mapToGlobal(local_point),
+    )
+    QApplication.sendEvent(view(window).viewport(), help_event)
+    QApplication.processEvents()
+
+    assert QToolTip.text() == PENDING_TOOL_TIP
+
+
+def test_placed_part_tool_tip_describes_the_part(window):
+    start_ghost(window, "NODE_R04_C04", "resistor", "4k7")
+    press(window, Qt.Key_Return)
+    tool_tip = item_for(window, "R1").toolTip()
+
+    assert tool_tip != PENDING_TOOL_TIP
+    assert tool_tip.splitlines()[:3] == [
+        "Kind: Resistor",
+        "Reference: R1",
+        "Value: 4k7",
+    ]
 
 
 def test_place_moves_focus_to_the_grid(window):

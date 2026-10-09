@@ -21,6 +21,7 @@ from gui.component_item import (
     LABEL_GAP,
     LABEL_PATCH_PADDING,
     MIN_LABEL_GAP,
+    PENDING_TOOL_TIP,
     SELECTED_COLOR,
     SYMBOL_COLOR,
     ComponentItem,
@@ -343,6 +344,16 @@ def test_flags_and_z_value():
     assert item.flags() & QGraphicsItem.ItemIsSelectable
     assert not item.flags() & QGraphicsItem.ItemIsMovable
     assert item.zValue() == 1
+
+
+def test_a_ghost_keeps_its_placing_tool_tip_when_redrawn():
+    item = make_item("resistor", 0, "1k")
+    item.make_pending(True)
+    item.component.rotation = 90
+    item.refresh_from_component()
+    item.set_wire_nets(None)
+
+    assert item.toolTip() == PENDING_TOOL_TIP
 
 
 def test_tool_tip_lists_kind_reference_value_and_pin_nodes():

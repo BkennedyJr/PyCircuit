@@ -91,6 +91,12 @@ DRAGGED_COMPONENT_Z_VALUE = 2
 PENDING_OPACITY = 0.6
 PENDING_Z_VALUE = 3
 PENDING_ALLOWED_COLOR = "#4dd0e1"
+# The ghost takes no clicks, so hovering it is how these keys are explained.
+PENDING_TOOL_TIP = (
+    "Rotate with the arrow keys or W/A/S/D.\n"
+    "Click another grid point to move it.\n"
+    "Enter or a right-click places it. Esc cancels."
+)
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -506,11 +512,11 @@ class ComponentItem(QGraphicsItem):
         """
         Show this item as a part waiting to be placed (a ghost).
 
-        The ghost is see-through, drawn above every part, has no label or
-        tooltip and takes no clicks or selection, so a click goes to the
-        grid point under it. It is drawn cyan where the part may be
-        placed and red where it would be refused, all over (an LED's
-        triangle too).
+        The ghost is see-through, drawn above every part, has no label and
+        takes no clicks or selection, so a click goes to the grid point
+        under it. Hovering it explains how to rotate and place it. It is
+        drawn cyan where the part may be placed and red where it would be
+        refused, all over (an LED's triangle too).
 
         :param is_allowed: True if the part may be placed here.
         :type is_allowed: bool
@@ -520,9 +526,9 @@ class ComponentItem(QGraphicsItem):
         self.setZValue(PENDING_Z_VALUE)
         self.setAcceptedMouseButtons(Qt.NoButton)
         self.setFlag(self.ItemIsSelectable, False)
-        self.setToolTip("")
         self.label_item.setVisible(False)
         self.pending_allowed = bool(is_allowed)
+        self.update_tool_tip()
         self.update()
 
     def cancel_drag(self):
@@ -650,7 +656,7 @@ class ComponentItem(QGraphicsItem):
 
         # prepareGeometryChange() above already schedules the repaint.
         self.refresh_label()
-        self.setToolTip(self.build_tool_tip())
+        self.update_tool_tip()
 
     def refresh_label(self):
         """
@@ -835,6 +841,21 @@ class ComponentItem(QGraphicsItem):
 
         return super().itemChange(change, value)
 
+    def update_tool_tip(self):
+        """
+        Set the hover text for a placed part or for a ghost.
+
+        A ghost (make_pending) explains how to rotate and place it. A
+        placed part describes itself. Rebuilding the symbol or the nets
+        keeps the ghost's instructions, because pending_allowed stays set.
+
+        :returns: None
+        """
+        if self.pending_allowed is not None:
+            self.setToolTip(PENDING_TOOL_TIP)
+        else:
+            self.setToolTip(self.build_tool_tip())
+
     def build_tool_tip(self):
         """
         Describe the part for its hover tooltip.
@@ -973,7 +994,7 @@ class ComponentItem(QGraphicsItem):
             )
 
         self.wire_nets = wire_nets
-        self.setToolTip(self.build_tool_tip())
+        self.update_tool_tip()
 
     def boundingRect(self):
         """
