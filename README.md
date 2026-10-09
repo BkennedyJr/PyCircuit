@@ -74,6 +74,10 @@ Using it
   down, left or up (cyan where it fits, red where it would clash),
   clicking another grid point moves it, Enter or a right-click places
   it, and Esc cancels.
+- Wire mode (Component > Wire Mode, or W): press a grid point and drag
+  to another point on the same row or column. If that wire crosses
+  another wire, choose Connect or Bridge. Bridge hops over the crossing
+  and does not connect there. Esc cancels a wire.
 - Ctrl + mouse wheel zooms. View > Fit Grid fits the grid to the window.
 - File > Save Project / Open Project stores the grid as a .json file.
 

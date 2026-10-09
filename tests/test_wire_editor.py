@@ -5,7 +5,7 @@ through the qt_application fixture in tests/conftest.py.
 """
 
 import pytest
-from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
+from PyQt5.QtCore import QEvent, QLineF, QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QImage, QKeySequence, QPainter
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QGraphicsItem, QToolBar
@@ -25,6 +25,7 @@ from gui.grid_editor import (
 )
 from gui.main_window import MainWindow
 from gui.wire_item import (
+    HOP_RADIUS,
     SELECTED_WIRE_COLOR,
     WIRE_COLOR,
     WIRE_PICK_WIDTH,
@@ -71,6 +72,29 @@ def test_wire_click_area_is_wider_than_the_line(qt_application):
         middle + QPointF(0, WIRE_PICK_WIDTH / 2 + 1)
     )
     assert item.boundingRect().contains(item.shape().boundingRect())
+
+
+def test_a_bridge_hops_over_the_grid_point(qt_application):
+    wire = Wire("W1", (2, 2), (2, 6), [(2, 4)])
+    item = WireItem(wire, point(2, 2), point(2, 6))
+    center = point(2, 4)
+    apex = center + QPointF(0, -HOP_RADIUS)
+    path = item.wire_path()
+
+    def closest(target):
+        return min(
+            QLineF(path.pointAtPercent(step / 200), target).length()
+            for step in range(201)
+        )
+
+    assert closest(apex) < 2
+    assert closest(center) > HOP_RADIUS - 2
+    assert item.shape().contains(apex)
+    assert not item.shape().contains(center)
+    assert item.boundingRect().contains(item.shape().boundingRect())
+    assert item.toolTip() == (
+        "W1 from NODE_R02_C02 to NODE_R02_C06, bridging NODE_R02_C04"
+    )
 
 
 def test_wire_turns_yellow_when_selected(qt_application):
@@ -127,6 +151,51 @@ def editor(qt_application):
 def wire_ends(editor):
     return [(wire.start_identifier, wire.end_identifier)
             for wire in editor.wires.get_wires()]
+
+
+def draw_over(editor, choice):
+    editor.wires.add_wire("NODE_R01_C04", "NODE_R06_C04", editor.grid)
+    editor.scene.rebuild_wire_items()
+    editor.scene.crossing_chooser = lambda start, end, crossings: choice
+    editor.scene.set_wire_mode(True)
+    drag(editor.view, point(3, 1), point(3, 6))
+
+
+def test_choosing_bridge_hops_the_crossing(editor):
+    draw_over(editor, "bridge")
+    wire = editor.wires.get_wire("W2")
+
+    assert wire.bridged_identifiers == ("NODE_R03_C04",)
+    assert "NODE_R03_C04" not in wire.get_joined_identifiers()
+    assert editor.scene.junction_items_by_identifier == {}
+    assert editor.added == ["W2"]
+
+
+def test_choosing_connect_joins_the_crossing(editor):
+    draw_over(editor, "connect")
+    wire = editor.wires.get_wire("W2")
+
+    assert wire.bridged_identifiers == ()
+    assert "NODE_R03_C04" in wire.get_joined_identifiers()
+    assert "NODE_R03_C04" in editor.scene.junction_items_by_identifier
+
+
+def test_cancelling_a_crossing_adds_nothing(editor):
+    draw_over(editor, "cancel")
+
+    assert [wire.reference for wire in editor.wires.get_wires()] == ["W1"]
+    assert editor.added == []
+
+
+def test_a_crossing_connects_when_nobody_is_asked(editor):
+    editor.wires.add_wire("NODE_R01_C04", "NODE_R06_C04", editor.grid)
+    editor.scene.rebuild_wire_items()
+    editor.scene.set_wire_mode(True)
+
+    drag(editor.view, point(3, 1), point(3, 6))
+
+    assert editor.wires.get_wire("W2").bridged_identifiers == ()
+    assert "NODE_R03_C04" in editor.scene.junction_items_by_identifier
 
 
 def test_wire_mode_drag_adds_a_wire(editor):
@@ -414,6 +483,43 @@ def test_set_wire_mode_keeps_the_action_in_step(window):
 
     assert window.wire_mode_action.isChecked()
     assert window.connection_grid_scene.is_wire_mode
+
+
+def test_the_window_asks_and_a_bridge_is_reported(window, monkeypatch):
+    asked = []
+
+    def choose(start, end, crossings):
+        asked.append((start, end, crossings))
+        return "bridge"
+
+    monkeypatch.setattr(window, "choose_wire_crossing", choose)
+    window.set_wire_mode(True)
+    drag(window.connection_grid_view, point(1, 4), point(6, 4))
+    drag(window.connection_grid_view, point(3, 1), point(3, 6))
+
+    assert asked == [(
+        "NODE_R03_C01", "NODE_R03_C06", [("NODE_R03_C04", ["W1"])]
+    )]
+    assert window.statusBar().currentMessage() == (
+        "Added W2 from NODE_R03_C01 to NODE_R03_C06, bridging NODE_R03_C04."
+    )
+    assert "NODE_R03_C04" not in (
+        window.connection_grid_scene.junction_items_by_identifier
+    )
+
+
+def test_ending_on_a_wire_does_not_ask(window, monkeypatch):
+    asked = []
+    monkeypatch.setattr(
+        window, "choose_wire_crossing",
+        lambda *details: asked.append(details) or "connect"
+    )
+    window.set_wire_mode(True)
+    drag(window.connection_grid_view, point(2, 2), point(2, 6))
+    drag(window.connection_grid_view, point(2, 4), point(5, 4))
+
+    assert asked == []
+    assert window.wire_collection.get_wire("W2").bridged_identifiers == ()
 
 
 def test_drawing_a_wire_reports_and_marks_modified(window):

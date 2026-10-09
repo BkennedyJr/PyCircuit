@@ -19,8 +19,9 @@ PROJECT FACTS
 - Placement: Place shows a ghost part; the arrow keys or WASD point it, cyan
   means it fits and red means it clashes, and Enter or a right-click commits
   it while Esc cancels.
-- Wires: a wire connects every dot it crosses, horizontal or vertical only.
-  One function decides connectivity; reuse it everywhere.
+- Wires: a wire connects every dot it crosses, horizontal or vertical only,
+  unless that crossing is a bridge (the wire hops and does not connect
+  there). One function decides connectivity; reuse it everywhere.
 - Sources: dc_source (battery), ac_source (sine, peak amplitude, frequency,
   offset, phase), current_source. Op-amps: generic OPAMP and LM741
   (Logipipe, CC BY 4.0, credited in the README).
