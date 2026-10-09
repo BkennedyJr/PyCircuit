@@ -244,6 +244,11 @@ class ConnectionGridScene(QGraphicsScene):
         self.is_wire_mode = False
         self.wire_start_identifier = None
         self.wire_preview_item = None
+        # Set by the main window. Called with (start, end, crossings) when
+        # a new wire passes a point another wire already joins. Returns
+        # "connect", "bridge" or "cancel". None means connect, so a scene
+        # used without the window keeps the old breadboard behaviour.
+        self.crossing_chooser = None
 
         # A part waiting to be placed, and the ghost item that shows it
         # (not in component_items_by_reference).
@@ -708,11 +713,51 @@ class ConnectionGridScene(QGraphicsScene):
             )
             return
 
+        self.add_drawn_wire(start_identifier, end_identifier)
+
+    def add_drawn_wire(self, start_identifier, end_identifier):
+        """
+        Store a wire the user just drew.
+
+        When it crosses another wire, crossing_chooser decides whether
+        those points connect, hop, or the wire is dropped.
+
+        :param start_identifier: Grid point where the drag started.
+        :type start_identifier: str
+        :param end_identifier: Grid point where the drag ended.
+        :type end_identifier: str
+        :returns: None
+        """
+        try:
+            crossings = self.wire_collection.find_crossings(
+                start_identifier,
+                end_identifier,
+                self.connection_grid
+            )
+        except ComponentError as error:
+            self.wire_refused.emit(str(error))
+            return
+
+        bridged_identifiers = ()
+
+        if crossings and self.crossing_chooser is not None:
+            choice = self.crossing_chooser(
+                start_identifier, end_identifier, crossings
+            )
+
+            if choice == "bridge":
+                bridged_identifiers = tuple(
+                    identifier for identifier, _references in crossings
+                )
+            elif choice != "connect":
+                return
+
         try:
             wire = self.wire_collection.add_wire(
                 start_identifier,
                 end_identifier,
-                self.connection_grid
+                self.connection_grid,
+                bridged_identifiers
             )
         except ComponentError as error:
             self.wire_refused.emit(str(error))

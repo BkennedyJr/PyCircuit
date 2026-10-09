@@ -1,22 +1,45 @@
 """
-Grid-configuration controls for the Circuit Workbench GUI.
+Grid-configuration controls for the Circuit Workbench toolbar.
+
+Rows, columns, the point count they imply, and Apply. Enter on Apply
+resizes the grid. Enter inside a spin box only accepts the typed number.
 """
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QFormLayout
-from PyQt5.QtWidgets import QLabel
-from PyQt5.QtWidgets import QPushButton
-from PyQt5.QtWidgets import QSpinBox
-from PyQt5.QtWidgets import QVBoxLayout
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSpinBox, QWidget
 
-from core.connection_grid import MAXIMUM_GRID_DIMENSION
-from core.connection_grid import MINIMUM_GRID_DIMENSION
+from core.connection_grid import MAXIMUM_GRID_DIMENSION, MINIMUM_GRID_DIMENSION
+
+
+class ApplyGridButton(QPushButton):
+    """
+    Apply button that treats Enter the same as a click.
+
+    A focused push button answers Space, not Enter. On the grid toolbar
+    the user tabs to Apply and presses Enter.
+    """
+
+    def keyPressEvent(self, event):
+        """
+        Apply on Enter or Return. Holding the key does not repeat.
+
+        :param event: Key press sent to this button.
+        :type event: QKeyEvent
+        :returns: None
+        """
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if not event.isAutoRepeat():
+                self.click()
+
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
 
 
 class GridConfigurationWidget(QWidget):
     """
-    User controls for selecting connection-grid rows and columns.
+    Rows, columns and Apply, laid out for a toolbar.
 
     :param parent: Optional Qt parent object.
     :type parent: QWidget or None
@@ -25,13 +48,14 @@ class GridConfigurationWidget(QWidget):
     configuration_requested = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
-        super(GridConfigurationWidget, self).__init__(parent)
+        super().__init__(parent)
 
         self.row_count_spin_box = QSpinBox()
         self.column_count_spin_box = QSpinBox()
         self.connection_point_count_label = QLabel()
-        self.apply_configuration_button = QPushButton(
-            "Apply Grid Configuration"
+        self.apply_configuration_button = ApplyGridButton("Apply")
+        self.apply_configuration_button.setToolTip(
+            "Apply these rows and columns. Enter does this too."
         )
 
         self.create_widget_layout()
@@ -42,43 +66,35 @@ class GridConfigurationWidget(QWidget):
 
     def create_widget_layout(self):
         """
-        Create all configuration controls programmatically.
+        Lay the controls out in one row.
 
         :returns: None
         """
-        self.row_count_spin_box.setRange(
-            MINIMUM_GRID_DIMENSION,
-            MAXIMUM_GRID_DIMENSION
-        )
-        self.column_count_spin_box.setRange(
-            MINIMUM_GRID_DIMENSION,
-            MAXIMUM_GRID_DIMENSION
-        )
-
-        form_layout = QFormLayout()
-        form_layout.addRow("Rows:", self.row_count_spin_box)
-        form_layout.addRow("Columns:", self.column_count_spin_box)
-        form_layout.addRow(
-            "Connection Points:",
-            self.connection_point_count_label
-        )
-
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(
-            QLabel(
-                "Set the number of rows and columns in the editable "
-                "connection-point grid."
+        for spin_box in (
+                self.row_count_spin_box, self.column_count_spin_box):
+            spin_box.setRange(
+                MINIMUM_GRID_DIMENSION, MAXIMUM_GRID_DIMENSION
             )
-        )
-        main_layout.addLayout(form_layout)
-        main_layout.addWidget(self.apply_configuration_button)
-        main_layout.addStretch(1)
+            spin_box.setMinimumWidth(64)
 
-        self.setLayout(main_layout)
+        layout = QHBoxLayout()
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(8)
+        layout.addWidget(QLabel("Rows"))
+        layout.addWidget(self.row_count_spin_box)
+        layout.addSpacing(8)
+        layout.addWidget(QLabel("Columns"))
+        layout.addWidget(self.column_count_spin_box)
+        layout.addSpacing(8)
+        layout.addWidget(self.connection_point_count_label)
+        layout.addSpacing(8)
+        layout.addWidget(self.apply_configuration_button)
+
+        self.setLayout(layout)
 
     def connect_widget_signals(self):
         """
-        Connect control changes to total-count display updates.
+        Connect control changes to the point-count display and Apply.
 
         :returns: None
         """
@@ -108,7 +124,7 @@ class GridConfigurationWidget(QWidget):
 
     def update_connection_point_count_display(self):
         """
-        Show the total connection-point count implied by current controls.
+        Show the total connection-point count implied by the spin boxes.
 
         :returns: None
         """
@@ -116,9 +132,8 @@ class GridConfigurationWidget(QWidget):
             self.row_count_spin_box.value() *
             self.column_count_spin_box.value()
         )
-
         self.connection_point_count_label.setText(
-            "{} total".format(connection_point_count)
+            f"{connection_point_count} points"
         )
 
     def emit_configuration_request(self):

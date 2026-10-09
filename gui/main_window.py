@@ -33,6 +33,7 @@ from core.exceptions import ProjectFileError
 from core.project_io import load_project_file
 from core.project_io import save_project_file
 from core.wires import WireCollection
+from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
@@ -111,7 +112,7 @@ class MainWindow(QMainWindow):
         self.create_actions()
         self.create_menu_bar()
         self.create_tool_bar()
-        self.create_grid_configuration_dock()
+        self.create_grid_configuration_toolbar()
         self.create_component_dock()
         self.create_selected_node_dock()
 
@@ -171,6 +172,13 @@ class MainWindow(QMainWindow):
         )
         self.connection_grid_scene.wire_refused.connect(
             self.handle_wire_refused
+        )
+        # Look the method up on each crossing, so a test can replace
+        # choose_wire_crossing without the scene keeping the old one.
+        self.connection_grid_scene.crossing_chooser = (
+            lambda start, end, crossings: self.choose_wire_crossing(
+                start, end, crossings
+            )
         )
         self.connection_grid_scene.wires_selected.connect(
             self.handle_wire_selection
@@ -319,9 +327,12 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.zoom_out_action)
         main_tool_bar.addAction(self.fit_grid_action)
 
-    def create_grid_configuration_dock(self):
+    def create_grid_configuration_toolbar(self):
         """
-        Create the left-side connection-grid configuration dock.
+        Put rows, columns and Apply on their own toolbar at the top.
+
+        The bar sits on the line under the main toolbar. Enter on Apply
+        resizes the grid (see ApplyGridButton).
 
         :returns: None
         """
@@ -334,16 +345,10 @@ class MainWindow(QMainWindow):
             self.apply_grid_configuration
         )
 
-        grid_configuration_dock = QDockWidget(
-            "Grid Configuration",
-            self
-        )
-        grid_configuration_dock.setWidget(self.grid_configuration_widget)
-
-        self.addDockWidget(
-            Qt.LeftDockWidgetArea,
-            grid_configuration_dock
-        )
+        self.addToolBarBreak(Qt.TopToolBarArea)
+        self.grid_tool_bar = QToolBar("Grid", self)
+        self.grid_tool_bar.addWidget(self.grid_configuration_widget)
+        self.addToolBar(Qt.TopToolBarArea, self.grid_tool_bar)
 
     def create_component_dock(self):
         """
@@ -628,11 +633,54 @@ class MainWindow(QMainWindow):
         if is_wire_mode:
             self.statusBar().showMessage(
                 "Wire mode: press on a grid point and drag to another grid "
-                "point. Esc cancels a wire; W leaves Wire mode.",
+                "point. If the wire crosses another wire, choose Connect "
+                "or Bridge. Esc cancels a wire; W leaves Wire mode.",
                 7000
             )
         else:
             self.statusBar().showMessage("Wire mode off.", 3000)
+
+    def choose_wire_crossing(self, start_identifier, end_identifier,
+                             crossings):
+        """
+        Ask whether a wire that crosses another wire should join or hop.
+
+        :param start_identifier: Where the new wire starts.
+        :type start_identifier: str
+        :param end_identifier: Where the new wire ends.
+        :type end_identifier: str
+        :param crossings: (identifier, wire references) from the collection.
+        :type crossings: list
+        :returns: "connect", "bridge" or "cancel".
+        :rtype: str
+        """
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Question)
+        message.setWindowTitle("Wire Crossing")
+        message.setText(
+            f"From {start_identifier} to {end_identifier}. "
+            + describe_crossings(crossings)
+        )
+        message.setInformativeText(
+            "Connect joins those points. Bridge hops over them, so this "
+            "wire does not connect there."
+        )
+        connect_button = message.addButton(
+            "Connect", QMessageBox.AcceptRole
+        )
+        bridge_button = message.addButton("Bridge", QMessageBox.AcceptRole)
+        message.addButton(QMessageBox.Cancel)
+        message.setDefaultButton(connect_button)
+        message.exec_()
+        clicked = message.clickedButton()
+
+        if clicked is bridge_button:
+            return "bridge"
+
+        if clicked is connect_button:
+            return "connect"
+
+        return "cancel"
 
     def handle_wire_added(self, reference):
         """
