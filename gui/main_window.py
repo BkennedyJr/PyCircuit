@@ -18,7 +18,9 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QDockWidget
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QFormLayout
+from PyQt5.QtWidgets import QHBoxLayout
 from PyQt5.QtWidgets import QLabel
+from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QPushButton
@@ -36,6 +38,7 @@ from core.node_formula import build_node_formulas
 from core.wires import WireCollection
 from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
+from gui.grid_configuration_widget import ApplyGridButton
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
 from gui.grid_editor import ConnectionGridView
@@ -393,6 +396,30 @@ class MainWindow(QMainWindow):
         self.selected_node_row_label = QLabel("-")
         self.selected_node_column_label = QLabel("-")
         self.selected_node_pickoff_label = QLabel("-")
+        self.net_label_line_edit = QLineEdit()
+        self.net_label_line_edit.setPlaceholderText("Vcc")
+        self.net_label_line_edit.setToolTip(
+            "Name this point, for example Vcc. Every point with that "
+            "name shares one source."
+        )
+        self.net_label_line_edit.returnPressed.connect(
+            self.apply_selected_net_label
+        )
+        self.net_label_line_edit.setEnabled(False)
+        self.apply_net_label_button = ApplyGridButton("Apply")
+        self.apply_net_label_button.setToolTip(
+            "Apply this net label. Enter does this too."
+        )
+        self.apply_net_label_button.clicked.connect(
+            self.apply_selected_net_label
+        )
+        self.apply_net_label_button.setEnabled(False)
+        net_label_row = QWidget()
+        net_label_layout = QHBoxLayout()
+        net_label_layout.setContentsMargins(0, 0, 0, 0)
+        net_label_layout.addWidget(self.net_label_line_edit)
+        net_label_layout.addWidget(self.apply_net_label_button)
+        net_label_row.setLayout(net_label_layout)
         self.selected_node_formula_label = QLabel("-")
         self.selected_node_formula_label.setWordWrap(True)
         self.selected_node_formula_label.setTextInteractionFlags(
@@ -424,6 +451,7 @@ class MainWindow(QMainWindow):
             "Signal Pickoff:",
             self.selected_node_pickoff_label
         )
+        selected_node_layout.addRow("Label:", net_label_row)
         selected_node_layout.addRow(
             "Formula:",
             self.selected_node_formula_label
@@ -453,6 +481,8 @@ class MainWindow(QMainWindow):
         :type column_count: int
         :returns: None
         """
+        labels_before = set(self.connection_grid.get_net_labels())
+
         try:
             # Update the core model first. The GUI is rebuilt only after
             # validation and grid construction complete successfully.
@@ -468,6 +498,10 @@ class MainWindow(QMainWindow):
                 "Select a row and column count within the allowed range."
             )
             return
+
+        removed_label_identifiers = sorted(
+            labels_before.difference(self.connection_grid.get_net_labels())
+        )
 
         # Drop the parts that no longer fit, before the scene is rebuilt
         # from the collection.
@@ -502,7 +536,7 @@ class MainWindow(QMainWindow):
         )
 
         if (removed_pickoff_identifiers or removed_component_references or
-                removed_wire_references):
+                removed_wire_references or removed_label_identifiers):
             removed_descriptions = []
 
             if removed_pickoff_identifiers:
@@ -523,6 +557,11 @@ class MainWindow(QMainWindow):
                 removed_descriptions.append(
                     f"{len(removed_wire_references)} wire(s) "
                     f"({', '.join(removed_wire_references)})"
+                )
+
+            if removed_label_identifiers:
+                removed_descriptions.append(
+                    f"{len(removed_label_identifiers)} net label(s)"
                 )
 
             removed_text = " and ".join(removed_descriptions)
@@ -560,6 +599,9 @@ class MainWindow(QMainWindow):
             self.selected_node_column_label.setText("-")
             self.selected_node_pickoff_label.setText("-")
             self.selected_node_formula_label.setText("-")
+            self.net_label_line_edit.clear()
+            self.net_label_line_edit.setEnabled(False)
+            self.apply_net_label_button.setEnabled(False)
 
             self.toggle_pickoff_action.setEnabled(False)
             self.toggle_pickoff_button.setEnabled(False)
@@ -584,6 +626,10 @@ class MainWindow(QMainWindow):
         else:
             self.selected_node_pickoff_label.setText("Disabled")
 
+        self.net_label_line_edit.setText(connection_point.net_label)
+        self.net_label_line_edit.setEnabled(True)
+        self.apply_net_label_button.setEnabled(True)
+
         self.toggle_pickoff_action.setEnabled(True)
         self.toggle_pickoff_button.setEnabled(True)
         self.refresh_selected_node_formula()
@@ -593,7 +639,7 @@ class MainWindow(QMainWindow):
         Show the s-domain voltage at the selected grid point.
 
         The same formula is shared by every point on that node. A bridge
-        does not join the point it hops.
+        does not join the point it hops. Points with the same net label do.
 
         :returns: None
         """
@@ -606,12 +652,67 @@ class MainWindow(QMainWindow):
         if self._node_formula_book is None:
             self._node_formula_book = build_node_formulas(
                 self.component_collection.get_components(),
-                self.wire_collection
+                self.wire_collection,
+                self.connection_grid
             )
 
         self.selected_node_formula_label.setText(
             self._node_formula_book.text_at(identifier)
         )
+
+    def apply_selected_net_label(self):
+        """
+        Store the name typed for the selected point.
+
+        The same name on another point, ignoring case, makes both points
+        one node. A blank name clears the label. Enter in the box and
+        Enter on Apply both do this.
+
+        :returns: None
+        """
+        identifier = self.selected_connection_point_identifier
+
+        if identifier is None:
+            self.show_error_message(
+                "No Connection Point Selected",
+                "A net label needs a selected connection point.",
+                "Select one grid point, type a name such as Vcc, and "
+                "press Apply."
+            )
+            return
+
+        previous_label = self.connection_grid.get_connection_point(
+            identifier
+        ).net_label
+
+        try:
+            label = self.connection_grid.set_net_label(
+                identifier,
+                self.net_label_line_edit.text()
+            )
+        except GridConfigurationError as error:
+            self.show_error_message(
+                "Net Label Not Applied",
+                str(error),
+                "Use a name such as Vcc, Vss or Vdd, or leave the box "
+                "blank to clear the name."
+            )
+            return
+
+        self.net_label_line_edit.setText(label)
+
+        if label == previous_label:
+            return
+
+        self.connection_grid_scene.refresh_connection_point(identifier)
+        self.connection_grid_scene.update_wire_nets()
+
+        if label:
+            message = f"{identifier} is net {label}."
+        else:
+            message = f"{identifier} has no net label."
+
+        self.mark_project_modified(message)
 
     def handle_component_selection(self, component):
         """

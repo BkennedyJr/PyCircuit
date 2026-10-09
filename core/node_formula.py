@@ -7,7 +7,8 @@ give numbers to compare with it.
 
 Resistors, capacitors, inductors and sources are stamped as impedances
 (R, 1/(sC), sL). A bridge is not a connection: only the points a wire
-joins are one node. An op-amp is ideal here: its two inputs are held at
+joins are one node. Points that share a net label are also one node, and
+Vcc matches vcc. An op-amp is ideal here: its two inputs are held at
 the same voltage, and its supply pins are not part of the formula. A
 diode, LED or transistor has no formula.
 """
@@ -141,13 +142,23 @@ class NodeFormulas:
     :type components: iterable of Component
     :param wire_collection: Wires. A bridged point is not joined.
     :type wire_collection: WireCollection
+    :param connection_grid: Grid whose net labels join same-named points.
+        None means no labels.
+    :type connection_grid: ConnectionGrid or None
     """
 
-    def __init__(self, components, wire_collection):
+    def __init__(self, components, wire_collection, connection_grid=None):
         if not isinstance(wire_collection, WireCollection):
             raise ComponentError(
                 "Expected a WireCollection, not "
                 f"{type(wire_collection).__name__}."
+            )
+
+        if (connection_grid is not None and
+                not isinstance(connection_grid, ConnectionGrid)):
+            raise ComponentError(
+                "Expected a ConnectionGrid, not "
+                f"{type(connection_grid).__name__}."
             )
 
         self._components = []
@@ -161,6 +172,7 @@ class NodeFormulas:
             self._components.append(component)
 
         self._wires = wire_collection
+        self._grid = connection_grid
         self._nets = _Nets()
         self._text_by_root = {}
         self._expression_by_root = {}
@@ -233,6 +245,8 @@ class NodeFormulas:
         for identifier in ground_identifiers[1:]:
             self._nets.union(ground_identifiers[0], identifier)
 
+        self._union_named_nets()
+
         if nonlinear:
             text = _nonlinear_text(nonlinear)
             self._blame_every_part(text)
@@ -245,6 +259,35 @@ class NodeFormulas:
             return
 
         self._solve(self._nets.find(ground_identifiers[0]))
+
+    def _union_named_nets(self):
+        """
+        Join every grid point that carries the same net label.
+
+        ``Vcc`` and ``vcc`` are one name. A labeled point with no part and
+        no wire is still part of that node, so a source on one Vcc point
+        sets the voltage at the others.
+
+        :returns: None
+        """
+        if self._grid is None:
+            return
+
+        identifiers_by_name = {}
+
+        for point in self._grid.connection_points_by_identifier.values():
+            if not point.net_label:
+                continue
+
+            identifiers_by_name.setdefault(
+                point.net_label.casefold(), []
+            ).append(point.identifier)
+
+        for identifiers in identifiers_by_name.values():
+            self._nets.add(identifiers[0])
+
+            for identifier in identifiers[1:]:
+                self._nets.union(identifiers[0], identifier)
 
     def _blame_every_part(self, text):
         for component in self._components:
@@ -430,7 +473,7 @@ def _nonlinear_text(components):
     )
 
 
-def build_node_formulas(components, wire_collection):
+def build_node_formulas(components, wire_collection, connection_grid=None):
     """
     Solve the s-domain voltage at each node of a circuit.
 
@@ -438,6 +481,8 @@ def build_node_formulas(components, wire_collection):
     :type components: iterable of Component
     :param wire_collection: Wires of the same circuit.
     :type wire_collection: WireCollection
+    :param connection_grid: Grid whose net labels join same-named points.
+    :type connection_grid: ConnectionGrid or None
     :rtype: NodeFormulas
     """
-    return NodeFormulas(components, wire_collection)
+    return NodeFormulas(components, wire_collection, connection_grid)

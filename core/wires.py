@@ -586,6 +586,8 @@ class WireNets:
     net. Wires that share any joined point are one net, and part pins on
     the same point are connected with or without a wire. This is a light
     stand-in for M2's NetMap. A net with a ground pin is SPICE node "0".
+    Points that share a net label (Vcc and vcc count as the same name)
+    are one net even when no wire joins them.
 
     :param wire_collection: Wires to group.
     :type wire_collection: WireCollection
@@ -594,11 +596,14 @@ class WireNets:
     :param pin_labels: (point, label) for every part pin, for example
         ("NODE_R02_C03", "R1.2").
     :type pin_labels: iterable of tuple
+    :param net_labels: (point, name) for every named point, for example
+        ("NODE_R02_C05", "Vcc").
+    :type net_labels: iterable of tuple
     :raises ComponentError: If an argument has the wrong type.
     """
 
     def __init__(self, wire_collection, ground_identifiers=(),
-                 pin_labels=()):
+                 pin_labels=(), net_labels=()):
         if not isinstance(wire_collection, WireCollection):
             raise ComponentError(
                 f"Expected a WireCollection, not "
@@ -622,6 +627,23 @@ class WireNets:
 
             _validate_identifier(pin_label[0])
 
+        net_labels = tuple(net_labels)
+        names_by_key = {}
+        points_by_key = {}
+
+        for net_label in net_labels:
+            if (not isinstance(net_label, tuple) or len(net_label) != 2 or
+                    not isinstance(net_label[1], str) or net_label[1] == ""):
+                raise ComponentError(
+                    "Net labels must be (point, name) pairs such as "
+                    f"('NODE_R02_C03', 'Vcc'), not {net_label!r}."
+                )
+
+            _validate_identifier(net_label[0])
+            key = net_label[1].casefold()
+            names_by_key.setdefault(key, net_label[1])
+            points_by_key.setdefault(key, []).append(net_label[0])
+
         self._ground_identifiers = frozenset(ground_identifiers)
         self._parent_by_point = {}
 
@@ -630,6 +652,30 @@ class WireNets:
 
             for first, second in itertools.pairwise(identifiers):
                 self._union(first, second)
+
+        for identifiers in points_by_key.values():
+            self._find(identifiers[0])
+
+            for identifier in identifiers[1:]:
+                self._union(identifiers[0], identifier)
+
+        self._names_by_root = {}
+        seen_names = {}
+
+        for key, identifiers in points_by_key.items():
+            root = self._find(identifiers[0])
+            folded = names_by_key[key].casefold()
+
+            if folded in seen_names.setdefault(root, set()):
+                continue
+
+            seen_names[root].add(folded)
+            self._names_by_root.setdefault(root, []).append(
+                names_by_key[key]
+            )
+
+        for names in self._names_by_root.values():
+            names.sort(key=str.casefold)
 
         self._points_by_root = {}
         self._wires_by_root = {}
@@ -758,13 +804,32 @@ class WireNets:
             self.get_points(identifier)
         )
 
+    def get_net_names(self, identifier):
+        """
+        Return the names on the net through one point, such as ("Vcc",).
+
+        Two names that differ only by case count as one, and the first
+        spelling is kept. A wire that joins Vcc to Vss lists both.
+
+        :param identifier: Connection-point identifier.
+        :type identifier: str
+        :rtype: tuple
+        :raises ComponentError: If identifier is not an identifier.
+        """
+        root = self._root_of(identifier)
+
+        if root is None:
+            return ()
+
+        return tuple(self._names_by_root.get(root, ()))
+
     def describe(self, identifier, own_label=None):
         """
         Describe the net through one point, for a pin's tooltip line.
 
         Examples: "to C1.1 via W2, W3", "to C1.1" (two parts on one point,
-        no wire), "node 0 (ground) to GND1.gnd via W4" and
-        "not connected".
+        no wire), "node 0 (ground) to GND1.gnd via W4", "Vcc to R1.1"
+        and "not connected".
 
         :param identifier: Connection-point identifier.
         :type identifier: str
@@ -779,9 +844,16 @@ class WireNets:
         ]
         wire_references = self.get_wire_references(identifier)
         pieces = []
+        heading = []
+
+        if self.get_net_names(identifier):
+            heading.append(", ".join(self.get_net_names(identifier)))
 
         if self.is_ground(identifier):
-            pieces.append("node 0 (ground)")
+            heading.append("node 0 (ground)")
+
+        if heading:
+            pieces.append(", ".join(heading))
 
         if other_labels:
             pieces.append(f"to {', '.join(other_labels)}")

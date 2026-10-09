@@ -22,6 +22,7 @@ from PyQt5.QtCore import QRectF
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QFont
 from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtGui import QPainter
 from PyQt5.QtGui import QPen
@@ -159,13 +160,38 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         self.setFlag(self.ItemIsMovable, False)
         self.setZValue(CONNECTION_POINT_Z_VALUE)
 
-        self.setToolTip(
-            "{}\nRow: {}\nColumn: {}".format(
-                connection_point.identifier,
-                connection_point.row_number,
-                connection_point.column_number
-            )
-        )
+        # The name sits above and to the right of the dot. It does not
+        # take mouse clicks, so the point underneath stays selectable.
+        self.net_label_item = QGraphicsSimpleTextItem(self)
+        label_font = QFont()
+        label_font.setPointSize(11)
+        label_font.setBold(True)
+        self.net_label_item.setFont(label_font)
+        self.net_label_item.setBrush(QColor("#ffd166"))
+        self.net_label_item.setPos(12, -22)
+        self.net_label_item.setAcceptedMouseButtons(Qt.NoButton)
+        self.refresh_from_point()
+
+    def refresh_from_point(self):
+        """
+        Match the tooltip and the drawn name to the core point.
+
+        :returns: None
+        """
+        connection_point = self.connection_point
+        lines = [
+            connection_point.identifier,
+            f"Row: {connection_point.row_number}",
+            f"Column: {connection_point.column_number}",
+        ]
+
+        if connection_point.net_label:
+            lines.append(f"Net: {connection_point.net_label}")
+
+        self.setToolTip("\n".join(lines))
+        self.net_label_item.setText(connection_point.net_label)
+        self.net_label_item.setVisible(bool(connection_point.net_label))
+        self.update()
 
     def paint(self, painter, option, widget=None):
         """
@@ -574,8 +600,18 @@ class ConnectionGridScene(QGraphicsScene):
                             (identifier, f"{component.reference}.{pin_name}")
                         )
 
+            net_labels = []
+
+            if self.connection_grid is not None:
+                net_labels = list(
+                    self.connection_grid.get_net_labels().items()
+                )
+
             wire_nets = WireNets(
-                self.wire_collection, ground_identifiers, pin_labels
+                self.wire_collection,
+                ground_identifiers,
+                pin_labels,
+                net_labels
             )
 
         for component_item in self.component_items_by_reference.values():
@@ -1368,7 +1404,8 @@ class ConnectionGridScene(QGraphicsScene):
         )
 
         if connection_point_item is not None:
-            connection_point_item.update()
+            connection_point_item.refresh_from_point()
+            self.update_scene_extent()
 
     def handle_connection_point_selection_change(self):
         """
