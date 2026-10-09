@@ -4,9 +4,11 @@ Wires between connection-grid points.
 A wire is one straight segment from grid point A to grid point B along a
 row or a column. Like a breadboard strip it connects EVERY grid point it
 covers, ends and the points in between, so a part pin on any of them
-joins the wire (Billie's decision, Oct 9). Diagonal wires are refused:
-draw two straight wires that meet at a corner. Parts sharing a grid point
-are connected with or without a wire.
+joins the wire (Billie's decision, Oct 9). A bridge is the exception: the
+wire hops that point and does not connect there, so it can cross another
+wire (Billie, Oct 9). Diagonal wires are refused: draw two straight wires
+that meet at a corner. Parts sharing a grid point are connected with or
+without a wire.
 
 Junction dots (find_junction_identifiers) mark the points where three or
 more connections meet, for example a wire passing a part pin mid-span or
@@ -57,11 +59,15 @@ class Wire:
     :type start_point: tuple
     :param end_point: (row, column) of end B, one-based.
     :type end_point: tuple
-    :raises ComponentError: If an argument is invalid or both ends are the
-        same point.
+    :param bridged_points: Interior points this wire hops and does not
+        connect. Empty means the breadboard strip: every point joins.
+    :type bridged_points: iterable of tuple
+    :raises ComponentError: If an argument is invalid, both ends are the
+        same point, or a bridge is not between the ends.
     """
 
-    def __init__(self, reference, start_point, end_point):
+    def __init__(self, reference, start_point, end_point,
+                 bridged_points=()):
         if (not isinstance(reference, str) or
                 not _WIRE_REFERENCE_PATTERN.fullmatch(reference)):
             raise ComponentError(
@@ -88,6 +94,8 @@ class Wire:
                 "corner."
             )
 
+        self._bridged_points = self.validate_bridged_points(bridged_points)
+
     @staticmethod
     def validate_point(point, end_name):
         """
@@ -111,6 +119,44 @@ class Wire:
             f"Wire {end_name} {point!r} is not a grid point. Use (row, "
             "column) with whole numbers from 1."
         )
+
+    def validate_bridged_points(self, bridged_points):
+        """
+        Check the points a wire hops: each must lie strictly between the ends.
+
+        :param bridged_points: Points to hop, as (row, column) pairs.
+        :type bridged_points: iterable
+        :returns: Those points, duplicates collapsed.
+        :rtype: frozenset
+        :raises ComponentError: If the argument is not a collection of
+            interior grid points.
+        """
+        if (isinstance(bridged_points, (str, bytes)) or
+                not isinstance(bridged_points, (tuple, list, set, frozenset))):
+            raise ComponentError(
+                f"Bridged points {bridged_points!r} must be grid points "
+                "between the wire's ends."
+            )
+
+        interior = set(self.get_points()[1:-1])
+        cleaned = []
+
+        for point in bridged_points:
+            point = self.validate_point(point, "bridge")
+
+            if point not in interior:
+                identifier = ConnectionGrid.build_connection_point_identifier(
+                    *point
+                )
+                raise ComponentError(
+                    f"A bridge has to be a grid point between the wire's "
+                    f"ends. {identifier} is not between "
+                    f"{self.start_identifier} and {self.end_identifier}."
+                )
+
+            cleaned.append(point)
+
+        return frozenset(cleaned)
 
     @property
     def reference(self):
@@ -161,6 +207,27 @@ class Wire:
             *self._end_point
         )
 
+    @property
+    def bridged_points(self):
+        """
+        Interior (row, column) points this wire hops. Read-only.
+
+        :rtype: frozenset
+        """
+        return self._bridged_points
+
+    @property
+    def bridged_identifiers(self):
+        """
+        Identifiers of the hopped points, row then column.
+
+        :rtype: tuple
+        """
+        return tuple(
+            ConnectionGrid.build_connection_point_identifier(row, column)
+            for row, column in sorted(self._bridged_points)
+        )
+
     def get_end_points(self):
         """
         Return both ends as a frozenset, so A-B equals B-A.
@@ -205,12 +272,20 @@ class Wire:
         THE connection rule, in one place: every other piece of code that
         asks what a wire connects (get_wires_at, junction dots, the net
         builder) goes through this method. Billie's rule (Oct 9) is the
-        breadboard strip: every grid point the wire covers. That rule is
-        why diagonal wires are refused in __init__.
+        breadboard strip: every grid point the wire covers, except a bridge.
+        A bridged point is hopped, so it is not joined, but the points on
+        either side of the hop stay one wire. That rule is why diagonal
+        wires are refused in __init__.
 
         :rtype: tuple
         """
-        return self.get_point_identifiers()
+        bridged_points = self._bridged_points
+
+        return tuple(
+            ConnectionGrid.build_connection_point_identifier(row, column)
+            for row, column in self.get_points()
+            if (row, column) not in bridged_points
+        )
 
     def get_inner_point_identifiers(self):
         """
@@ -237,10 +312,15 @@ class Wire:
 
         :rtype: str
         """
-        return (
+        text = (
             f"{self.reference} from {self.start_identifier} to "
             f"{self.end_identifier}"
         )
+
+        if self._bridged_points:
+            text += f", bridging {', '.join(self.bridged_identifiers)}"
+
+        return text
 
 
 def _wire_sort_key(reference):
@@ -278,7 +358,8 @@ class WireCollection:
 
         return f"{WIRE_REFERENCE_PREFIX}{number}"
 
-    def add_wire(self, start_identifier, end_identifier, connection_grid):
+    def add_wire(self, start_identifier, end_identifier, connection_grid,
+                 bridged_identifiers=()):
         """
         Create, check and store a wire between two grid points.
 
@@ -289,18 +370,50 @@ class WireCollection:
         :type end_identifier: str
         :param connection_grid: Grid both ends must be on.
         :type connection_grid: ConnectionGrid
+        :param bridged_identifiers: Interior points to hop, for example
+            ("NODE_R02_C04",). Empty joins every point on the span.
+        :type bridged_identifiers: iterable of str
         :returns: The new wire.
         :rtype: Wire
         :raises ComponentError: If a point is not on the grid, both ends
-            are the same point, the wire would be diagonal, or a wire
-            already joins the two points. Nothing is stored then.
+            are the same point, the wire would be diagonal, a bridge is
+            not between the ends, or a wire already joins the two points.
+            Nothing is stored then.
         """
         _validate_connection_grid(connection_grid)
 
         start_point = self.get_grid_point(start_identifier, connection_grid)
         end_point = self.get_grid_point(end_identifier, connection_grid)
+        self.refuse_duplicate(start_point, end_point)
 
-        wire = Wire(self.next_reference(), start_point, end_point)
+        if isinstance(bridged_identifiers, str):
+            raise ComponentError(
+                f"Bridged points {bridged_identifiers!r} must be grid "
+                "points between the wire's ends."
+            )
+
+        bridged_points = [
+            self.get_grid_point(identifier, connection_grid)
+            for identifier in bridged_identifiers
+        ]
+        wire = Wire(
+            self.next_reference(), start_point, end_point, bridged_points
+        )
+        self.wires_by_reference[wire.reference] = wire
+
+        return wire
+
+    def refuse_duplicate(self, start_point, end_point):
+        """
+        Refuse a second wire between the same two points, either order.
+
+        :param start_point: (row, column) of end A.
+        :type start_point: tuple
+        :param end_point: (row, column) of end B.
+        :type end_point: tuple
+        :returns: None
+        :raises ComponentError: If a wire already joins the two points.
+        """
         existing_wire = self.find_wire_between(start_point, end_point)
 
         if existing_wire is not None:
@@ -310,9 +423,44 @@ class WireCollection:
                 f"{existing_wire.end_identifier}."
             )
 
-        self.wires_by_reference[wire.reference] = wire
+    def find_crossings(self, start_identifier, end_identifier,
+                       connection_grid):
+        """
+        Return interior points of a new wire that another wire already joins.
 
-        return wire
+        An end landing on a wire is a connection, not a crossing, so it is
+        not listed. The wire is not stored.
+
+        :param start_identifier: Point of end A.
+        :type start_identifier: str
+        :param end_identifier: Point of end B.
+        :type end_identifier: str
+        :param connection_grid: Grid both ends must be on.
+        :type connection_grid: ConnectionGrid
+        :returns: (identifier, wire references) from end A toward end B.
+        :rtype: list
+        :raises ComponentError: If the span is illegal or a duplicate.
+        """
+        _validate_connection_grid(connection_grid)
+
+        start_point = self.get_grid_point(start_identifier, connection_grid)
+        end_point = self.get_grid_point(end_identifier, connection_grid)
+        self.refuse_duplicate(start_point, end_point)
+
+        # "W1" is only so the temporary wire can be built. It is not stored,
+        # and it is not the reference the collection would assign.
+        span = Wire("W1", start_point, end_point)
+        crossings = []
+
+        for identifier in span.get_inner_point_identifiers():
+            others = self.get_wires_at(identifier)
+
+            if others:
+                crossings.append(
+                    (identifier, [wire.reference for wire in others])
+                )
+
+        return crossings
 
     @staticmethod
     def get_grid_point(identifier, connection_grid):
@@ -433,10 +581,11 @@ class WireNets:
     """
     Which grid points and part pins are connected, for the part tooltips.
 
-    A wire joins every point it covers (breadboard strip), wires that
-    share any point are one net, and part pins on the same point are
-    connected with or without a wire. This is a light stand-in for M2's
-    NetMap. A net with a ground pin is SPICE node "0".
+    A wire joins every point it covers (breadboard strip) except a bridge,
+    which is hopped and left out. Points on either side of a hop stay one
+    net. Wires that share any joined point are one net, and part pins on
+    the same point are connected with or without a wire. This is a light
+    stand-in for M2's NetMap. A net with a ground pin is SPICE node "0".
 
     :param wire_collection: Wires to group.
     :type wire_collection: WireCollection
@@ -682,15 +831,40 @@ def _validate_identifier(identifier):
         )
 
 
+def describe_crossings(crossings):
+    """
+    Describe the wires a new wire would cross, for the Connect / Bridge choice.
+
+    :param crossings: (identifier, wire references) from find_crossings.
+    :type crossings: list
+    :returns: Text such as "This wire crosses NODE_R02_C04 (W1)."
+    :rtype: str
+    """
+    pieces = [
+        f"{identifier} ({', '.join(references)})"
+        for identifier, references in crossings
+    ]
+
+    if len(pieces) == 1:
+        return f"This wire crosses {pieces[0]}."
+
+    return (
+        "This wire crosses " + ", ".join(pieces[:-1]) + " and " +
+        pieces[-1] + "."
+    )
+
+
 def find_junction_identifiers(wire_collection, pin_identifiers=()):
     """
     Return the grid points that need a junction dot.
 
     Each wire end at a point counts 1, a wire passing over it mid-span
     counts 2 (it leaves both ways) and each part pin on it counts 1. A
-    point on a wire with 3 or more gets a dot: a wire passing a pin or
-    meeting another wire mid-span (T or crossing), or three wire ends. A
-    plain corner (two ends) or a wire ending on a pin (2) gets none.
+    bridge does not meet that point, so the hopping wire adds nothing
+    there and a pure crossing has no dot. A point on a wire with 3 or
+    more gets a dot: a wire passing a pin or meeting another wire
+    mid-span (T or crossing), or three wire ends. A plain corner (two
+    ends) or a wire ending on a pin (2) gets none.
 
     :param wire_collection: Wires of the project.
     :type wire_collection: WireCollection
