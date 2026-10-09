@@ -48,6 +48,14 @@ def test_rotate_offset_rejects_non_integer_offsets(dx, dy):
         rotate_offset(dx, dy, 0)
 
 
+OPAMP_PINS = [
+    ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0), ("V+", 0, -1), ("V-", 0, 1)
+]
+OPAMP_COVERED = [
+    (0, 0), (-1, 0), (1, 0), (0, -1), (0, 1),
+    (-1, -1), (-1, 1), (-1, -2), (-1, 2),
+]
+
 def test_four_rotations_return_to_start():
     offset = (2, -1)
 
@@ -91,6 +99,8 @@ def test_plan_definitions_are_exact():
             "2N3906",
         ),
         "ground": ("GND", [("gnd", 0, 0)], "none", ""),
+        "opamp_generic": ("X", OPAMP_PINS, "model", "OPAMP"),
+        "opamp_741": ("X", OPAMP_PINS, "model", "LM741"),
     }
 
     assert set(COMPONENT_DEFINITIONS) == set(expected)
@@ -111,6 +121,7 @@ def test_body_centres_are_exact():
         "diode": (1, 0), "led": (1, 0),
         "dc_source": (0, 1), "ac_source": (0, 1), "current_source": (0, 1),
         "npn": (0, 0), "pnp": (0, 0), "ground": (0, 0),
+        "opamp_generic": (0, 0), "opamp_741": (0, 0),
     }
 
     assert {
@@ -653,6 +664,10 @@ def test_covered_half_steps_are_exact():
         "npn": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "pnp": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "ground": [(0, 1)],
+        # Inside the triangle (left x = -0.6, apex 0.75, half height 1.2):
+        # anchor, half points to out / V+ / V- / left, beside each input.
+        "opamp_generic": OPAMP_COVERED,
+        "opamp_741": OPAMP_COVERED,
     }
 
     assert {

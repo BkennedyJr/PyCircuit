@@ -2,9 +2,9 @@
 Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
-DC and AC voltage sources, a DC current source, diodes, transistors, and
-ground), their connection pins, and the Component class that holds one
-placed part. It contains no PyQt5 imports so
+DC and AC voltage sources, a DC current source, diodes, transistors,
+op-amps and ground), their connection pins, and the Component class that
+holds one placed part. It contains no PyQt5 imports so
 the same objects can be used by the GUI label, the later SPICE netlist
 builder, and the solver.
 
@@ -18,6 +18,11 @@ them. ``body_center_half_steps`` gives the body centre from the anchor in
 half grid steps (so it stays a whole number that rotate_offset accepts):
 (1, 0) is half a step to the right. Transistors keep their anchor at the
 body centre with three pins around it; ground's single pin is its anchor.
+Op-amps are a triangle centred on their anchor (pointing right at
+rotation 0): in- at (-1, -1) and in+ at (-1, 1) on the left, out at (1, 0)
+on the right, V+ at (0, -1) above and V- at (0, 1) below. They use the
+SPICE prefix X (a subcircuit); the value names the subcircuit model in
+core.subcircuit_models.
 
 Besides the main value, a kind may define extra numeric ``parameters``,
 for example the AC source's frequency. Each has a name, a unit, a value
@@ -49,6 +54,15 @@ VALID_ROTATIONS = (0, 90, 180, 270)
 VALID_VALUE_KINDS = ("positive", "any", "model", "none")
 
 MAXIMUM_MODEL_NAME_LENGTH = 32
+
+# Points inside an op-amp triangle (left edge x = -0.6, apex x = 0.75, half
+# height 1.2), in half steps: the anchor, the half points toward out, V+,
+# V- and the left side, and the half points beside the two inputs. A part
+# drawn on any of them would be hidden by the triangle.
+OPAMP_COVERED_HALF_STEPS = [
+    (0, 0), (-1, 0), (1, 0), (0, -1), (0, 1),
+    (-1, -1), (-1, 1), (-1, -2), (-1, 2),
+]
 
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -190,6 +204,36 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "value_kind": "model",
         "default_value_text": "2N3906",
+    },
+    "opamp_generic": {
+        "display_name": "Op-amp (generic)",
+        "prefix": "X",
+        "pins": [
+            ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
+            ("V+", 0, -1), ("V-", 0, 1),
+        ],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
+        # The supply leads are short and usually go straight to a rail;
+        # the label side is chosen from the signal pins only.
+        "label_ignores_pins": ("V+", "V-"),
+        "value_kind": "model",
+        "default_value_text": "OPAMP",
+    },
+    "opamp_741": {
+        "display_name": "Op-amp (741)",
+        "prefix": "X",
+        "pins": [
+            ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
+            ("V+", 0, -1), ("V-", 0, 1),
+        ],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
+        # The supply leads are short and usually go straight to a rail;
+        # the label side is chosen from the signal pins only.
+        "label_ignores_pins": ("V+", "V-"),
+        "value_kind": "model",
+        "default_value_text": "LM741",
     },
     "ground": {
         "display_name": "Ground",
@@ -357,6 +401,32 @@ def validate_value_text(kind, value_text):
                 f"{display_name} model name '{clean_text}' may only use "
                 "the letters A-Z, digits, '_', '.', and '-', with no spaces."
             )
+
+        # Op-amps (prefix X) must name a bundled subcircuit, and the one
+        # that matches their kind; checked here so a bad name is refused
+        # when it is typed, not at netlist time (QC #16).
+        if component_definition["prefix"] == "X":
+            # Imported here to keep core.components importable on its own.
+            from core.subcircuit_models import (
+                DEFAULT_SUBCIRCUIT_BY_KIND,
+                get_subcircuit_model_name,
+            )
+
+            clean_text = get_subcircuit_model_name(clean_text)
+            expected_name = DEFAULT_SUBCIRCUIT_BY_KIND[kind]
+
+            if clean_text != expected_name:
+                other_kind = next(
+                    other for other, name in DEFAULT_SUBCIRCUIT_BY_KIND.items()
+                    if name == clean_text
+                )
+                other_display_name = COMPONENT_DEFINITIONS[other_kind][
+                    "display_name"
+                ]
+                raise ComponentError(
+                    f"{display_name} uses model {expected_name}; for the "
+                    f"{clean_text} choose the {other_display_name} part."
+                )
 
         return (clean_text, None)
 
