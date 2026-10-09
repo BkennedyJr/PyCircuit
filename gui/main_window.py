@@ -31,6 +31,7 @@ from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
 from core.project_io import load_project_file
 from core.project_io import save_project_file
+from core.wires import WireCollection
 from gui.component_panel_widget import ComponentPanelWidget
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
@@ -57,6 +58,8 @@ class MainWindow(QMainWindow):
         self.selected_connection_point_identifier = None
         self.component_collection = ComponentCollection()
         self.selected_component_reference = None
+        self.wire_collection = WireCollection()
+        self.selected_wire_references = []
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -65,6 +68,7 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.set_component_collection(
             self.component_collection
         )
+        self.connection_grid_scene.set_wire_collection(self.wire_collection)
         self.connection_grid_view = ConnectionGridView(
             self.connection_grid_scene,
             self
@@ -118,6 +122,13 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.component_move_refused.connect(
             self.handle_component_move_refused
         )
+        self.connection_grid_scene.wire_added.connect(self.handle_wire_added)
+        self.connection_grid_scene.wire_refused.connect(
+            self.handle_wire_refused
+        )
+        self.connection_grid_scene.wires_selected.connect(
+            self.handle_wire_selection
+        )
 
     def create_actions(self):
         """
@@ -155,19 +166,30 @@ class MainWindow(QMainWindow):
         )
         self.rotate_component_action.setEnabled(False)
 
-        self.delete_component_action = QAction("Delete Part", self)
+        # Deletes the selected part and any selected wires.
+        self.delete_component_action = QAction("Delete", self)
         self.delete_component_action.setShortcut(QKeySequence.Delete)
-        self.delete_component_action.triggered.connect(
-            self.delete_selected_component
-        )
+        self.delete_component_action.triggered.connect(self.delete_selection)
         self.delete_component_action.setEnabled(False)
 
-        # R and Delete act only while the grid view has focus, so they never
-        # rotate or delete a part from a dock widget (combo box, button).
+        # Wire mode: a press-drag from one grid point to another draws a
+        # wire. Off, the same press-drag selects as before.
+        self.wire_mode_action = QAction("Wire Mode", self)
+        self.wire_mode_action.setCheckable(True)
+        self.wire_mode_action.setShortcut(QKeySequence("W"))
+        self.wire_mode_action.setToolTip(
+            "Wire Mode (W): press on a grid point and drag to another to "
+            "draw a wire"
+        )
+        self.wire_mode_action.toggled.connect(self.set_wire_mode)
+
+        # R, Delete and W act only while the grid view has focus, so they
+        # never fire from a dock widget (combo box, line edit, button).
         # The menu and toolbar entries still work from anywhere.
         for component_action in (
                 self.rotate_component_action,
-                self.delete_component_action):
+                self.delete_component_action,
+                self.wire_mode_action):
             component_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             self.connection_grid_view.addAction(component_action)
 
@@ -200,6 +222,8 @@ class MainWindow(QMainWindow):
         component_menu = self.menuBar().addMenu("&Component")
         component_menu.addAction(self.rotate_component_action)
         component_menu.addAction(self.delete_component_action)
+        component_menu.addSeparator()
+        component_menu.addAction(self.wire_mode_action)
 
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.fit_grid_action)
@@ -221,6 +245,7 @@ class MainWindow(QMainWindow):
         main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.rotate_component_action)
         main_tool_bar.addAction(self.delete_component_action)
+        main_tool_bar.addAction(self.wire_mode_action)
         main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.fit_grid_action)
 
@@ -364,6 +389,11 @@ class MainWindow(QMainWindow):
                 self.connection_grid
             )
         )
+        removed_wire_references = (
+            self.wire_collection.remove_wires_outside_grid(
+                self.connection_grid
+            )
+        )
 
         # Rebuild the editor after the validated model update succeeds.
         # The rebuild drops the part selection, so restore it afterwards.
@@ -382,7 +412,8 @@ class MainWindow(QMainWindow):
             self.connection_grid_view.fit_grid_in_view
         )
 
-        if removed_pickoff_identifiers or removed_component_references:
+        if (removed_pickoff_identifiers or removed_component_references or
+                removed_wire_references):
             removed_descriptions = []
 
             if removed_pickoff_identifiers:
@@ -397,6 +428,12 @@ class MainWindow(QMainWindow):
                 removed_descriptions.append(
                     f"{len(removed_component_references)} part(s) "
                     f"({removed_references_text})"
+                )
+
+            if removed_wire_references:
+                removed_descriptions.append(
+                    f"{len(removed_wire_references)} wire(s) "
+                    f"({', '.join(removed_wire_references)})"
                 )
 
             removed_text = " and ".join(removed_descriptions)
@@ -475,7 +512,77 @@ class MainWindow(QMainWindow):
 
         self.component_panel_widget.show_component(component)
         self.rotate_component_action.setEnabled(component is not None)
-        self.delete_component_action.setEnabled(component is not None)
+        self.update_delete_action()
+
+    def handle_wire_selection(self, wire_references):
+        """
+        Remember the selected wires so Delete can remove them.
+
+        :param wire_references: References of the selected wires.
+        :type wire_references: list
+        :returns: None
+        """
+        self.selected_wire_references = list(wire_references)
+        self.update_delete_action()
+
+    def update_delete_action(self):
+        """
+        Enable Delete when a part or a wire is selected.
+
+        :returns: None
+        """
+        self.delete_component_action.setEnabled(
+            self.selected_component_reference is not None or
+            bool(self.selected_wire_references)
+        )
+
+    def set_wire_mode(self, is_wire_mode):
+        """
+        Turn Wire mode on or off (the toolbar and menu action calls this).
+
+        :param is_wire_mode: True to draw wires by press-dragging.
+        :type is_wire_mode: bool
+        :returns: None
+        """
+        if self.wire_mode_action.isChecked() != bool(is_wire_mode):
+            # Keep the action in step; its toggled signal calls back here.
+            self.wire_mode_action.setChecked(bool(is_wire_mode))
+            return
+
+        self.connection_grid_scene.set_wire_mode(is_wire_mode)
+        self.connection_grid_view.viewport().setCursor(
+            Qt.CrossCursor if is_wire_mode else Qt.ArrowCursor
+        )
+
+        if is_wire_mode:
+            self.statusBar().showMessage(
+                "Wire mode: press on a grid point and drag to another grid "
+                "point. Esc cancels a wire; W leaves Wire mode.",
+                7000
+            )
+        else:
+            self.statusBar().showMessage("Wire mode off.", 3000)
+
+    def handle_wire_added(self, reference):
+        """
+        Report a new wire.
+
+        :param reference: The new wire.
+        :type reference: str
+        :returns: None
+        """
+        wire = self.wire_collection.get_wire(reference)
+        self.mark_project_modified(f"Added {wire.describe()}.")
+
+    def handle_wire_refused(self, reason):
+        """
+        Say why no wire was added.
+
+        :param reason: Message from the scene or the collection.
+        :type reason: str
+        :returns: None
+        """
+        self.statusBar().showMessage(f"Wire not added: {reason}", 10000)
 
     def select_component_by_reference(self, reference):
         """
@@ -759,9 +866,42 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.rebuild_component_items()
         self.mark_project_modified(f"Deleted {component.reference}.")
 
+    def delete_selection(self):
+        """
+        Delete the selected part and every selected wire (Delete key).
+
+        :returns: None
+        """
+        component = self.get_selected_component()
+        wire_references = [
+            reference for reference in self.selected_wire_references
+            if reference in self.wire_collection.wires_by_reference
+        ]
+
+        if component is None and not wire_references:
+            return
+
+        for reference in wire_references:
+            self.wire_collection.remove_wire(reference)
+
+        deleted_references = list(wire_references)
+
+        if component is not None:
+            self.component_collection.remove_component(component.reference)
+            deleted_references.insert(0, component.reference)
+            self.connection_grid_scene.rebuild_component_items()
+
+        self.connection_grid_scene.rebuild_wire_items()
+        self.selected_wire_references = []
+        self.update_delete_action()
+        self.mark_project_modified(
+            f"Deleted {', '.join(deleted_references)}."
+        )
+
     def reset_component_collection(self):
         """
-        Start with no parts (project files do not store parts yet).
+        Start with no parts and no wires (project files do not store them
+        yet).
 
         :returns: None
         """
@@ -770,6 +910,9 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.set_component_collection(
             self.component_collection
         )
+        self.wire_collection = WireCollection()
+        self.selected_wire_references = []
+        self.connection_grid_scene.set_wire_collection(self.wire_collection)
 
     def toggle_selected_signal_pickoff(self):
         """
