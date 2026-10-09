@@ -227,10 +227,11 @@ def selected_frequency_row_hidden(panel):
     )
 
 
-def test_only_frequency_is_a_panel_setting(panel):
-    assert list(panel.parameter_line_edits) == ["frequency"]
-    assert list(panel.selected_parameter_line_edits) == ["frequency"]
+def test_frequency_and_color_are_the_panel_settings(panel):
+    assert list(panel.parameter_line_edits) == ["frequency", "color"]
+    assert list(panel.selected_parameter_line_edits) == ["frequency", "color"]
     assert panel.parameter_labels["frequency"].text() == "Frequency (Hz):"
+    assert panel.parameter_labels["color"].text() == "Color:"
 
 
 @pytest.mark.parametrize("kind", list(COMPONENT_DEFINITIONS))

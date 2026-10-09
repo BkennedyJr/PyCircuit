@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
 from core.components import (
     COMPONENT_DEFINITIONS,
     Component,
+    follow_choice_model,
     get_panel_parameter_definitions,
 )
 from core.exceptions import ComponentError
@@ -82,7 +83,72 @@ def get_parameter_field_label(parameter):
     :returns: Label text ending in a colon.
     :rtype: str
     """
+    if not parameter["unit"]:
+        return f"{parameter['display_name']}:"
+
     return f"{parameter['display_name']} ({parameter['unit']}):"
+
+
+def create_parameter_field(parameter):
+    """
+    Create the input for one setting: a dropdown for a choice (the LED
+    color), otherwise a text box.
+
+    :param parameter: Parameter definition.
+    :type parameter: dict
+    :returns: New QComboBox or QLineEdit.
+    :rtype: QWidget
+    """
+    if parameter["value_kind"] != "choice":
+        return QLineEdit()
+
+    combo_box = QComboBox()
+
+    for choice in parameter["choices"]:
+        combo_box.addItem(choice.capitalize(), choice)
+
+    return combo_box
+
+
+def get_field_text(field):
+    """
+    Return the text of a setting field (a dropdown's choice, lower case).
+
+    :param field: QComboBox or QLineEdit.
+    :returns: Text to send to core.
+    :rtype: str
+    """
+    if isinstance(field, QComboBox):
+        return field.currentData() or ""
+
+    return field.text()
+
+
+def set_field_text(field, text):
+    """
+    Show a setting's text in its field.
+
+    :param field: QComboBox or QLineEdit.
+    :param text: Stored text, for example "1k" or "green".
+    :type text: str
+    :returns: None
+    """
+    if isinstance(field, QComboBox):
+        field.setCurrentIndex(max(field.findData(text), 0))
+    else:
+        field.setText(text)
+
+
+def clear_field(field):
+    """
+    Empty a text box; a dropdown goes back to its first choice.
+
+    :returns: None
+    """
+    if isinstance(field, QComboBox):
+        field.setCurrentIndex(0)
+    else:
+        field.clear()
 
 
 def has_value(kind):
@@ -141,11 +207,16 @@ class ComponentPanelWidget(QWidget):
 
         # Kind of the part shown in "Selected Part", or None.
         self.selected_component_kind = None
+        # The part show_component last showed (a Selected Part choice is
+        # only applied when it differs from this part's).
+        self.selected_component = None
         self.selected_component_label = QLabel(NO_PART_SELECTED_TEXT)
         self.selected_value_label = QLabel("Value:")
         self.selected_value_line_edit = QLineEdit()
 
-        # One label and box per setting name, in both groups.
+        # One label and field per setting name, in both groups. The
+        # fields are QLineEdits, or QComboBoxes for choices (LED color);
+        # the dictionaries keep their old names.
         self.parameter_labels = {}
         self.parameter_line_edits = {}
         self.selected_parameter_labels = {}
@@ -154,9 +225,13 @@ class ComponentPanelWidget(QWidget):
         for name, parameter in get_all_panel_parameters().items():
             field_label = get_parameter_field_label(parameter)
             self.parameter_labels[name] = QLabel(field_label)
-            self.parameter_line_edits[name] = QLineEdit()
+            self.parameter_line_edits[name] = create_parameter_field(
+                parameter
+            )
             self.selected_parameter_labels[name] = QLabel(field_label)
-            self.selected_parameter_line_edits[name] = QLineEdit()
+            self.selected_parameter_line_edits[name] = create_parameter_field(
+                parameter
+            )
 
         self.rotate_button = QPushButton("Rotate 90")
         self.apply_value_button = QPushButton("Apply Value")
@@ -253,11 +328,87 @@ class ComponentPanelWidget(QWidget):
             self.emit_value_change_request
         )
 
-        for line_edit in self.parameter_line_edits.values():
-            line_edit.returnPressed.connect(self.emit_place_request)
+        for name, field in self.parameter_line_edits.items():
+            if isinstance(field, QComboBox):
+                field.currentIndexChanged.connect(
+                    lambda unused_index, setting=name:
+                    self.handle_new_part_choice_change(setting)
+                )
+            else:
+                field.returnPressed.connect(self.emit_place_request)
 
-        for line_edit in self.selected_parameter_line_edits.values():
-            line_edit.returnPressed.connect(self.emit_value_change_request)
+        for name, field in self.selected_parameter_line_edits.items():
+            if isinstance(field, QComboBox):
+                # Picking a color applies at once (with the value box).
+                field.activated.connect(
+                    lambda index, setting=name:
+                    self.handle_selected_choice_activated(setting, index)
+                )
+            else:
+                field.returnPressed.connect(self.emit_value_change_request)
+
+    def handle_selected_choice_activated(self, name, index):
+        """
+        Apply a Selected Part choice (the LED color) when it changes.
+
+        Re-picking the part's current choice sends nothing, so the project
+        is not marked modified, unless the value box was also edited.
+
+        :param name: Setting name, for example "color".
+        :type name: str
+        :param index: Index of the picked item.
+        :type index: int
+        :returns: None
+        """
+        component = self.selected_component
+
+        if component is not None:
+            picked = self.selected_parameter_line_edits[name].itemData(index)
+            value_text = self.selected_value_line_edit.text().strip()
+
+            if (picked == component.parameter_texts.get(name) and
+                    value_text == component.value_text):
+                return
+
+        self.emit_value_change_request()
+
+    def handle_new_part_choice_change(self, name):
+        """
+        Let the New Part model box follow a choice (the LED color).
+
+        If the box still holds the previous choice's default model, it
+        shows the new choice's model; a model the user typed is kept.
+
+        :param name: Setting name, for example "color".
+        :type name: str
+        :returns: None
+        """
+        kind = self.get_selected_kind()
+        field = self.parameter_line_edits[name]
+        previous_choice = field.property("previous_choice")
+        new_choice = get_field_text(field)
+
+        # No current item (setCurrentIndex(-1)): nothing to follow, and
+        # the last real choice is kept for the next pick.
+        if not new_choice:
+            return
+
+        field.setProperty("previous_choice", new_choice)
+
+        if previous_choice is None or kind is None:
+            return
+
+        follow = COMPONENT_DEFINITIONS[kind].get("model_follows_choice")
+
+        if follow is None or follow[0] != name:
+            return
+
+        self.value_line_edit.setText(
+            follow_choice_model(
+                kind, self.value_line_edit.text().strip(),
+                {name: previous_choice}, {name: new_choice}
+            )
+        )
 
     def get_selected_kind(self):
         """
@@ -295,7 +446,15 @@ class ComponentPanelWidget(QWidget):
             line_edit.setVisible(is_shown)
 
             if is_shown:
-                line_edit.setText(kind_parameters[name]["default_value_text"])
+                # Set the default first, without the model following it.
+                line_edit.blockSignals(True)
+                set_field_text(
+                    line_edit, kind_parameters[name]["default_value_text"]
+                )
+                line_edit.blockSignals(False)
+                line_edit.setProperty(
+                    "previous_choice", get_field_text(line_edit)
+                )
 
     @staticmethod
     def collect_parameter_texts(kind, line_edits):
@@ -310,7 +469,7 @@ class ComponentPanelWidget(QWidget):
         :rtype: dict
         """
         return {
-            parameter["name"]: line_edits[parameter["name"]].text()
+            parameter["name"]: get_field_text(line_edits[parameter["name"]])
             for parameter in get_panel_parameter_definitions(kind)
         }
 
@@ -364,6 +523,8 @@ class ComponentPanelWidget(QWidget):
 
         shown_names = set()
 
+        self.selected_component = component
+
         if component is None:
             self.selected_component_kind = None
             self.selected_component_label.setText(NO_PART_SELECTED_TEXT)
@@ -384,7 +545,8 @@ class ComponentPanelWidget(QWidget):
             for parameter in get_panel_parameter_definitions(component.kind):
                 name = parameter["name"]
                 shown_names.add(name)
-                self.selected_parameter_line_edits[name].setText(
+                set_field_text(
+                    self.selected_parameter_line_edits[name],
                     component.parameter_texts[name]
                 )
 
@@ -394,7 +556,7 @@ class ComponentPanelWidget(QWidget):
             line_edit.setVisible(is_shown)
 
             if not is_shown:
-                line_edit.clear()
+                clear_field(line_edit)
 
         self.rotate_button.setEnabled(component is not None)
         self.delete_button.setEnabled(component is not None)
