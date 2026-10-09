@@ -6,6 +6,8 @@ separate from the core data model so future command-line or test workflows
 can use the connection-grid model without importing PyQt5.
 """
 
+import math
+
 from PyQt5 import sip
 from PyQt5.QtCore import QPointF
 from PyQt5.QtCore import QRectF
@@ -19,6 +21,7 @@ from PyQt5.QtWidgets import QGraphicsScene
 from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
+from core.exceptions import ComponentError
 from gui.component_item import (
     LABEL_PATCH_PADDING,
     LABEL_SIDES,
@@ -57,6 +60,28 @@ def grid_point_to_scene_position(row_number, column_number):
         GRID_ORIGIN_X + ((column_number - 1) * GRID_POINT_SPACING),
         GRID_ORIGIN_Y + ((row_number - 1) * GRID_POINT_SPACING)
     )
+
+
+def scene_position_to_grid_point(scene_position):
+    """
+    Return the (row, column) of the grid point nearest a scene position.
+
+    The result may lie outside the grid (for example row 0); callers check.
+    Halves round up, so the result does not depend on banker's rounding.
+
+    :param scene_position: Position in scene coordinates.
+    :type scene_position: QPointF
+    :returns: One-based (row, column).
+    :rtype: tuple
+    """
+    column_number = math.floor(
+        (scene_position.x() - GRID_ORIGIN_X) / GRID_POINT_SPACING + 0.5
+    ) + 1
+    row_number = math.floor(
+        (scene_position.y() - GRID_ORIGIN_Y) / GRID_POINT_SPACING + 0.5
+    ) + 1
+
+    return (row_number, column_number)
 
 
 class ConnectionPointItem(QGraphicsEllipseItem):
@@ -140,6 +165,10 @@ class ConnectionGridScene(QGraphicsScene):
 
     connection_point_selected = pyqtSignal(object)
     component_selected = pyqtSignal(object)
+    # A dragged part was moved (reference), or its move was refused
+    # (reference, reason); in both cases it is already drawn in place.
+    component_moved = pyqtSignal(str)
+    component_move_refused = pyqtSignal(str, str)
 
     def __init__(self, connection_grid, parent=None):
         super(ConnectionGridScene, self).__init__(parent)
@@ -326,6 +355,96 @@ class ConnectionGridScene(QGraphicsScene):
         # neighbours' labels too, so lay out every label again.
         self.layout_component_labels()
         self.update_scene_extent()
+
+    def check_component_drop(self, reference, anchor_position):
+        """
+        Say whether dropping a dragged part here would be refused.
+
+        :param reference: Part being dragged.
+        :type reference: str
+        :param anchor_position: Current anchor position, scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None if the drop would be accepted (or puts the part
+            back on its own point), otherwise the reason.
+        :rtype: str or None
+        """
+        if self.component_collection is None:
+            return None
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            return None
+
+        return self.component_collection.check_move(
+            reference, row_number, column_number, self.connection_grid
+        )
+
+    def keyPressEvent(self, event):
+        """
+        Esc cancels a part drag; other keys go to the items as usual.
+
+        :param event: Key event.
+        :type event: QKeyEvent
+        :returns: None
+        """
+        grabber = self.mouseGrabberItem()
+
+        if (event.key() == Qt.Key_Escape and
+                isinstance(grabber, ComponentItem) and grabber.is_dragging):
+            grabber.cancel_drag()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+    def handle_component_drop(self, reference, anchor_position):
+        """
+        Finish a part drag: snap to the nearest grid point, or put it back.
+
+        The move goes through ComponentCollection.move_component, which
+        refuses off-grid and overlapping moves. Dropping on the part's own
+        grid point just puts it back, with no signal.
+
+        :param reference: Part that was dragged.
+        :type reference: str
+        :param anchor_position: Where the part's anchor was dropped, in
+            scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None
+        """
+        if self.component_collection is None:
+            return
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            self.refresh_component(reference)
+            return
+
+        try:
+            self.component_collection.move_component(
+                reference,
+                row_number,
+                column_number,
+                self.connection_grid
+            )
+        except ComponentError as error:
+            # refresh_component puts the item back at the model position.
+            self.refresh_component(reference)
+            self.component_move_refused.emit(reference, str(error))
+            return
+
+        self.refresh_component(reference)
+        self.component_moved.emit(reference)
 
     def layout_component_labels(self):
         """
