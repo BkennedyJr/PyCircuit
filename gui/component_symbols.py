@@ -15,7 +15,13 @@ body centre, so at 60 px per step the body is about 36 px long. Grid dots
 from each pin, so a few pixels of lead show past each dot.
 
 Transistors and ground are drawn around their anchor (no shift) and keep
-their earlier size: transistors span two steps with three pins.
+their earlier size: transistors span two steps with three pins. Op-amps are
+a triangle around their anchor, two steps tall, with five pins.
+
+Most bodies are rectangles (BODY_RECTS). An op-amp's body is its triangle
+(BODY_POLYGONS); get_body_path() returns the exact body for every kind.
+Small glyphs that must read the same at every rotation (the AC sine, the
+op-amp's + and - input marks) are turned back around their own centres.
 
 Each builder returns two paths: a stroke path for lines and outlines, and a
 fill path for solid shapes such as arrowheads. Keeping them apart means
@@ -25,7 +31,7 @@ open shapes like the resistor zigzag are never filled by accident.
 import math
 
 from PyQt5.QtCore import QPointF, QRectF
-from PyQt5.QtGui import QPainterPath, QTransform
+from PyQt5.QtGui import QPainterPath, QPolygonF, QTransform
 
 from core.components import COMPONENT_DEFINITIONS
 from core.exceptions import ComponentError
@@ -49,14 +55,66 @@ BODY_RECTS = {
     "capacitor_polarized": QRectF(-0.3, -0.3, 0.44, 0.6),
     "dc_source": QRectF(-0.3, -0.3, 0.6, 0.42),
     "ac_source": QRectF(-0.32, -0.32, 0.64, 0.64),
+    "current_source": QRectF(-0.32, -0.32, 0.64, 0.64),
     "diode": QRectF(-0.2, -0.2, 0.4, 0.4),
     "led": QRectF(-0.2, -0.4, 0.5, 0.6),
     "npn": QRectF(-0.55, -0.5, 1.0, 1.0),
     "pnp": QRectF(-0.55, -0.5, 1.0, 1.0),
+    # Op-amps: the largest rectangle inside the triangle band that keeps
+    # clear of the five pins; the real body is the triangle below.
+    "opamp_generic": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_741": QRectF(-0.6, -0.6, 1.35, 1.2),
+}
+
+# Op-amp triangle, pointing right at rotation 0: left side at x = -0.6 from
+# y = -1.2 to 1.2, apex at (0.75, 0). At 60 px per step the inputs' leads
+# show 16 px past their dots, the supply leads 11 px and the output 7 px.
+OPAMP_LEFT_X = -0.6
+OPAMP_APEX_X = 0.75
+OPAMP_HALF_HEIGHT = 1.2
+# The - and + input marks sit inside the triangle, beside their inputs.
+OPAMP_SIGN_X = -0.38
+OPAMP_SIGN_Y = 0.55
+OPAMP_SIGN_HALF_SIZE = 0.1
+
+
+def _opamp_triangle():
+    """
+    Return the op-amp triangle as a polygon around the anchor.
+
+    :rtype: QPolygonF
+    """
+    return QPolygonF([
+        QPointF(OPAMP_LEFT_X, -OPAMP_HALF_HEIGHT),
+        QPointF(OPAMP_APEX_X, 0.0),
+        QPointF(OPAMP_LEFT_X, OPAMP_HALF_HEIGHT),
+    ])
+
+
+def opamp_edge_y(x):
+    """
+    Return how far the op-amp triangle reaches above and below y = 0 at x.
+
+    :param x: Position across the triangle, OPAMP_LEFT_X..OPAMP_APEX_X.
+    :type x: float
+    :returns: Half height of the triangle at x.
+    :rtype: float
+    """
+    return OPAMP_HALF_HEIGHT * (OPAMP_APEX_X - x) / (
+        OPAMP_APEX_X - OPAMP_LEFT_X
+    )
+
+
+# Non-rectangular bodies, around the body centre like BODY_RECTS.
+BODY_POLYGONS = {
+    "opamp_generic": _opamp_triangle,
+    "opamp_741": _opamp_triangle,
 }
 
 # AC source: a 36 px circle with 12 px leads at the 60 px spacing.
 SOURCE_RADIUS = 0.3
+# Current source arrow: from y = 0.2 up to y = -0.2, inside the circle.
+CURRENT_ARROW_HALF_LENGTH = 0.2
 
 # DC source (battery cell): the long plate is the plus side, nearest the
 # plus pin; plates are 0.12 of a step (7 px) apart.
@@ -328,6 +386,29 @@ def _sine_glyph_path():
     return stroke_path
 
 
+def _current_source_paths():
+    """
+    Current source: circle with leads to the out pin (top) and the in pin
+    (bottom), and an arrow inside pointing to out, the way the current
+    leaves the source. The arrow turns with the part (it shows direction).
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+
+    stroke_path.addEllipse(QPointF(0.0, 0.0), SOURCE_RADIUS, SOURCE_RADIUS)
+    _add_line(stroke_path, 0.0, -HALF_SPAN, 0.0, -SOURCE_RADIUS)
+    _add_line(stroke_path, 0.0, SOURCE_RADIUS, 0.0, HALF_SPAN)
+    _add_arrow(
+        stroke_path, fill_path, 0.0, CURRENT_ARROW_HALF_LENGTH,
+        0.0, -CURRENT_ARROW_HALF_LENGTH
+    )
+
+    return (stroke_path, fill_path)
+
+
 def _diode_paths():
     """
     Diode: anode on the left, a filled triangle pointing right, and the
@@ -431,6 +512,52 @@ def _pnp_paths():
     return (stroke_path, fill_path)
 
 
+def _opamp_paths():
+    """
+    Op-amp: triangle pointing right, in- (top) and in+ (bottom) on the
+    left, out at the apex, V+ above and V- below. The - and + marks are
+    upright glyphs (_opamp_minus_glyph_path, _opamp_plus_glyph_path).
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    stroke_path.addPolygon(_opamp_triangle())
+    stroke_path.closeSubpath()
+
+    supply_lead_end = opamp_edge_y(0.0)
+
+    _add_line(stroke_path, -1.0, -1.0, OPAMP_LEFT_X, -1.0)
+    _add_line(stroke_path, -1.0, 1.0, OPAMP_LEFT_X, 1.0)
+    _add_line(stroke_path, OPAMP_APEX_X, 0.0, 1.0, 0.0)
+    _add_line(stroke_path, 0.0, -1.0, 0.0, -supply_lead_end)
+    _add_line(stroke_path, 0.0, 1.0, 0.0, supply_lead_end)
+
+    return (stroke_path, QPainterPath())
+
+
+def _opamp_minus_glyph_path():
+    """
+    The "-" mark of the inverting input, around (0, 0).
+
+    :rtype: QPainterPath
+    """
+    path = QPainterPath()
+    _add_line(path, -OPAMP_SIGN_HALF_SIZE, 0.0, OPAMP_SIGN_HALF_SIZE, 0.0)
+    return path
+
+
+def _opamp_plus_glyph_path():
+    """
+    The "+" mark of the non-inverting input, around (0, 0).
+
+    :rtype: QPainterPath
+    """
+    path = _opamp_minus_glyph_path()
+    _add_line(path, 0.0, -OPAMP_SIGN_HALF_SIZE, 0.0, OPAMP_SIGN_HALF_SIZE)
+    return path
+
+
 _SYMBOL_BUILDERS = {
     "resistor": _resistor_paths,
     "capacitor": _capacitor_paths,
@@ -438,19 +565,30 @@ _SYMBOL_BUILDERS = {
     "inductor": _inductor_paths,
     "dc_source": _dc_source_paths,
     "ac_source": _ac_source_paths,
+    "current_source": _current_source_paths,
     "diode": _diode_paths,
     "led": _led_paths,
     "npn": _npn_paths,
     "pnp": _pnp_paths,
     "ground": _ground_paths,
+    "opamp_generic": _opamp_paths,
+    "opamp_741": _opamp_paths,
 }
 
+_OPAMP_GLYPHS = (
+    ((OPAMP_SIGN_X, -OPAMP_SIGN_Y), _opamp_minus_glyph_path),
+    ((OPAMP_SIGN_X, OPAMP_SIGN_Y), _opamp_plus_glyph_path),
+)
+
 # Glyphs drawn inside a body that must read the same at every rotation
-# (Billie: the AC sine always stays horizontal). They are built around the
-# body centre and turned back by the part's rotation, so the item's own
-# rotation leaves them upright.
-_UPRIGHT_GLYPH_BUILDERS = {
-    "ac_source": _sine_glyph_path,
+# (Billie: the AC sine always stays horizontal; a "-" turned 90 degrees
+# would read as "|"). Each is built around its own (0, 0), turned back by
+# the part's rotation and moved to its centre (body-centre coordinates),
+# so the item's own rotation leaves it upright where it belongs.
+_UPRIGHT_GLYPHS = {
+    "ac_source": (((0.0, 0.0), _sine_glyph_path),),
+    "opamp_generic": _OPAMP_GLYPHS,
+    "opamp_741": _OPAMP_GLYPHS,
 }
 
 ALLOWED_SYMBOL_ROTATIONS = (0, 90, 180, 270)
@@ -490,10 +628,9 @@ def build_symbol_paths(kind, rotation=0):
 
     stroke_path, fill_path = _SYMBOL_BUILDERS[kind]()
 
-    if kind in _UPRIGHT_GLYPH_BUILDERS:
-        stroke_path.addPath(
-            QTransform().rotate(-rotation).map(_UPRIGHT_GLYPH_BUILDERS[kind]())
-        )
+    for (center_x, center_y), glyph_builder in _UPRIGHT_GLYPHS.get(kind, ()):
+        to_place = QTransform().translate(center_x, center_y).rotate(-rotation)
+        stroke_path.addPath(to_place.map(glyph_builder()))
 
     to_anchor = _get_anchor_transform(kind)
 
@@ -520,6 +657,33 @@ def get_body_rect(kind):
         )
 
     return _get_anchor_transform(kind).mapRect(BODY_RECTS[kind])
+
+
+def get_body_path(kind):
+    """
+    Return the exact body area of one kind as a path, in pitch units.
+
+    This is the triangle for op-amps and the body rectangle for every other
+    kind. The item fills it to hide the grid and uses it as the click area.
+
+    :param kind: Component kind.
+    :type kind: str
+    :returns: New path, shifted to the anchor like the symbol.
+    :rtype: QPainterPath
+    :raises ComponentError: If the kind is unknown.
+    """
+    body_rect = get_body_rect(kind)
+    body_path = QPainterPath()
+
+    if kind in BODY_POLYGONS:
+        body_path.addPolygon(
+            _get_anchor_transform(kind).map(BODY_POLYGONS[kind]())
+        )
+        body_path.closeSubpath()
+    else:
+        body_path.addRect(body_rect)
+
+    return body_path
 
 
 def _get_anchor_transform(kind):

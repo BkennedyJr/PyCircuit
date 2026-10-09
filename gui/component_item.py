@@ -35,7 +35,7 @@ back when the move is refused. A plain click still just selects.
 
 import math
 
-from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt5.QtGui import (
     QColor,
     QPainterPath,
@@ -56,11 +56,13 @@ from core.components import (
 )
 from core.exceptions import ComponentError
 from core.wires import WireNets
-from gui.component_symbols import build_symbol_paths, get_body_rect
+from gui.component_symbols import build_symbol_paths, get_body_path
 
 BACKGROUND_COLOR = "#1f2933"
 SYMBOL_COLOR = "#d9e2ec"
 SELECTED_COLOR = "#ffd166"
+# A dragged part over a spot where the drop would be refused.
+REFUSED_DROP_COLOR = "#ff6b6b"
 SYMBOL_PEN_WIDTH = 2
 BOUNDING_MARGIN = 3
 LABEL_GAP = 6
@@ -386,6 +388,8 @@ class ComponentItem(QGraphicsItem):
         # press has become a drag.
         self.drag_start_position = None
         self.is_dragging = False
+        # True while a drag hovers a spot where the drop would be refused.
+        self.is_drop_refused = False
 
         self.refresh_from_component()
 
@@ -435,6 +439,76 @@ class ComponentItem(QGraphicsItem):
             event.buttonDownScenePos(Qt.LeftButton)
         )
 
+        scene = self.scene()
+
+        if scene is not None and hasattr(scene, "check_component_drop"):
+            self.set_drop_refused(
+                scene.check_component_drop(
+                    self.component.reference, self.pos()
+                ) is not None
+            )
+
+    def set_drop_refused(self, is_drop_refused):
+        """
+        Draw the part in the refused colour (or not) while it is dragged.
+
+        :param is_drop_refused: True when dropping here would be refused.
+        :type is_drop_refused: bool
+        :returns: None
+        """
+        if is_drop_refused != self.is_drop_refused:
+            self.is_drop_refused = is_drop_refused
+            self.update()
+
+    def cancel_drag(self):
+        """
+        Abandon a drag: the part goes back to where the drag started.
+
+        The model is not touched and no signal is sent; the release that
+        may follow does nothing. Used for Esc and for a lost mouse grab.
+
+        :returns: True if a drag was cancelled.
+        :rtype: bool
+        """
+        if not self.is_dragging:
+            return False
+
+        start_position = self.drag_start_position
+        self.drag_start_position = None
+        self.is_dragging = False
+        self.set_drop_refused(False)
+        self.setZValue(COMPONENT_Z_VALUE)
+        self.setPos(start_position)
+
+        if self.scene() is not None and self.scene().mouseGrabberItem() is self:
+            self.ungrabMouse()
+
+        return True
+
+    def sceneEvent(self, event):
+        """
+        Losing the mouse grab mid-drag (a popup, Alt+Tab) cancels the drag.
+
+        QGraphicsItem has no ungrabMouseEvent (only QGraphicsWidget does),
+        so the QEvent.UngrabMouse event is caught here. The part goes back
+        to its start; ungrabMouse() is not called again, so this cannot
+        recurse.
+
+        :param event: Qt event.
+        :type event: QEvent
+        :returns: Whether the event was handled.
+        :rtype: bool
+        """
+        if event.type() == QEvent.UngrabMouse and self.is_dragging:
+            start_position = self.drag_start_position
+            self.drag_start_position = None
+            self.is_dragging = False
+            self.set_drop_refused(False)
+            self.setZValue(COMPONENT_Z_VALUE)
+            self.setPos(start_position)
+
+        return super().sceneEvent(event)
+
     def mouseReleaseEvent(self, event):
         """
         End a drag: the scene snaps the part to a grid point or puts it back.
@@ -452,6 +526,7 @@ class ComponentItem(QGraphicsItem):
         start_position = self.drag_start_position
         self.drag_start_position = None
         self.is_dragging = False
+        self.set_drop_refused(False)
         self.setZValue(COMPONENT_Z_VALUE)
         event.accept()
 
@@ -481,8 +556,7 @@ class ComponentItem(QGraphicsItem):
         stroke_path, fill_path = build_symbol_paths(
             component.kind, component.rotation
         )
-        body_path = QPainterPath()
-        body_path.addRect(get_body_rect(component.kind))
+        body_path = get_body_path(component.kind)
 
         self.stroke_path = transform.map(stroke_path)
         self.fill_path = transform.map(fill_path)
@@ -533,7 +607,7 @@ class ComponentItem(QGraphicsItem):
 
         text_rect = self.label_item.text_rect()
         free_sides = free_label_sides(
-            self.component.get_pin_offsets(),
+            self.get_label_steering_pin_offsets(),
             self.component.get_body_center_offset()
         )
         placements = [
@@ -553,6 +627,26 @@ class ComponentItem(QGraphicsItem):
         self.label_offset = top_left - text_rect.topLeft()
         self.place_label()
 
+    def get_label_steering_pin_offsets(self):
+        """
+        Return the rotated pins that keep the label off their side.
+
+        A kind may list pins in "label_ignores_pins" (the op-amp's V+ and
+        V-): with all five op-amp pins counted, every side would be taken
+        at 90 and 270 degrees and the label would sit on a lead.
+
+        :returns: Rotated pins as (pin_name, dx, dy).
+        :rtype: list
+        """
+        ignored_pins = COMPONENT_DEFINITIONS[self.component.kind].get(
+            "label_ignores_pins", ()
+        )
+
+        return [
+            pin for pin in self.component.get_pin_offsets()
+            if pin[0] not in ignored_pins
+        ]
+
     def get_label_candidates(self):
         """
         Return every place the scene's label layout may put the text.
@@ -570,7 +664,7 @@ class ComponentItem(QGraphicsItem):
         candidates = []
 
         for side in free_label_sides(
-                self.component.get_pin_offsets(),
+                self.get_label_steering_pin_offsets(),
                 self.component.get_body_center_offset()):
             normal_top_left = self.get_label_top_left(side, text_rect)
 
@@ -781,7 +875,9 @@ class ComponentItem(QGraphicsItem):
 
         painter.fillPath(self.body_path, QColor(BACKGROUND_COLOR))
 
-        if self.isSelected():
+        if self.is_drop_refused:
+            color = QColor(REFUSED_DROP_COLOR)
+        elif self.isSelected():
             color = QColor(SELECTED_COLOR)
         else:
             color = QColor(SYMBOL_COLOR)

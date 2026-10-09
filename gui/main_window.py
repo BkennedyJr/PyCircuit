@@ -5,6 +5,7 @@ This module coordinates GUI actions with the platform-independent core
 connection-grid model and project-file services.
 """
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +41,20 @@ from gui.grid_editor import ConnectionGridView
 
 PROJECT_FILE_FILTER = "Circuit Workbench Project (*.json);;All Files (*)"
 
+
+
+def natural_sort_key(reference):
+    """
+    Natural sort key for references: "R2" before "R10", "C1" before "R1".
+
+    :param reference: Reference such as "R10" or "W2".
+    :type reference: str
+    :rtype: list
+    """
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"([0-9]+)", reference)
+    ]
 
 class MainWindow(QMainWindow):
     """
@@ -100,8 +115,27 @@ class MainWindow(QMainWindow):
         self.create_component_dock()
         self.create_selected_node_dock()
 
+        self.zoom_label = QLabel(self)
+        self.statusBar().addPermanentWidget(self.zoom_label)
+        self.update_zoom_display(self.connection_grid_view.get_zoom())
+
         self.statusBar().showMessage(
             "Ready. Configure a grid or select a connection point."
+        )
+
+    def update_zoom_display(self, zoom):
+        """
+        Show the zoom in the status bar and grey out Zoom In/Out at a limit.
+
+        :param zoom: Current zoom factor (1.0 = 100 %).
+        :type zoom: float
+        :returns: None
+        """
+        self.zoom_label.setText(f"Zoom {round(zoom * 100)}%")
+
+        self.zoom_in_action.setEnabled(self.connection_grid_view.can_zoom_in())
+        self.zoom_out_action.setEnabled(
+            self.connection_grid_view.can_zoom_out()
         )
 
     def connect_application_signals(self):
@@ -128,6 +162,9 @@ class MainWindow(QMainWindow):
         )
         self.connection_grid_scene.wires_selected.connect(
             self.handle_wire_selection
+        )
+        self.connection_grid_view.zoom_changed.connect(
+            self.update_zoom_display
         )
 
     def create_actions(self):
@@ -193,7 +230,24 @@ class MainWindow(QMainWindow):
             component_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             self.connection_grid_view.addAction(component_action)
 
-        self.fit_grid_action = QAction("Fit Grid", self)
+        # Zoom shortcuts work from anywhere in the window. Ctrl+= is the
+        # same key as Ctrl++ without Shift on most keyboards.
+        self.zoom_in_action = QAction("Zoom In", self)
+        self.zoom_in_action.setShortcuts(
+            [QKeySequence.ZoomIn, QKeySequence("Ctrl+=")]
+        )
+        self.zoom_in_action.triggered.connect(
+            self.connection_grid_view.zoom_in
+        )
+
+        self.zoom_out_action = QAction("Zoom Out", self)
+        self.zoom_out_action.setShortcut(QKeySequence.ZoomOut)
+        self.zoom_out_action.triggered.connect(
+            self.connection_grid_view.zoom_out
+        )
+
+        self.fit_grid_action = QAction("Zoom to Fit", self)
+        self.fit_grid_action.setShortcut(QKeySequence("Ctrl+0"))
         self.fit_grid_action.triggered.connect(
             self.connection_grid_view.fit_grid_in_view
         )
@@ -226,6 +280,8 @@ class MainWindow(QMainWindow):
         component_menu.addAction(self.wire_mode_action)
 
         view_menu = self.menuBar().addMenu("&View")
+        view_menu.addAction(self.zoom_in_action)
+        view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.fit_grid_action)
 
     def create_tool_bar(self):
@@ -247,6 +303,8 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.delete_component_action)
         main_tool_bar.addAction(self.wire_mode_action)
         main_tool_bar.addSeparator()
+        main_tool_bar.addAction(self.zoom_in_action)
+        main_tool_bar.addAction(self.zoom_out_action)
         main_tool_bar.addAction(self.fit_grid_action)
 
     def create_grid_configuration_dock(self):
@@ -802,7 +860,8 @@ class MainWindow(QMainWindow):
                 "Part Value Not Changed",
                 str(error),
                 "Enter a number with an optional prefix, for example 4k7, "
-                "100n, 50 or 1k."
+                "100n, 1m or 1k, or a model name for diodes, LEDs and "
+                "transistors."
             )
             # Put the unchanged value back in the box.
             self.component_panel_widget.show_component(component)
@@ -825,8 +884,9 @@ class MainWindow(QMainWindow):
         """
         component = self.component_collection.get_component(reference)
 
-        if self.selected_component_reference == reference:
-            self.component_panel_widget.show_component(component)
+        # The moved part becomes the panel's part, even when several parts
+        # are selected.
+        self.handle_component_selection(component)
 
         self.reveal_component(reference)
         self.mark_project_modified(
@@ -869,30 +929,53 @@ class MainWindow(QMainWindow):
 
     def delete_selection(self):
         """
-        Delete the selected part and every selected wire (Delete key).
+        Delete every selected part and every selected wire (Delete key).
+
+        The status reads, for example, "Deleted C1, R1, W1, W2.": parts
+        first, then wires, each naturally sorted. A part's wires stay where
+        they are (they keep their points; under the every-dot rule they
+        simply join whatever is placed there next).
 
         :returns: None
         """
-        component = self.get_selected_component()
-        wire_references = [
-            reference for reference in self.selected_wire_references
-            if reference in self.wire_collection.wires_by_reference
-        ]
+        scene = self.connection_grid_scene
+        component_references = {
+            item.component.reference
+            for item in scene.component_items_by_reference.values()
+            if item.isSelected()
+        }
+        panel_component = self.get_selected_component()
 
-        if component is None and not wire_references:
+        if panel_component is not None:
+            component_references.add(panel_component.reference)
+
+        component_references = sorted(
+            component_references, key=natural_sort_key
+        )
+        wire_references = sorted(
+            (
+                reference for reference in self.selected_wire_references
+                if reference in self.wire_collection.wires_by_reference
+            ),
+            key=natural_sort_key
+        )
+
+        if not component_references and not wire_references:
             return
 
         for reference in wire_references:
             self.wire_collection.remove_wire(reference)
 
-        deleted_references = list(wire_references)
+        for reference in component_references:
+            self.component_collection.remove_component(reference)
 
-        if component is not None:
-            self.component_collection.remove_component(component.reference)
-            deleted_references.insert(0, component.reference)
-            self.connection_grid_scene.rebuild_component_items()
+        deleted_references = component_references + wire_references
 
-        self.connection_grid_scene.rebuild_wire_items()
+        if component_references:
+            self.selected_component_reference = None
+            scene.rebuild_component_items()
+
+        scene.rebuild_wire_items()
         self.selected_wire_references = []
         self.update_delete_action()
         self.mark_project_modified(
