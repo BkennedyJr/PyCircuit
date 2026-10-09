@@ -30,10 +30,12 @@ import math
 
 from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import (
+    QBrush,
     QColor,
     QPainterPath,
     QPainterPathStroker,
     QPen,
+    QRadialGradient,
     QTransform,
 )
 from PyQt5.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
@@ -54,6 +56,18 @@ BOUNDING_MARGIN = 3
 LABEL_GAP = 6
 LABEL_PATCH_PADDING = 2
 COMPONENT_Z_VALUE = 1
+# A lit LED (set_lit): its triangle is filled with its color and a soft
+# glow of LED_GLOW_RADIUS grid steps surrounds the body centre.
+LED_LIT_COLORS = {
+    "red": "#ff4d4d",
+    "green": "#4cd964",
+    "blue": "#4d8bff",
+    "yellow": "#ffd84d",
+    "white": "#f5f7fa",
+    "orange": "#ff9f43",
+}
+LED_GLOW_RADIUS = 0.6
+LED_GLOW_ALPHA = 170
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -353,6 +367,7 @@ class ComponentItem(QGraphicsItem):
         self.label_side = LABEL_SIDES[0]
         self.label_offset = QPointF()
         self._bounding_rect = QRectF()
+        self.is_lit = False
 
         # Selectable for the property panel, but never dragged by Qt: a
         # move must go through the collection's checked move (M2).
@@ -412,6 +427,13 @@ class ComponentItem(QGraphicsItem):
                 BOUNDING_MARGIN, BOUNDING_MARGIN
             )
         )
+
+        # An LED always reserves room for its glow, so set_lit never has
+        # to change the item's geometry.
+        if component.kind == "led":
+            self._bounding_rect = self._bounding_rect.united(
+                self.get_glow_rect()
+            )
 
         # prepareGeometryChange() above already schedules the repaint.
         self.refresh_label()
@@ -612,6 +634,68 @@ class ComponentItem(QGraphicsItem):
 
         return "\n".join(lines)
 
+    def get_body_center(self):
+        """
+        Return the body centre in item coordinates (pixels).
+
+        :rtype: QPointF
+        """
+        center_dx, center_dy = self.component.get_body_center_offset()
+        return QPointF(center_dx, center_dy) * self.grid_spacing
+
+    def get_glow_rect(self):
+        """
+        Return the square a lit LED's glow fills, in item coordinates.
+
+        :rtype: QRectF
+        """
+        radius = LED_GLOW_RADIUS * self.grid_spacing
+        center = self.get_body_center()
+        return QRectF(
+            center.x() - radius, center.y() - radius, 2 * radius, 2 * radius
+        )
+
+    def get_lit_color(self):
+        """
+        Return the color a lit LED shows (its "color" setting).
+
+        :rtype: QColor
+        """
+        return QColor(LED_LIT_COLORS[self.component.parameter_texts["color"]])
+
+    def set_lit(self, is_lit):
+        """
+        Show an LED as lit (forward-conducting) or dark.
+
+        Lit, the triangle is filled with the LED's color and a glow is
+        drawn around the body. Nothing decides this yet: after the ngspice
+        runner (M5) a run will call set_lit(True) for each LED whose
+        forward current is above about 1 mA, and set_lit(False) otherwise.
+
+        :param is_lit: True to light the LED.
+        :type is_lit: bool
+        :returns: None
+        :raises ComponentError: If is_lit is not a bool, or a part that is
+            not an LED would be lit.
+        """
+        if not isinstance(is_lit, bool):
+            raise ComponentError(
+                f"set_lit needs True or False, not {is_lit!r}."
+            )
+
+        if is_lit and self.component.kind != "led":
+            display_name = COMPONENT_DEFINITIONS[self.component.kind][
+                "display_name"
+            ]
+            raise ComponentError(
+                f"Only LEDs can light up; {self.component.reference} is a "
+                f"{display_name.lower()}."
+            )
+
+        if is_lit != self.is_lit:
+            self.is_lit = is_lit
+            self.update()
+
     def boundingRect(self):
         """
         Return the area this item paints (the label paints itself).
@@ -649,6 +733,9 @@ class ComponentItem(QGraphicsItem):
 
         painter.fillPath(self.body_path, QColor(BACKGROUND_COLOR))
 
+        if self.is_lit:
+            self.paint_glow(painter)
+
         if self.isSelected():
             color = QColor(SELECTED_COLOR)
         else:
@@ -660,6 +747,34 @@ class ComponentItem(QGraphicsItem):
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(self.stroke_path)
-        painter.fillPath(self.fill_path, color)
+        # A lit LED's triangle (and its arrowheads) take the LED's color.
+        painter.fillPath(
+            self.fill_path, self.get_lit_color() if self.is_lit else color
+        )
 
         painter.restore()
+
+    def paint_glow(self, painter):
+        """
+        Draw a lit LED's glow: its color fading out from the body centre.
+
+        :param painter: Painter used to draw this item.
+        :type painter: QPainter
+        :returns: None
+        """
+        glow_color = self.get_lit_color()
+        center = self.get_body_center()
+        gradient = QRadialGradient(
+            center, LED_GLOW_RADIUS * self.grid_spacing
+        )
+        inner_color = QColor(glow_color)
+        inner_color.setAlpha(LED_GLOW_ALPHA)
+        outer_color = QColor(glow_color)
+        outer_color.setAlpha(0)
+        gradient.setColorAt(0.0, inner_color)
+        gradient.setColorAt(1.0, outer_color)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(gradient))
+        painter.drawEllipse(self.get_glow_rect())
+        painter.setBrush(Qt.NoBrush)

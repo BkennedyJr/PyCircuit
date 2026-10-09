@@ -456,13 +456,14 @@ def test_bad_rotation_raises_in_constructor_and_setter():
 # PR B: DC and AC sources -------------------------------------------------
 
 
-def test_only_the_ac_source_has_settings():
+def test_only_the_ac_source_and_the_led_have_settings():
+    expected = {"ac_source": ["frequency", "offset", "phase"],
+                "led": ["color"]}
+
     for kind in COMPONENT_DEFINITIONS:
         names = [parameter["name"] for parameter in
                  get_parameter_definitions(kind)]
-        assert names == (
-            ["frequency", "offset", "phase"] if kind == "ac_source" else []
-        )
+        assert names == expected.get(kind, [])
 
 
 def test_ac_source_setting_definitions_are_exact():
