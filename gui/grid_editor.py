@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
 from core.exceptions import ComponentError
+from core.wires import WireNets
 from core.wires import find_junction_identifiers
 from gui.component_item import (
     LABEL_PATCH_PADDING,
@@ -374,6 +375,7 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.update_wire_nets()
         self.rebuild_junction_items()
         self.update_scene_extent()
 
@@ -400,6 +402,8 @@ class ConnectionGridScene(QGraphicsScene):
         # A turn or a longer value can change the best spot for the
         # neighbours' labels too, so lay out every label again.
         self.layout_component_labels()
+        # A moved ground pin can change which net is node 0.
+        self.update_wire_nets()
         # A moved or turned pin can start or stop meeting a wire.
         self.rebuild_junction_items()
         self.update_scene_extent()
@@ -437,6 +441,7 @@ class ConnectionGridScene(QGraphicsScene):
                 self.addItem(wire_item)
                 self.wire_items_by_reference[wire.reference] = wire_item
 
+        self.update_wire_nets()
         self.rebuild_junction_items()
 
     def rebuild_junction_items(self):
@@ -490,6 +495,44 @@ class ConnectionGridScene(QGraphicsScene):
             junction_item.setAcceptedMouseButtons(Qt.NoButton)
             self.addItem(junction_item)
             self.junction_items_by_identifier[identifier] = junction_item
+
+    def update_wire_nets(self):
+        """
+        Give every part item the current nets for its tooltip.
+
+        The nets know every pin ("R1.2"), so parts sharing a point show as
+        connected even without a wire.
+
+        Without a wire collection the items get None and their tooltips
+        have no net lines.
+
+        :returns: None
+        """
+        wire_nets = None
+
+        if self.wire_collection is not None:
+            ground_identifiers = []
+            pin_labels = []
+
+            if self.component_collection is not None:
+                for component in self.component_collection.get_components():
+                    pin_identifiers = component.get_pin_identifiers()
+
+                    if component.kind == "ground":
+                        ground_identifiers.extend(pin_identifiers)
+
+                    for (pin_name, unused_dx, unused_dy), identifier in zip(
+                            component.get_pin_offsets(), pin_identifiers):
+                        pin_labels.append(
+                            (identifier, f"{component.reference}.{pin_name}")
+                        )
+
+            wire_nets = WireNets(
+                self.wire_collection, ground_identifiers, pin_labels
+            )
+
+        for component_item in self.component_items_by_reference.values():
+            component_item.set_wire_nets(wire_nets)
 
     def set_wire_mode(self, is_wire_mode):
         """
