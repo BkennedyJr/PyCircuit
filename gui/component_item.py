@@ -17,12 +17,20 @@ grid points (0), which are below the parts (1). So a label never hides a
 pin or a selected grid point, and a transistor's body still hides the dot
 under its centre. One-step parts have their body between two grid points.
 The scene (ConnectionGridScene.layout_component_labels) may move a label to
-another candidate spot to keep it off neighbouring parts and labels. A child item always stacks with its parent, so the label is
-a separate top-level scene item: ComponentItem adds it to, and removes it
+another candidate spot to keep it off neighbouring parts and labels. A
+child item always stacks with its parent, so the label is a separate
+top-level scene item: ComponentItem adds it to, and removes it
 from, the scene with itself and keeps it next to itself when moved.
 
 This module must not import gui.grid_editor (the scene will import this
 module). The scene sets the item position.
+
+Drag to move: Qt's own ItemIsMovable is off, because a move must go through
+the collection's checked move. Instead the item follows the mouse once a
+left-button drag passes the platform drag distance, and on release asks the
+scene (handle_component_drop) to snap it to the nearest grid point. The
+scene moves the part through ComponentCollection.move_component, or puts it
+back when the move is refused. A plain click still just selects.
 """
 
 import math
@@ -35,7 +43,11 @@ from PyQt5.QtGui import (
     QPen,
     QTransform,
 )
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
+from PyQt5.QtWidgets import (
+    QApplication,
+    QGraphicsItem,
+    QGraphicsSimpleTextItem,
+)
 
 from core.components import (
     COMPONENT_DEFINITIONS,
@@ -53,6 +65,8 @@ BOUNDING_MARGIN = 3
 LABEL_GAP = 6
 LABEL_PATCH_PADDING = 2
 COMPONENT_Z_VALUE = 1
+# A part being dragged draws above the others.
+DRAGGED_COMPONENT_Z_VALUE = 2
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -354,7 +368,8 @@ class ComponentItem(QGraphicsItem):
         self._bounding_rect = QRectF()
 
         # Selectable for the property panel, but never dragged by Qt: a
-        # move must go through the collection's checked move (M2).
+        # move must go through the collection's checked move (see the
+        # mouse handlers below).
         self.setFlag(self.ItemIsSelectable, True)
         self.setFlag(self.ItemIsMovable, False)
         # Needed for ItemPositionHasChanged, which moves the label along.
@@ -365,7 +380,85 @@ class ComponentItem(QGraphicsItem):
         # Python reference and puts the label in its scene in itemChange().
         self.label_item = ComponentLabelItem()
 
+        # Item position when the left button went down, and whether the
+        # press has become a drag.
+        self.drag_start_position = None
+        self.is_dragging = False
+
         self.refresh_from_component()
+
+    def mousePressEvent(self, event):
+        """
+        Select the part as usual and remember where a drag would start.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        self.is_dragging = False
+        self.drag_start_position = None
+
+        if event.button() == Qt.LeftButton:
+            self.drag_start_position = QPointF(self.pos())
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """
+        Follow the mouse once the press has moved past the drag distance.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        if (self.drag_start_position is None or
+                not event.buttons() & Qt.LeftButton):
+            super().mouseMoveEvent(event)
+            return
+
+        if not self.is_dragging:
+            moved_distance = (
+                event.screenPos() - event.buttonDownScreenPos(Qt.LeftButton)
+            ).manhattanLength()
+
+            if moved_distance < QApplication.startDragDistance():
+                return
+
+            self.is_dragging = True
+            self.setZValue(DRAGGED_COMPONENT_Z_VALUE)
+
+        self.setPos(
+            self.drag_start_position +
+            event.scenePos() -
+            event.buttonDownScenePos(Qt.LeftButton)
+        )
+
+    def mouseReleaseEvent(self, event):
+        """
+        End a drag: the scene snaps the part to a grid point or puts it back.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        if not (self.is_dragging and event.button() == Qt.LeftButton):
+            self.drag_start_position = None
+            self.is_dragging = False
+            super().mouseReleaseEvent(event)
+            return
+
+        start_position = self.drag_start_position
+        self.drag_start_position = None
+        self.is_dragging = False
+        self.setZValue(COMPONENT_Z_VALUE)
+        event.accept()
+
+        scene = self.scene()
+
+        if scene is not None and hasattr(scene, "handle_component_drop"):
+            scene.handle_component_drop(self.component.reference, self.pos())
+        else:
+            self.setPos(start_position)
 
     def refresh_from_component(self):
         """

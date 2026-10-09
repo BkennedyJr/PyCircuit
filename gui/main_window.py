@@ -112,6 +112,12 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.component_selected.connect(
             self.handle_component_selection
         )
+        self.connection_grid_scene.component_moved.connect(
+            self.handle_component_moved
+        )
+        self.connection_grid_scene.component_move_refused.connect(
+            self.handle_component_move_refused
+        )
 
     def create_actions(self):
         """
@@ -700,6 +706,41 @@ class MainWindow(QMainWindow):
             f"Set {component.reference} to "
             f"{component.label_text().partition(' ')[2]}."
         )
+
+    def handle_component_moved(self, reference):
+        """
+        Report a part that was dragged to a new grid point.
+
+        :param reference: Part that moved.
+        :type reference: str
+        :returns: None
+        """
+        component = self.component_collection.get_component(reference)
+
+        if self.selected_component_reference == reference:
+            self.component_panel_widget.show_component(component)
+
+        self.reveal_component(reference)
+        self.mark_project_modified(
+            f"Moved {reference} to "
+            + ConnectionGrid.build_connection_point_identifier(
+                component.row_number,
+                component.column_number
+            )
+            + "."
+        )
+
+    def handle_component_move_refused(self, reference, reason):
+        """
+        Tell the user why a dragged part went back to where it was.
+
+        :param reference: Part that was dragged.
+        :type reference: str
+        :param reason: Message from the collection.
+        :type reason: str
+        :returns: None
+        """
+        self.statusBar().showMessage(f"Part not moved: {reason}", 10000)
 
     def delete_selected_component(self):
         """

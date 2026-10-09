@@ -835,8 +835,8 @@ class ComponentCollection:
     """
     All placed components of one project, keyed by reference designator.
 
-    The collection assigns references, refuses placements and rotations
-    that would put a pin outside the grid or hide another part (the same
+    The collection assigns references, refuses placements, rotations and
+    moves that would put a pin outside the grid or hide another part (the same
     pin points, any kind, or the same body centre), and removes parts that
     no longer fit after the grid shrinks. Parts may still share single
     pins: that is how they connect.
@@ -1129,6 +1129,85 @@ class ComponentCollection:
             ) from None
 
         return component.rotation
+
+    def move_component(self, reference, row_number, column_number,
+                       connection_grid):
+        """
+        Move a part's anchor to another grid point, keeping its rotation.
+
+        The move is checked like a placement: every pin must land on the
+        grid and the part must not hide another one (same pin points or
+        same body centre). Moving onto its own spot is allowed and changes
+        nothing.
+
+        :param reference: Reference of the part to move.
+        :type reference: str
+        :param row_number: New one-based anchor row.
+        :type row_number: int
+        :param column_number: New one-based anchor column.
+        :type column_number: int
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :returns: The moved component.
+        :rtype: Component
+        :raises ComponentError: If the part is unknown, the position is not
+            a valid grid point, a pin would leave the grid, or the part
+            would overlap another one. The part then stays where it was.
+        """
+        _validate_connection_grid(connection_grid)
+        component = self.get_component(reference)
+
+        # A drag can end beyond the grid edge: say so plainly instead of
+        # quoting the anchor range check.
+        if (_is_plain_integer(row_number) and
+                _is_plain_integer(column_number) and
+                not (1 <= row_number <= connection_grid.row_count and
+                     1 <= column_number <= connection_grid.column_count)):
+            raise ComponentError(
+                f"{reference} cannot be moved to row {row_number}, column "
+                f"{column_number}: that is outside the "
+                f"{connection_grid.row_count} x {connection_grid.column_count} "
+                "grid."
+            )
+
+        old_row_number = component.row_number
+        old_column_number = component.column_number
+
+        def put_back():
+            component.row_number = old_row_number
+            component.column_number = old_column_number
+
+        try:
+            component.row_number = row_number
+            component.column_number = column_number
+        except ComponentError as error:
+            put_back()
+            raise ComponentError(
+                f"{reference} cannot be moved there: {error}"
+            ) from None
+
+        target_text = (
+            f"{reference} cannot be moved to row {row_number}, column "
+            f"{column_number}"
+        )
+
+        if not component.pins_fit_grid(
+                connection_grid.row_count,
+                connection_grid.column_count):
+            put_back()
+            raise ComponentError(
+                f"{target_text}: a pin would fall outside the "
+                f"{connection_grid.row_count} x {connection_grid.column_count} "
+                "grid."
+            )
+
+        try:
+            self.ensure_no_overlap(component)
+        except ComponentError as error:
+            put_back()
+            raise ComponentError(f"{target_text}: {error}") from None
+
+        return component
 
     def set_component_value(self, reference, value_text, parameter_texts=None):
         """
