@@ -1,4 +1,28 @@
+# Python virtual environments
 venv/
-_pycache_/
+.venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+
+# Editors and IDEs
 .vscode/
+.idea/
+.spyproject/
+
+# Operating-system junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+._*
