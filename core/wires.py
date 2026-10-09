@@ -1,11 +1,16 @@
 """
 Wires between connection-grid points.
 
-A wire is one straight segment from grid point A to grid point B. It
-connects only its two end points; grid points it happens to pass over are
-not joined (parts sharing a point are already connected without a wire).
-Any two different points may be joined, including diagonally: the GUI
-draws the straight line between them.
+A wire is one straight segment from grid point A to grid point B along a
+row or a column. Like a breadboard strip it connects EVERY grid point it
+covers, ends and the points in between, so a part pin on any of them
+joins the wire (Billie's decision, Oct 9). Diagonal wires are refused:
+draw two straight wires that meet at a corner. Parts sharing a grid point
+are connected with or without a wire.
+
+Junction dots (find_junction_identifiers) mark the points where three or
+more connections meet, for example a wire passing a part pin mid-span or
+a wire ending on another wire.
 
 This module contains no PyQt5 imports, so the later net builder and the
 solver can use it directly.
@@ -70,6 +75,15 @@ class Wire:
             raise ComponentError(
                 f"A wire needs two different grid points; both ends are "
                 f"{self.start_identifier}."
+            )
+
+        if (self._start_point[0] != self._end_point[0] and
+                self._start_point[1] != self._end_point[1]):
+            raise ComponentError(
+                f"A wire from {self.start_identifier} to "
+                f"{self.end_identifier} would be diagonal. Wires run along "
+                "a row or a column: draw two straight wires that meet at a "
+                "corner."
             )
 
     @staticmethod
@@ -153,6 +167,43 @@ class Wire:
         """
         return frozenset((self._start_point, self._end_point))
 
+    def get_points(self):
+        """
+        Return every grid point the wire covers, from end A to end B.
+
+        :returns: (row, column) pairs, both ends included.
+        :rtype: tuple
+        """
+        (start_row, start_column) = self._start_point
+        (end_row, end_column) = self._end_point
+        step_count = abs(end_row - start_row) + abs(end_column - start_column)
+        row_step = (end_row > start_row) - (end_row < start_row)
+        column_step = (end_column > start_column) - (end_column < start_column)
+
+        return tuple(
+            (start_row + row_step * index, start_column + column_step * index)
+            for index in range(step_count + 1)
+        )
+
+    def get_point_identifiers(self):
+        """
+        Return the identifiers of every point the wire covers, A to B.
+
+        :rtype: tuple
+        """
+        return tuple(
+            ConnectionGrid.build_connection_point_identifier(row, column)
+            for row, column in self.get_points()
+        )
+
+    def get_inner_point_identifiers(self):
+        """
+        Return the covered points between the two ends (mid-span).
+
+        :rtype: tuple
+        """
+        return self.get_point_identifiers()[1:-1]
+
     def fits_grid(self, row_count, column_count):
         """
         Return whether both ends lie on a grid of the given size.
@@ -225,8 +276,8 @@ class WireCollection:
         :returns: The new wire.
         :rtype: Wire
         :raises ComponentError: If a point is not on the grid, both ends
-            are the same point, or a wire already joins the two points.
-            Nothing is stored then.
+            are the same point, the wire would be diagonal, or a wire
+            already joins the two points. Nothing is stored then.
         """
         _validate_connection_grid(connection_grid)
 
@@ -317,7 +368,7 @@ class WireCollection:
 
     def get_wires_at(self, identifier):
         """
-        Return the wires with an end on one grid point.
+        Return the wires that cover one grid point (at an end or mid-span).
 
         :param identifier: Connection-point identifier.
         :type identifier: str
@@ -325,7 +376,7 @@ class WireCollection:
         """
         return [
             wire for wire in self.get_wires()
-            if identifier in (wire.start_identifier, wire.end_identifier)
+            if identifier in wire.get_point_identifiers()
         ]
 
     def remove_wire(self, reference):
@@ -360,3 +411,55 @@ class WireCollection:
             del self.wires_by_reference[reference]
 
         return removed_references
+
+
+def find_junction_identifiers(wire_collection, pin_identifiers=()):
+    """
+    Return the grid points that need a junction dot.
+
+    Each wire end at a point counts 1, a wire passing over it mid-span
+    counts 2 (it leaves both ways) and each part pin on it counts 1. A
+    point on a wire with 3 or more gets a dot: a wire passing a pin or
+    meeting another wire mid-span (T or crossing), or three wire ends. A
+    plain corner (two ends) or a wire ending on a pin (2) gets none.
+
+    :param wire_collection: Wires of the project.
+    :type wire_collection: WireCollection
+    :param pin_identifiers: The point of every part pin, one entry per
+        pin (a point with two pins appears twice).
+    :type pin_identifiers: iterable of str
+    :returns: Identifiers, sorted.
+    :rtype: list
+    :raises ComponentError: If wire_collection is not a WireCollection or
+        a pin identifier is not a string.
+    """
+    if not isinstance(wire_collection, WireCollection):
+        raise ComponentError(
+            f"Expected a WireCollection, not "
+            f"{type(wire_collection).__name__}."
+        )
+
+    counts = {}
+    wired_points = set()
+
+    for wire in wire_collection.get_wires():
+        for identifier in (wire.start_identifier, wire.end_identifier):
+            counts[identifier] = counts.get(identifier, 0) + 1
+            wired_points.add(identifier)
+
+        for identifier in wire.get_inner_point_identifiers():
+            counts[identifier] = counts.get(identifier, 0) + 2
+            wired_points.add(identifier)
+
+    for identifier in pin_identifiers:
+        if not isinstance(identifier, str):
+            raise ComponentError(
+                f"Pin points must be identifiers such as NODE_R02_C03, not "
+                f"{identifier!r}."
+            )
+
+        counts[identifier] = counts.get(identifier, 0) + 1
+
+    return sorted(
+        identifier for identifier in wired_points if counts[identifier] >= 3
+    )

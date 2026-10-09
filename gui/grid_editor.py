@@ -28,13 +28,14 @@ from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
 from core.exceptions import ComponentError
+from core.wires import find_junction_identifiers
 from gui.component_item import (
     LABEL_PATCH_PADDING,
     LABEL_SIDES,
     ComponentItem,
     text_touches_a_grid_dot,
 )
-from gui.wire_item import WireItem, build_preview_pen
+from gui.wire_item import WIRE_COLOR, WireItem, build_preview_pen
 
 GRID_POINT_SPACING = 60
 GRID_ORIGIN_X = 90
@@ -53,6 +54,10 @@ SCENE_MARGIN = 20
 WIRE_SNAP_DISTANCE = 20
 # The rubber-band line draws above everything while a wire is drawn.
 WIRE_PREVIEW_Z_VALUE = 3
+# Junction dots (core.wires.find_junction_identifiers) sit on top of the
+# grid dot, in the wire color, below the parts.
+JUNCTION_DIAMETER = 14
+JUNCTION_Z_VALUE = 0.5
 
 
 def grid_point_to_scene_position(row_number, column_number):
@@ -196,6 +201,7 @@ class ConnectionGridScene(QGraphicsScene):
         self.component_items_by_reference = {}
         self.wire_collection = None
         self.wire_items_by_reference = {}
+        self.junction_items_by_identifier = {}
         self.column_header_items = []
         self.row_header_items = []
 
@@ -309,6 +315,7 @@ class ConnectionGridScene(QGraphicsScene):
         # wires and any rubber-band line.
         self.component_items_by_reference = {}
         self.wire_items_by_reference = {}
+        self.junction_items_by_identifier = {}
         self.wire_start_identifier = None
         self.wire_preview_item = None
         self.rebuild_wire_items()
@@ -359,6 +366,7 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.rebuild_junction_items()
         self.update_scene_extent()
 
     def refresh_component(self, reference):
@@ -384,6 +392,8 @@ class ConnectionGridScene(QGraphicsScene):
         # A turn or a longer value can change the best spot for the
         # neighbours' labels too, so lay out every label again.
         self.layout_component_labels()
+        # A moved or turned pin can start or stop meeting a wire.
+        self.rebuild_junction_items()
         self.update_scene_extent()
 
     def set_wire_collection(self, wire_collection):
@@ -418,6 +428,60 @@ class ConnectionGridScene(QGraphicsScene):
                 )
                 self.addItem(wire_item)
                 self.wire_items_by_reference[wire.reference] = wire_item
+
+        self.rebuild_junction_items()
+
+    def rebuild_junction_items(self):
+        """
+        Draw a junction dot wherever three or more connections meet.
+
+        Wires connect every point they cover (breadboard strips), so a dot
+        shows where a wire passes a part pin or meets another wire
+        mid-span. The dots ignore the mouse: a click reaches the grid
+        point underneath.
+
+        :returns: None
+        """
+        for junction_item in self.junction_items_by_identifier.values():
+            if (not sip.isdeleted(junction_item) and
+                    junction_item.scene() is self):
+                self.removeItem(junction_item)
+
+        self.junction_items_by_identifier = {}
+
+        if self.wire_collection is None:
+            return
+
+        pin_identifiers = []
+
+        if self.component_collection is not None:
+            for component in self.component_collection.get_components():
+                pin_identifiers.extend(component.get_pin_identifiers())
+
+        # Junctions are always on a wire, so the wires give their points.
+        point_by_identifier = {}
+
+        for wire in self.wire_collection.get_wires():
+            point_by_identifier.update(
+                zip(wire.get_point_identifiers(), wire.get_points())
+            )
+
+        for identifier in find_junction_identifiers(
+                self.wire_collection, pin_identifiers):
+            center = grid_point_to_scene_position(
+                *point_by_identifier[identifier]
+            )
+            radius = JUNCTION_DIAMETER / 2
+            junction_item = QGraphicsEllipseItem(
+                center.x() - radius, center.y() - radius,
+                JUNCTION_DIAMETER, JUNCTION_DIAMETER
+            )
+            junction_item.setBrush(QColor(WIRE_COLOR))
+            junction_item.setPen(QPen(Qt.NoPen))
+            junction_item.setZValue(JUNCTION_Z_VALUE)
+            junction_item.setAcceptedMouseButtons(Qt.NoButton)
+            self.addItem(junction_item)
+            self.junction_items_by_identifier[identifier] = junction_item
 
     def set_wire_mode(self, is_wire_mode):
         """
