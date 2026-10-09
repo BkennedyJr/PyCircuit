@@ -583,3 +583,104 @@ def test_set_component_value_keeps_the_frequency(collection, grid):
     source = collection.set_component_value("V1", "5")
 
     assert source.label_text() == "V1 5V 60Hz"
+
+
+# --- QC #11 issue 1: a symbol drawn over another part's body or pin ----------
+
+
+def assert_drawn_over_refused(collection, grid, other_reference, kind, row,
+                              column, rotation=0, value=""):
+    stored_before = [part.reference for part in collection.get_components()]
+
+    with pytest.raises(ComponentError) as error_info:
+        collection.add_component(kind, row, column, value, grid, rotation)
+
+    message = str(error_info.value)
+    assert message.startswith(other_reference)
+    assert "is already drawn there" in message
+    assert [part.reference for part in collection.get_components()] == (
+        stored_before
+    )
+
+
+def test_resistor_pin_on_a_transistor_centre_is_refused(collection, grid):
+    collection.add_component("npn", 4, 4, "2N3904", grid)
+
+    assert_drawn_over_refused(collection, grid, "Q1", "resistor", 4, 4)
+
+
+def test_resistor_turned_180_onto_a_transistor_centre_is_refused(
+        collection, grid):
+    collection.add_component("npn", 4, 4, "2N3904", grid)
+
+    # Pins (4,5) and (4,4): the second pin is on Q1's centre.
+    assert_drawn_over_refused(collection, grid, "Q1", "resistor", 4, 5, 180)
+
+
+def test_resistor_from_the_collector_into_the_centre_is_refused(
+        collection, grid):
+    collection.add_component("npn", 4, 4, "2N3904", grid)
+
+    # Pins (3,4) and (4,4), body at half point (3.5, 4): over Q1's body.
+    assert_drawn_over_refused(collection, grid, "Q1", "resistor", 3, 4, 90)
+
+
+def test_transistor_over_a_resistor_pin_is_refused(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid)
+
+    assert_drawn_over_refused(collection, grid, "R1", "npn", 4, 4,
+                              value="2N3904")
+
+
+def test_ground_bars_over_a_vertical_resistor_body_are_refused(
+        collection, grid):
+    # R1 runs (4,4) -> (5,4) with its body at (4.5, 4); ground at (4,4)
+    # draws its bars at (4.5, 4).
+    collection.add_component("resistor", 4, 4, "1k", grid, 90)
+
+    assert_drawn_over_refused(collection, grid, "R1", "ground", 4, 4)
+
+
+def test_transistor_over_ground_bars_is_refused(collection, grid):
+    # Ground at (4,4) covers (4.5, 4); an npn at (5,4) covers (4.5, 4)
+    # toward its collector.
+    collection.add_component("ground", 4, 4, "", grid)
+
+    assert_drawn_over_refused(collection, grid, "GND1", "npn", 5, 4,
+                              value="2N3904")
+
+
+def test_rotation_onto_ground_bars_is_refused(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid)
+    collection.add_component("ground", 4, 4, "", grid)
+
+    with pytest.raises(ComponentError) as error_info:
+        collection.rotate_component("R1", grid)
+
+    assert str(error_info.value).startswith(
+        "R1 cannot be rotated to 90 deg: GND1 (Ground) is already drawn there"
+    )
+    assert collection.get_component("R1").rotation == 0
+
+
+@pytest.mark.parametrize("first, second", [
+    (("resistor", 4, 4, "1k", 90), ("ground", 5, 4, "", 0)),
+    (("resistor", 4, 4, "1k", 0), ("ground", 4, 4, "", 0)),
+    (("resistor", 4, 4, "1k", 0), ("ground", 4, 5, "", 0)),
+    (("resistor", 4, 2, "1k", 0), ("npn", 4, 4, "2N3904", 0)),
+    (("dc_source", 4, 4, "5", 0), ("npn", 4, 6, "2N3904", 0)),
+])
+def test_neighbours_that_only_share_pins_are_allowed(collection, grid, first,
+                                                     second):
+    for kind, row, column, value, rotation in (first, second):
+        collection.add_component(kind, row, column, value, grid, rotation)
+
+    assert len(collection.get_components()) == 2
+
+
+def test_three_parts_fanning_out_of_one_anchor_are_allowed(collection, grid):
+    collection.add_component("resistor", 4, 4, "1k", grid, 0)
+    collection.add_component("capacitor", 4, 4, "100n", grid, 90)
+    collection.add_component("diode", 4, 4, "1N4148", grid, 180)
+
+    assert len(collection.get_components()) == 3

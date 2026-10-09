@@ -24,6 +24,14 @@ kind and a default, and ``shown_in_panel`` says whether the GUI offers it
 (the AC source's offset and phase are kept for the later SPICE SIN source
 but have no field yet). ``value_unit`` is appended to the value in the
 label ("V1 9V"), and ``value_label`` names the value field in the panel.
+
+``covered_half_steps`` lists, in the same half-step units, the points a
+body covers that are not pins: a two-pin body covers its centre; a
+transistor covers its anchor and the half points toward its three pins;
+ground's bars cover the half point below its pin. Two parts may share pins
+(that is how they connect), but a part is refused when its covered points
+meet another part's covered points or pins, or its pins meet another
+part's covered points: one symbol would be drawn over the other.
 """
 
 import copy
@@ -50,6 +58,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "R",
         "pins": [("1", 0, 0), ("2", 1, 0)],
         "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
         "value_kind": "positive",
         "default_value_text": "1k",
     },
@@ -58,6 +67,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "C",
         "pins": [("1", 0, 0), ("2", 1, 0)],
         "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
         "value_kind": "positive",
         "default_value_text": "100n",
     },
@@ -66,6 +76,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "C",
         "pins": [("plus", 0, 0), ("minus", 1, 0)],
         "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
         "value_kind": "positive",
         "default_value_text": "10u",
     },
@@ -74,6 +85,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "L",
         "pins": [("1", 0, 0), ("2", 1, 0)],
         "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
         "value_kind": "positive",
         "default_value_text": "10u",
     },
@@ -82,6 +94,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "V",
         "pins": [("plus", 0, 0), ("minus", 0, 1)],
         "body_center_half_steps": (0, 1),
+        "covered_half_steps": [(0, 1)],
         "value_kind": "any",
         "default_value_text": "5",
         "value_label": "Voltage",
@@ -92,6 +105,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "V",
         "pins": [("plus", 0, 0), ("minus", 0, 1)],
         "body_center_half_steps": (0, 1),
+        "covered_half_steps": [(0, 1)],
         "value_kind": "any",
         "default_value_text": "1",
         "value_label": "Amplitude",
@@ -131,6 +145,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "D",
         "pins": [("anode", 0, 0), ("cathode", 1, 0)],
         "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
         "value_kind": "model",
         "default_value_text": "1N4148",
     },
@@ -139,6 +154,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "D",
         "pins": [("anode", 0, 0), ("cathode", 1, 0)],
         "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
         "value_kind": "model",
         "default_value_text": "LED_RED",
     },
@@ -147,6 +163,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "Q",
         "pins": [("base", -1, 0), ("collector", 0, -1), ("emitter", 0, 1)],
         "body_center_half_steps": (0, 0),
+        "covered_half_steps": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "value_kind": "model",
         "default_value_text": "2N3904",
     },
@@ -155,6 +172,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "Q",
         "pins": [("base", -1, 0), ("emitter", 0, -1), ("collector", 0, 1)],
         "body_center_half_steps": (0, 0),
+        "covered_half_steps": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "value_kind": "model",
         "default_value_text": "2N3906",
     },
@@ -163,6 +181,7 @@ COMPONENT_DEFINITIONS = {
         "prefix": "GND",
         "pins": [("gnd", 0, 0)],
         "body_center_half_steps": (0, 0),
+        "covered_half_steps": [(0, 1)],
         "value_kind": "none",
         "default_value_text": "",
     },
@@ -721,6 +740,45 @@ class Component:
 
         return (rotated_dx / 2, rotated_dy / 2)
 
+    def get_covered_half_points(self):
+        """
+        Return the points this part's body covers, in doubled grid units.
+
+        Doubled units make half points whole numbers: grid point (row,
+        column) is (2 * row, 2 * column), and a body halfway between R2 C2
+        and R2 C3 covers (4, 5).
+
+        :returns: Set of (doubled_row, doubled_column).
+        :rtype: set
+        """
+        covered_points = set()
+
+        for half_dx, half_dy in COMPONENT_DEFINITIONS[self.kind][
+                "covered_half_steps"]:
+            rotated_dx, rotated_dy = rotate_offset(
+                half_dx, half_dy, self.rotation
+            )
+            covered_points.add((
+                2 * self.row_number + rotated_dy,
+                2 * self.column_number + rotated_dx
+            ))
+
+        return covered_points
+
+    def get_pin_half_points(self):
+        """
+        Return the pins' grid points in doubled grid units (see
+        get_covered_half_points).
+
+        :returns: Set of (2 * row, 2 * column).
+        :rtype: set
+        """
+        return {
+            (2 * row_number, 2 * column_number)
+            for _pin_name, row_number, column_number in
+            self.get_pin_positions()
+        }
+
     def get_body_center_position(self):
         """
         Return the body centre as a (row, column) grid position.
@@ -837,9 +895,10 @@ class ComponentCollection:
 
     The collection assigns references, refuses placements and rotations
     that would put a pin outside the grid or hide another part (the same
-    pin points, any kind, or the same body centre), and removes parts that
-    no longer fit after the grid shrinks. Parts may still share single
-    pins: that is how they connect.
+    pin points, any kind; the same body centre; or a body drawn over
+    another part's body or pin), and removes parts that no longer fit after
+    the grid shrinks. Parts may still share single pins: that is how they
+    connect.
     """
 
     def __init__(self):
@@ -972,15 +1031,54 @@ class ComponentCollection:
 
         return None
 
+    def find_component_drawn_over(self, component):
+        """
+        Return a stored part whose symbol this part's symbol would cover.
+
+        That is a part whose covered points meet this part's covered
+        points or pins, or whose pins meet this part's covered points (all
+        in the doubled units of Component.get_covered_half_points). Shared
+        pins alone do not count.
+
+        :param component: Part to compare; it is skipped if it is stored.
+        :type component: Component
+        :returns: The first such part by reference, or None.
+        :rtype: Component or None
+        """
+        covered_points = component.get_covered_half_points()
+        pin_points = component.get_pin_half_points()
+
+        for existing_component in self.get_components():
+            if existing_component is component:
+                continue
+
+            existing_covered_points = (
+                existing_component.get_covered_half_points()
+            )
+
+            if (covered_points & existing_covered_points or
+                    pin_points & existing_covered_points or
+                    covered_points &
+                    existing_component.get_pin_half_points()):
+                return existing_component
+
+        return None
+
     def ensure_no_overlap(self, component):
         """
         Raise a clear error when a part would hide another one.
+
+        Three checks, in order: the same pin points as another part (any
+        kind, either order); the same body centre; and a body drawn over
+        another part's body or pin, or a pin under another part's body
+        (find_component_drawn_over). Sharing single pins is allowed.
 
         :param component: Part being placed, rotated or moved.
         :type component: Component
         :returns: None
         :raises ComponentError: If another part has the same pin points,
-            or the same body centre.
+            the same body centre, or would be drawn over by this part (or
+            draw over it).
         """
         existing_component = self.find_component_with_same_pins(component)
 
@@ -1014,6 +1112,19 @@ class ComponentCollection:
                 f"{existing_component.reference} ({existing_display_name}) "
                 f"already has its centre at row {center_row:g}, column "
                 f"{center_column:g}. Pick another grid point, or select "
+                f"{existing_component.reference} to edit it."
+            )
+
+        existing_component = self.find_component_drawn_over(component)
+
+        if existing_component is not None:
+            existing_display_name = COMPONENT_DEFINITIONS[
+                existing_component.kind
+            ]["display_name"]
+            raise ComponentError(
+                f"{existing_component.reference} ({existing_display_name}) "
+                "is already drawn there, so one symbol would hide the other. "
+                "Pick another grid point or rotation, or select "
                 f"{existing_component.reference} to edit it."
             )
 
