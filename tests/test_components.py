@@ -479,7 +479,9 @@ def test_ac_source_setting_definitions_are_exact():
 
 def test_source_value_labels_and_units():
     assert COMPONENT_DEFINITIONS["dc_source"]["value_label"] == "Voltage"
-    assert COMPONENT_DEFINITIONS["ac_source"]["value_label"] == "Amplitude"
+    assert COMPONENT_DEFINITIONS["ac_source"]["value_label"] == (
+        "Peak amplitude"
+    )
     assert COMPONENT_DEFINITIONS["dc_source"]["value_unit"] == "V"
     assert COMPONENT_DEFINITIONS["ac_source"]["value_unit"] == "V"
 
@@ -527,6 +529,35 @@ def test_empty_frequency_means_the_default():
     )
 
     assert source.parameter_texts["frequency"] == "1k"
+
+
+@pytest.mark.parametrize("empty_text", ["", "  "])
+def test_clearing_a_setting_when_editing_is_an_error(empty_text):
+    # QC #12 item 1: a stray select-all + Enter must not reset 60 Hz to 1k.
+    source = Component(
+        "ac_source", "V1", "1", 4, 4, parameter_texts={"frequency": "60"}
+    )
+
+    with pytest.raises(
+        ComponentError,
+        match=r"^AC voltage source frequency is empty\. Enter a number "
+              r"such as 50 or 1k\.$"
+    ):
+        source.set_values("2", {"frequency": empty_text})
+
+    assert source.value_text == "1"
+    assert source.parameter_texts["frequency"] == "60"
+    assert source.parameter_values["frequency"] == 60.0
+
+
+def test_settings_not_given_when_editing_keep_their_text():
+    source = Component(
+        "ac_source", "V1", "1", 4, 4, parameter_texts={"frequency": "60"}
+    )
+
+    source.set_values("2", {})
+
+    assert source.parameter_texts["frequency"] == "60"
 
 
 @pytest.mark.parametrize("parameter_texts, message", [

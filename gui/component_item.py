@@ -476,7 +476,9 @@ class ComponentItem(QGraphicsItem):
             self.grid_spacing, self.grid_spacing
         )
 
-        stroke_path, fill_path = build_symbol_paths(component.kind)
+        stroke_path, fill_path = build_symbol_paths(
+            component.kind, component.rotation
+        )
         body_path = QPainterPath()
         body_path.addRect(get_body_rect(component.kind))
 

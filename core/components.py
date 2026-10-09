@@ -108,7 +108,7 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(0, 1)],
         "value_kind": "any",
         "default_value_text": "1",
-        "value_label": "Amplitude",
+        "value_label": "Peak amplitude",
         "value_unit": "V",
         # Sine source: amplitude is the main value. Offset and phase are
         # ready for the SPICE SIN(offset amplitude frequency 0 0 phase)
@@ -447,8 +447,16 @@ def validate_parameter_texts(kind, parameter_texts, current_texts=None):
 
         clean_text = value_text.strip()
 
-        # An empty box means "use the default", like the main value.
+        # For a new part an empty box means "use the default", like the
+        # main value. When editing, an empty box is an error, so a stray
+        # select-all + Enter cannot silently reset the setting.
         if not clean_text:
+            if current_texts is not None and name in parameter_texts:
+                raise ComponentError(
+                    f"{display_name} {parameter['display_name'].lower()} is "
+                    "empty. Enter a number such as 50 or 1k."
+                )
+
             clean_text = parameter["default_value_text"]
 
         try:

@@ -801,7 +801,8 @@ class MainWindow(QMainWindow):
             self.show_error_message(
                 "Part Value Not Changed",
                 str(error),
-                "Enter a value such as 4k7, 100n or 10u."
+                "Enter a number with an optional prefix, for example 4k7, "
+                "100n, 50 or 1k."
             )
             # Put the unchanged value back in the box.
             self.component_panel_widget.show_component(component)

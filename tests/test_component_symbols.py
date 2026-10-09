@@ -9,7 +9,7 @@ import math
 
 import pytest
 from PyQt5.QtCore import QPointF, QRectF
-from PyQt5.QtGui import QPainterPath
+from PyQt5.QtGui import QPainterPath, QTransform
 
 from core.components import COMPONENT_DEFINITIONS
 from core.exceptions import ComponentError
@@ -243,6 +243,65 @@ def test_ac_source_has_a_circle_and_one_sine_period():
     segments = straight_segments(stroke_path)
     assert ((0.0, 0.0), (0.0, 0.2)) in segments
     assert ((0.0, 0.8), (0.0, 1.0)) in segments
+
+
+def sine_points_on_screen(rotation):
+    """
+    Return the AC sine points after the item's rotation, relative to the
+    rotated body centre, as the user sees them.
+    """
+    stroke_path = build_symbol_paths("ac_source", rotation)[0]
+    sine = [
+        polygon for polygon in stroke_path.toSubpathPolygons()
+        if polygon.count() == 25
+    ]
+    assert len(sine) == 1
+    to_screen = QTransform().rotate(rotation)
+    centre = to_screen.map(QPointF(0.0, 0.5))
+    return [to_screen.map(point) - centre for point in sine[0]]
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_ac_sine_stays_upright_at_every_rotation(rotation):
+    # Billie's call on QC #12 item 4: the sine always reads as a sine.
+    upright = sine_points_on_screen(0)
+    points = sine_points_on_screen(rotation)
+
+    for drawn, expected in zip(points, upright):
+        assert (drawn.x(), drawn.y()) == pytest.approx(
+            (expected.x(), expected.y()), abs=1e-9
+        )
+
+    # Horizontal from left to right, first half-wave up (y is down).
+    assert (points[0].x(), points[0].y()) == pytest.approx((-0.18, 0.0))
+    assert (points[-1].x(), points[-1].y()) == pytest.approx((0.18, 0.0))
+    assert (points[6].x(), points[6].y()) == pytest.approx((-0.09, -0.1))
+
+
+@pytest.mark.parametrize("rotation", [90, 270])
+def test_ac_circle_and_leads_still_turn_with_the_part(rotation):
+    stroke_path = build_symbol_paths("ac_source", rotation)[0]
+    segments = straight_segments(stroke_path)
+
+    assert ((0.0, 0.0), (0.0, 0.2)) in segments
+    assert ((0.0, 0.8), (0.0, 1.0)) in segments
+
+
+@pytest.mark.parametrize("kind", ["resistor", "dc_source", "npn"])
+def test_rotation_does_not_change_other_symbols(kind):
+    for rotation in (90, 180, 270):
+        assert build_symbol_paths(kind, rotation)[0] == (
+            build_symbol_paths(kind)[0]
+        )
+
+
+@pytest.mark.parametrize("rotation", [45, -90, 360, "90", 90.0, True, None])
+def test_symbol_rotation_must_be_a_quarter_turn(rotation):
+    with pytest.raises(
+        ComponentError,
+        match=r"^Symbol rotation must be 0, 90, 180 or 270, not "
+    ):
+        build_symbol_paths("ac_source", rotation)
 
 
 @pytest.mark.parametrize("kind", ["diode", "led"])
