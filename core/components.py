@@ -312,20 +312,46 @@ class Component:
         component_definition = _lookup_component_definition(kind)
 
         self.validate_reference(reference, component_definition)
-        self.validate_anchor_number(row_number, "Row")
-        self.validate_anchor_number(column_number, "Column")
-
         clean_text, value = validate_value_text(kind, value_text)
 
         self.kind = kind
         self.reference = reference
         self.value_text = clean_text
         self.value = value
+
+        # These properties validate on every assignment, so a placed part
+        # can never be moved or turned to an invalid position later.
         self.row_number = row_number
         self.column_number = column_number
-
-        # The rotation property validates on every assignment.
         self.rotation = rotation
+
+    @property
+    def row_number(self):
+        """
+        One-based grid row of the anchor point.
+
+        :rtype: int
+        """
+        return self._row_number
+
+    @row_number.setter
+    def row_number(self, row_number):
+        self.validate_anchor_number(row_number, "Row")
+        self._row_number = row_number
+
+    @property
+    def column_number(self):
+        """
+        One-based grid column of the anchor point.
+
+        :rtype: int
+        """
+        return self._column_number
+
+    @column_number.setter
+    def column_number(self, column_number):
+        self.validate_anchor_number(column_number, "Column")
+        self._column_number = column_number
 
     @property
     def rotation(self):
@@ -339,6 +365,22 @@ class Component:
     @rotation.setter
     def rotation(self, rotation):
         self._rotation = validate_rotation(rotation)
+
+    def set_value_text(self, value_text):
+        """
+        Validate and store a new value, keeping value_text and value in step.
+
+        :param value_text: New user-entered value text.
+        :type value_text: str
+        :returns: None
+        :raises ComponentError: If the value is invalid. The old value_text
+            and value are then left unchanged.
+        """
+        # Validate first so a failure cannot leave a half-updated pair.
+        clean_text, value = validate_value_text(self.kind, value_text)
+
+        self.value_text = clean_text
+        self.value = value
 
     @staticmethod
     def validate_reference(reference, component_definition):
@@ -459,3 +501,264 @@ class Component:
             return ""
 
         return f"{self.reference} {self.value_text}"
+
+
+def _reference_sort_key(reference):
+    """
+    Sort key that orders references naturally: R2 before R10.
+
+    :param reference: Reference designator such as "R10" or "GND1".
+    :type reference: str
+    :returns: (prefix, number) tuple.
+    :rtype: tuple
+    """
+    prefix = reference.rstrip("0123456789")
+
+    return (prefix, int(reference[len(prefix):]))
+
+
+def _validate_connection_grid(connection_grid):
+    """
+    Confirm that a ConnectionGrid was supplied.
+
+    :param connection_grid: Grid to check.
+    :type connection_grid: ConnectionGrid
+    :returns: None
+    :raises ComponentError: If the argument is not a ConnectionGrid.
+    """
+    if not isinstance(connection_grid, ConnectionGrid):
+        raise ComponentError(
+            f"Expected a ConnectionGrid, not {type(connection_grid).__name__}."
+        )
+
+
+class ComponentCollection:
+    """
+    All placed components of one project, keyed by reference designator.
+
+    The collection assigns references, refuses placements and rotations
+    that would put a pin outside the grid, and removes parts that no longer
+    fit after the grid shrinks.
+    """
+
+    def __init__(self):
+        self.components_by_reference = {}
+
+    def next_reference(self, kind):
+        """
+        Return the lowest unused reference for a kind, such as "R1".
+
+        Diodes and LEDs share the "D" prefix, so they share numbering.
+
+        :param kind: Component kind.
+        :type kind: str
+        :returns: Unused reference designator.
+        :rtype: str
+        :raises ComponentError: If the kind is unknown.
+        """
+        prefix = _lookup_component_definition(kind)["prefix"]
+        reference_number = 1
+
+        while f"{prefix}{reference_number}" in self.components_by_reference:
+            reference_number += 1
+
+        return f"{prefix}{reference_number}"
+
+    def add_component(
+            self,
+            kind,
+            row_number,
+            column_number,
+            value_text,
+            connection_grid,
+            rotation=0):
+        """
+        Create, validate, and store a new component.
+
+        :param kind: Component kind.
+        :type kind: str
+        :param row_number: One-based anchor row.
+        :type row_number: int
+        :param column_number: One-based anchor column.
+        :type column_number: int
+        :param value_text: Value text; empty text means the kind's default.
+        :type value_text: str
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :param rotation: Rotation in degrees.
+        :type rotation: int
+        :returns: The new component.
+        :rtype: Component
+        :raises ComponentError: If any argument is invalid or a pin would
+            fall outside the grid.
+        """
+        _validate_connection_grid(connection_grid)
+        component_definition = _lookup_component_definition(kind)
+
+        # Empty text means "use the default", for example "1k".
+        if isinstance(value_text, str) and not value_text.strip():
+            value_text = component_definition["default_value_text"]
+
+        component = Component(
+            kind,
+            self.next_reference(kind),
+            value_text,
+            row_number,
+            column_number,
+            rotation
+        )
+
+        self.ensure_pins_fit_grid(component, connection_grid)
+
+        self.components_by_reference[component.reference] = component
+
+        return component
+
+    @staticmethod
+    def ensure_pins_fit_grid(component, connection_grid):
+        """
+        Raise a clear error when a component has a pin off the grid.
+
+        :param component: Component to check.
+        :type component: Component
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :returns: None
+        :raises ComponentError: If any pin lies outside the grid.
+        """
+        if component.pins_fit_grid(
+                connection_grid.row_count,
+                connection_grid.column_count):
+            return
+
+        raise ComponentError(
+            f"{component.reference} does not fit at row "
+            f"{component.row_number}, column {component.column_number}: a "
+            f"pin would fall outside the {connection_grid.row_count} x "
+            f"{connection_grid.column_count} grid. Choose a point further "
+            "inside the grid."
+        )
+
+    def get_component(self, reference):
+        """
+        Return a component by reference designator.
+
+        :param reference: Reference such as "R1".
+        :type reference: str
+        :returns: The component.
+        :rtype: Component
+        :raises ComponentError: If no component has that reference.
+        """
+        if (not isinstance(reference, str) or
+                reference not in self.components_by_reference):
+            raise ComponentError(
+                f"There is no part called {reference!r}."
+            )
+
+        return self.components_by_reference[reference]
+
+    def get_components(self):
+        """
+        Return all components ordered by reference (R2 before R10).
+
+        :returns: Components sorted by reference.
+        :rtype: list
+        """
+        return [
+            self.components_by_reference[reference]
+            for reference in sorted(
+                self.components_by_reference,
+                key=_reference_sort_key
+            )
+        ]
+
+    def rotate_component(self, reference, connection_grid):
+        """
+        Rotate a component 90 degrees clockwise if it still fits the grid.
+
+        :param reference: Reference of the part to rotate.
+        :type reference: str
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :returns: The new rotation in degrees.
+        :rtype: int
+        :raises ComponentError: If the part is unknown or a rotated pin
+            would leave the grid. The old rotation is then kept.
+        """
+        _validate_connection_grid(connection_grid)
+        component = self.get_component(reference)
+
+        old_rotation = component.rotation
+        component.rotation = (old_rotation + 90) % 360
+
+        try:
+            self.ensure_pins_fit_grid(component, connection_grid)
+        except ComponentError:
+            # Undo the turn so the part stays exactly where it was.
+            component.rotation = old_rotation
+            raise ComponentError(
+                f"{reference} cannot be rotated here: a pin would fall "
+                f"outside the {connection_grid.row_count} x "
+                f"{connection_grid.column_count} grid. Move it further "
+                "inside the grid first."
+            ) from None
+
+        return component.rotation
+
+    def set_component_value(self, reference, value_text):
+        """
+        Change a component's value.
+
+        :param reference: Reference of the part.
+        :type reference: str
+        :param value_text: New value text.
+        :type value_text: str
+        :returns: The updated component.
+        :rtype: Component
+        :raises ComponentError: If the part is unknown or the value is
+            invalid. The old value is then kept.
+        """
+        component = self.get_component(reference)
+        component.set_value_text(value_text)
+
+        return component
+
+    def remove_component(self, reference):
+        """
+        Remove a component.
+
+        :param reference: Reference of the part to remove.
+        :type reference: str
+        :returns: None
+        :raises ComponentError: If the part is unknown.
+        """
+        self.get_component(reference)
+        del self.components_by_reference[reference]
+
+    def remove_components_outside_grid(self, connection_grid):
+        """
+        Remove every component with a pin outside the grid.
+
+        Used after the grid shrinks, like signal pickoffs in
+        ConnectionGrid.configure.
+
+        :param connection_grid: Grid after resizing.
+        :type connection_grid: ConnectionGrid
+        :returns: References of the removed parts, sorted (R2 before R10).
+        :rtype: list
+        """
+        _validate_connection_grid(connection_grid)
+
+        removed_references = [
+            component.reference
+            for component in self.get_components()
+            if not component.pins_fit_grid(
+                connection_grid.row_count,
+                connection_grid.column_count
+            )
+        ]
+
+        for reference in removed_references:
+            del self.components_by_reference[reference]
+
+        return removed_references
