@@ -256,6 +256,27 @@ def test_ground_tool_tip_has_no_value_line():
     assert "gnd: NODE_R04_C04" in tool_tip
 
 
+def test_refresh_repaints_the_item_in_the_scene(qt_application):
+    # update() was removed after prepareGeometryChange(); check the scene
+    # still gets a repaint of the changed area.
+    scene = QGraphicsScene()
+    item = make_item("resistor", 0)
+    scene.addItem(item)
+    qt_application.processEvents()
+
+    changed_regions = []
+    scene.changed.connect(changed_regions.extend)
+    item.component.rotation = 90
+    item.refresh_from_component()
+    qt_application.processEvents()
+
+    repainted = QRectF()
+    for region in changed_regions:
+        repainted = repainted.united(region)
+
+    assert repainted.contains(item.mapRectToScene(item.boundingRect()))
+
+
 def test_refresh_picks_up_value_and_rotation_changes():
     item = make_item("resistor", 0, "1k")
     item.component.set_value_text("2k2")
@@ -274,7 +295,10 @@ def test_non_component_raises_component_error(component):
         ComponentItem(component, SPACING)
 
 
-@pytest.mark.parametrize("spacing", [0, -60, True, "60", None, float("nan")])
+@pytest.mark.parametrize(
+    "spacing",
+    [0, -60, True, "60", None, float("nan"), float("inf"), float("-inf")]
+)
 def test_bad_grid_spacing_raises_component_error(spacing):
     component = Component("resistor", "R1", "1k", 4, 4, 0)
 

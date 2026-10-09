@@ -16,6 +16,8 @@ This module must not import gui.grid_editor (the scene will import this
 module). The scene sets the item position.
 """
 
+import math
+
 from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QPainterPath, QPen, QTransform
 from PyQt5.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
@@ -88,11 +90,13 @@ def _validate_grid_spacing(grid_spacing):
     :param grid_spacing: Pixels between neighboring grid points.
     :type grid_spacing: int or float
     :returns: None
-    :raises ComponentError: If the spacing is not a positive number.
+    :raises ComponentError: If the spacing is not a positive, finite
+        number (inf would make every path and rect infinite or NaN).
     """
     if (isinstance(grid_spacing, bool) or
             not isinstance(grid_spacing, (int, float)) or
-            not grid_spacing > 0):
+            not math.isfinite(grid_spacing) or
+            grid_spacing <= 0):
         raise ComponentError(
             f"Grid spacing must be a positive number of pixels, "
             f"not {grid_spacing!r}."
@@ -239,9 +243,9 @@ class ComponentItem(QGraphicsItem):
             )
         )
 
+        # prepareGeometryChange() above already schedules the repaint.
         self.refresh_label()
         self.setToolTip(self.build_tool_tip())
-        self.update()
 
     def refresh_label(self):
         """
