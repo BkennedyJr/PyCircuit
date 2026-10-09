@@ -477,7 +477,7 @@ class WireNets:
         self._parent_by_point = {}
 
         for wire in wire_collection.get_wires():
-            identifiers = wire.get_point_identifiers()
+            identifiers = wire.get_joined_identifiers()
 
             for first, second in itertools.pairwise(identifiers):
                 self._union(first, second)
