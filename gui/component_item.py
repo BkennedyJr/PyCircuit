@@ -70,6 +70,11 @@ LABEL_PATCH_PADDING = 2
 COMPONENT_Z_VALUE = 1
 # A part being dragged draws above the others.
 DRAGGED_COMPONENT_Z_VALUE = 2
+# A part waiting to be placed (a "ghost", make_pending): see-through,
+# above everything, green where it may go and red where it may not.
+PENDING_OPACITY = 0.6
+PENDING_Z_VALUE = 3
+PENDING_ALLOWED_COLOR = "#3ddc84"
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -390,6 +395,9 @@ class ComponentItem(QGraphicsItem):
         self.is_dragging = False
         # True while a drag hovers a spot where the drop would be refused.
         self.is_drop_refused = False
+        # For a ghost (make_pending): True where it may be placed, False
+        # where not. None for a placed part.
+        self.pending_allowed = None
 
         self.refresh_from_component()
 
@@ -459,6 +467,28 @@ class ComponentItem(QGraphicsItem):
         if is_drop_refused != self.is_drop_refused:
             self.is_drop_refused = is_drop_refused
             self.update()
+
+    def make_pending(self, is_allowed):
+        """
+        Show this item as a part waiting to be placed (a ghost).
+
+        The ghost is see-through, drawn above every part, has no label or
+        tooltip and takes no clicks or selection, so a click goes to the
+        grid point under it. It is drawn green where the part may be
+        placed and red where it would be refused.
+
+        :param is_allowed: True if the part may be placed here.
+        :type is_allowed: bool
+        :returns: None
+        """
+        self.setOpacity(PENDING_OPACITY)
+        self.setZValue(PENDING_Z_VALUE)
+        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setFlag(self.ItemIsSelectable, False)
+        self.setToolTip("")
+        self.label_item.setVisible(False)
+        self.pending_allowed = bool(is_allowed)
+        self.update()
 
     def cancel_drag(self):
         """
@@ -875,7 +905,12 @@ class ComponentItem(QGraphicsItem):
 
         painter.fillPath(self.body_path, QColor(BACKGROUND_COLOR))
 
-        if self.is_drop_refused:
+        if self.pending_allowed is not None:
+            color = QColor(
+                PENDING_ALLOWED_COLOR if self.pending_allowed
+                else REFUSED_DROP_COLOR
+            )
+        elif self.is_drop_refused:
             color = QColor(REFUSED_DROP_COLOR)
         elif self.isSelected():
             color = QColor(SELECTED_COLOR)

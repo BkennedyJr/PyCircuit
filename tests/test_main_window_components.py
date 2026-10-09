@@ -157,6 +157,13 @@ def test_place_ground_reports_its_reference(window):
     )
 
 
+def press_enter_on_the_grid(window):
+    # Place shows a ghost first; Enter on the grid view places it.
+    from PyQt5.QtTest import QTest
+
+    QTest.keyClick(window.connection_grid_view, Qt.Key_Return)
+
+
 def test_place_through_the_panel_button(window):
     select_point(window, "NODE_R03_C03")
     panel(window).kind_combo_box.setCurrentIndex(
@@ -164,6 +171,8 @@ def test_place_through_the_panel_button(window):
     )
     panel(window).value_line_edit.setText("red")
     panel(window).place_button.click()
+    assert window.component_collection.get_components() == []
+    press_enter_on_the_grid(window)
     component = window.component_collection.get_component("D1")
     assert component.kind == "led"
     assert window.selected_component_reference == "D1"
@@ -541,8 +550,12 @@ def test_enter_twice_in_the_value_box_places_once(window):
     select_point(window, "NODE_R04_C04")
     line_edit = panel(window).value_line_edit
     line_edit.setText("1k")
+    # Enter in the value box is Place: it shows (and refreshes) the ghost.
     QTest.keyClick(line_edit, Qt.Key_Return)
     QTest.keyClick(line_edit, Qt.Key_Return)
+    assert references(window) == []
+    press_enter_on_the_grid(window)
+    press_enter_on_the_grid(window)
     assert references(window) == ["R1"]
 
 
@@ -654,6 +667,7 @@ def test_placing_from_the_panel_moves_focus_to_the_grid(window):
     panel(window).place_button.click()
     QApplication.processEvents()
     assert QApplication.focusWidget() is window.connection_grid_view
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key_Return)
     QTest.keyClick(QApplication.focusWidget(), Qt.Key_R)
     assert window.component_collection.get_component("R1").rotation == 90
 
@@ -777,11 +791,13 @@ def test_place_dc_and_ac_sources_from_the_panel(window):
     combo.setCurrentIndex(combo.findData("dc_source"))
     panel(window).value_line_edit.setText("9")
     panel(window).place_button.click()
+    press_enter_on_the_grid(window)
 
     select_point(window, "NODE_R02_C04")
     combo.setCurrentIndex(combo.findData("ac_source"))
     panel(window).parameter_line_edits["frequency"].setText("50")
     panel(window).place_button.click()
+    press_enter_on_the_grid(window)
 
     assert item(window, "V1").label_item.text() == "V1 9V"
     assert item(window, "V2").label_item.text() == "V2 1V 50Hz"

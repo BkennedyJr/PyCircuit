@@ -28,7 +28,9 @@ from PyQt5.QtWidgets import QGraphicsScene
 from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
+from core.components import COMPONENT_DEFINITIONS
 from core.exceptions import ComponentError
+from core.placement import PendingPlacement
 from core.wires import WireNets
 from core.wires import find_junction_identifiers
 from gui.component_item import (
@@ -65,6 +67,21 @@ MAXIMUM_ZOOM = 8.0
 ZOOM_TOLERANCE = 1e-6
 # Junction dots (core.wires.find_junction_identifiers) sit on top of the
 # grid dot, in the wire color, below the parts.
+# While a part waits to be placed, these keys turn it (arrows and
+# W/A/S/D, Billie Oct 9 12:07-12:08), Enter or Return places it and Esc
+# cancels it. Keypad arrows and Enter count too; other modifiers do not.
+PENDING_DIRECTION_BY_KEY = {
+    Qt.Key_Right: "right",
+    Qt.Key_D: "right",
+    Qt.Key_Down: "down",
+    Qt.Key_S: "down",
+    Qt.Key_Left: "left",
+    Qt.Key_A: "left",
+    Qt.Key_Up: "up",
+    Qt.Key_W: "up",
+}
+PENDING_COMMIT_KEYS = (Qt.Key_Return, Qt.Key_Enter)
+
 JUNCTION_DIAMETER = 14
 JUNCTION_Z_VALUE = 0.5
 
@@ -200,6 +217,14 @@ class ConnectionGridScene(QGraphicsScene):
     wire_added = pyqtSignal(str)
     wire_refused = pyqtSignal(str)
     wires_selected = pyqtSignal(object)
+    # A part waiting to be placed (core.placement.PendingPlacement):
+    # status text after each change, the reference once placed, the
+    # refusal message when Enter or a right-click is refused (it stays
+    # pending), and Esc.
+    pending_placement_changed = pyqtSignal(str)
+    pending_placement_committed = pyqtSignal(str)
+    pending_placement_refused = pyqtSignal(str)
+    pending_placement_cancelled = pyqtSignal()
 
     def __init__(self, connection_grid, parent=None):
         super(ConnectionGridScene, self).__init__(parent)
@@ -220,6 +245,11 @@ class ConnectionGridScene(QGraphicsScene):
         self.wire_start_identifier = None
         self.wire_preview_item = None
 
+        # A part waiting to be placed, and the ghost item that shows it
+        # (not in component_items_by_reference).
+        self.pending_placement = None
+        self.pending_item = None
+
         # Report selection changes to the main window so it can update the
         # selected-node panel and signal-pickoff controls.
         self.selectionChanged.connect(
@@ -236,6 +266,8 @@ class ConnectionGridScene(QGraphicsScene):
         :type connection_grid: core.connection_grid.ConnectionGrid
         :returns: None
         """
+        # A new grid (resize, new or opened project) drops a waiting part.
+        self.clear_pending_placement()
         self.connection_grid = connection_grid
         self.rebuild_connection_point_items()
 
@@ -342,6 +374,7 @@ class ConnectionGridScene(QGraphicsScene):
         :type component_collection: core.components.ComponentCollection
         :returns: None
         """
+        self.clear_pending_placement()
         self.component_collection = component_collection
         self.rebuild_component_items()
 
@@ -378,6 +411,8 @@ class ConnectionGridScene(QGraphicsScene):
         self.update_wire_nets()
         self.rebuild_junction_items()
         self.update_scene_extent()
+        # A part added, removed or moved can free or block the ghost's spot.
+        self.update_pending_item(report=False)
 
     def refresh_component(self, reference):
         """
@@ -407,6 +442,7 @@ class ConnectionGridScene(QGraphicsScene):
         # A moved or turned pin can start or stop meeting a wire.
         self.rebuild_junction_items()
         self.update_scene_extent()
+        self.update_pending_item(report=False)
 
     def set_wire_collection(self, wire_collection):
         """
@@ -546,6 +582,9 @@ class ConnectionGridScene(QGraphicsScene):
 
         if not self.is_wire_mode:
             self.cancel_wire_drawing()
+        elif self.pending_placement is not None:
+            # A click in Wire mode starts a wire, not a ghost move.
+            self.cancel_pending_placement()
 
     def find_grid_point_near(self, scene_position):
         """
@@ -686,13 +725,21 @@ class ConnectionGridScene(QGraphicsScene):
         """
         In Wire mode, a left press on a grid point starts a wire.
 
-        Every other press (and any press out of Wire mode) goes to the
-        items as usual: select, rubber-band select or drag a part.
+        While a part waits to be placed, a right press places it. Every
+        other press goes to the items as usual: select, rubber-band select
+        or drag a part (a left click on a grid point also moves the
+        waiting part there, see handle_connection_point_selection_change).
 
         :param event: Scene mouse event.
         :type event: QGraphicsSceneMouseEvent
         :returns: None
         """
+        if (self.pending_placement is not None and
+                event.button() == Qt.RightButton):
+            self.commit_pending_placement()
+            event.accept()
+            return
+
         if self.is_wire_mode and event.button() == Qt.LeftButton:
             identifier = self.find_grid_point_near(event.scenePos())
 
@@ -754,9 +801,62 @@ class ConnectionGridScene(QGraphicsScene):
             reference, row_number, column_number, self.connection_grid
         )
 
+    def get_pending_key_action(self, event):
+        """
+        Return what a key does to the waiting part, or None.
+
+        :param event: Key event (KeyPress or ShortcutOverride).
+        :type event: QKeyEvent
+        :returns: A direction ("right", ...), "commit", "cancel", or None
+            when no part is waiting or the key is not one of its keys.
+        :rtype: str or None
+        """
+        if self.pending_placement is None:
+            return None
+
+        # Shift+W, Ctrl+S and the like keep their usual meaning.
+        if event.modifiers() & ~Qt.KeypadModifier:
+            return None
+
+        key = event.key()
+
+        if key in PENDING_DIRECTION_BY_KEY:
+            return PENDING_DIRECTION_BY_KEY[key]
+
+        if key in PENDING_COMMIT_KEYS:
+            return "commit"
+
+        if key == Qt.Key_Escape:
+            return "cancel"
+
+        return None
+
+    def event(self, event):
+        """
+        Keep W (Wire Mode) and the other placing keys for a waiting part.
+
+        QGraphicsView passes ShortcutOverride on to the scene. Accepting it
+        makes Qt deliver the key as a key press instead of firing the
+        window shortcut with the same key.
+
+        :param event: Any scene event.
+        :type event: QEvent
+        :returns: Whether the event was handled.
+        :rtype: bool
+        """
+        if (event.type() == event.ShortcutOverride and
+                self.get_pending_key_action(event) is not None):
+            event.accept()
+            return True
+
+        return super().event(event)
+
     def keyPressEvent(self, event):
         """
         Esc cancels a part drag or a wire being drawn.
+
+        While a part waits to be placed, the arrow keys and W/A/S/D turn
+        it, Enter or Return places it and Esc cancels it.
 
         Other keys go to the items as usual.
 
@@ -777,7 +877,182 @@ class ConnectionGridScene(QGraphicsScene):
                 event.accept()
                 return
 
+        action = self.get_pending_key_action(event)
+
+        if action is not None:
+            event.accept()
+
+            if action == "commit":
+                self.commit_pending_placement()
+            elif action == "cancel":
+                self.cancel_pending_placement()
+            else:
+                self.pending_placement.set_direction(action)
+                self.update_pending_item()
+
+            return
+
         super().keyPressEvent(event)
+
+    def start_pending_placement(self, kind, value_text, parameter_texts,
+                                identifier):
+        """
+        Show a new part as a ghost at a grid point, waiting to be placed.
+
+        A part already waiting is replaced; when it is the same kind, the
+        new one keeps its direction.
+
+        :param kind: Component kind.
+        :type kind: str
+        :param value_text: Value as typed; empty means the default.
+        :type value_text: str
+        :param parameter_texts: Extra settings by name, or None.
+        :type parameter_texts: dict or None
+        :param identifier: Anchor grid point, for example "NODE_R07_C04".
+        :type identifier: str
+        :returns: None
+        :raises ComponentError: If the value or a setting is invalid, or
+            the point is not on the grid. A waiting part is then kept.
+        """
+        connection_point = self.connection_grid.get_connection_point(
+            identifier
+        )
+        direction = None
+
+        if (self.pending_placement is not None and
+                self.pending_placement.kind == kind):
+            direction = self.pending_placement.direction
+
+        pending_placement = PendingPlacement(
+            self.component_collection,
+            self.connection_grid,
+            kind,
+            value_text,
+            connection_point.row_number,
+            connection_point.column_number,
+            parameter_texts,
+            direction
+        )
+        self.clear_pending_placement()
+        self.pending_placement = pending_placement
+        self.update_pending_item()
+
+    def update_pending_item(self, report=True):
+        """
+        Redraw the ghost for the waiting part's point and direction.
+
+        :param report: True to emit pending_placement_changed with the
+            new status text.
+        :type report: bool
+        :returns: None
+        """
+        self.remove_pending_item()
+
+        if self.pending_placement is None:
+            return
+
+        reason = self.pending_placement.check()
+        self.pending_item = ComponentItem(
+            self.pending_placement.build_component(), GRID_POINT_SPACING
+        )
+        self.pending_item.setPos(
+            grid_point_to_scene_position(
+                self.pending_placement.row_number,
+                self.pending_placement.column_number
+            )
+        )
+        self.addItem(self.pending_item)
+        self.pending_item.make_pending(reason is None)
+
+        if report:
+            self.pending_placement_changed.emit(
+                self.describe_pending_placement(reason)
+            )
+
+    def describe_pending_placement(self, reason):
+        """
+        Return the status text for the waiting part.
+
+        :param reason: Why it would be refused here, or None.
+        :type reason: str or None
+        :rtype: str
+        """
+        pending_placement = self.pending_placement
+        component = pending_placement.build_component()
+        display_name = COMPONENT_DEFINITIONS[component.kind]["display_name"]
+        text = (
+            f"Placing {component.reference} ({display_name}) at "
+            f"{pending_placement.identifier}, pointing "
+            f"{pending_placement.direction.title()}: "
+        )
+
+        if reason is None:
+            text += "Enter or right-click places it."
+        else:
+            text += (
+                "it can't go here. "
+                f"{pending_placement.describe_free_directions()}"
+            )
+
+        return text + " Arrows or W/A/S/D turn it; Esc cancels."
+
+    def commit_pending_placement(self):
+        """
+        Place the waiting part, or report why not and keep it waiting.
+
+        :returns: The new part, or None if it was refused.
+        :rtype: core.components.Component or None
+        """
+        if self.pending_placement is None:
+            return None
+
+        try:
+            component = self.pending_placement.commit()
+        except ComponentError as error:
+            self.update_pending_item()
+            self.pending_placement_refused.emit(str(error))
+            return None
+
+        self.clear_pending_placement()
+        self.pending_placement_committed.emit(component.reference)
+
+        return component
+
+    def cancel_pending_placement(self):
+        """
+        Drop the waiting part (Esc) and say so.
+
+        :returns: None
+        """
+        if self.pending_placement is None:
+            return
+
+        self.clear_pending_placement()
+        self.pending_placement_cancelled.emit()
+
+    def clear_pending_placement(self):
+        """
+        Drop the waiting part without a signal.
+
+        :returns: None
+        """
+        self.pending_placement = None
+        self.remove_pending_item()
+
+    def remove_pending_item(self):
+        """
+        Take the ghost item out of the scene.
+
+        :returns: None
+        """
+        pending_item = self.pending_item
+        self.pending_item = None
+
+        # Qt may already have deleted it (for example by clear()).
+        if (pending_item is not None and
+                not sip.isdeleted(pending_item) and
+                pending_item.scene() is self):
+            self.removeItem(pending_item)
 
     def handle_component_drop(self, reference, anchor_position):
         """
@@ -1026,6 +1301,15 @@ class ConnectionGridScene(QGraphicsScene):
                     selected_item.connection_point
                 )
                 break
+
+        # Clicking another grid point moves a waiting part there.
+        if (self.pending_placement is not None and
+                selected_connection_point is not None):
+            self.pending_placement.move_to(
+                selected_connection_point.row_number,
+                selected_connection_point.column_number
+            )
+            self.update_pending_item()
 
         for selected_item in self.selectedItems():
             if isinstance(selected_item, ComponentItem):

@@ -138,6 +138,11 @@ class ComponentPanelWidget(QWidget):
         self.value_label = QLabel("Value:")
         self.value_line_edit = QLineEdit()
         self.place_button = QPushButton("Place at Selected Point")
+        self.place_button.setToolTip(
+            "Shows the part at the selected point. Arrow keys or W/A/S/D "
+            "turn it, clicking another point moves it, Enter or a "
+            "right-click places it, Esc cancels."
+        )
 
         # Kind of the part shown in "Selected Part", or None.
         self.selected_component_kind = None
