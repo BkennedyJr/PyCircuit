@@ -24,11 +24,18 @@ scene with itself and keeps it next to itself when moved.
 
 This module must not import gui.grid_editor (the scene will import this
 module). The scene sets the item position.
+
+Drag to move: Qt's own ItemIsMovable is off, because a move must go through
+the collection's checked move. Instead the item follows the mouse once a
+left-button drag passes the platform drag distance, and on release asks the
+scene (handle_component_drop) to snap it to the nearest grid point. The
+scene moves the part through ComponentCollection.move_component, or puts it
+back when the move is refused. A plain click still just selects.
 """
 
 import math
 
-from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt5.QtGui import (
     QBrush,
     QColor,
@@ -38,19 +45,26 @@ from PyQt5.QtGui import (
     QRadialGradient,
     QTransform,
 )
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
+from PyQt5.QtWidgets import (
+    QApplication,
+    QGraphicsItem,
+    QGraphicsSimpleTextItem,
+)
 
 from core.components import (
     COMPONENT_DEFINITIONS,
     Component,
-    get_panel_parameter_definitions,
+    get_parameter_definitions,
 )
 from core.exceptions import ComponentError
-from gui.component_symbols import build_symbol_paths, get_body_rect
+from core.wires import WireNets
+from gui.component_symbols import build_symbol_paths, get_body_path
 
 BACKGROUND_COLOR = "#1f2933"
 SYMBOL_COLOR = "#d9e2ec"
 SELECTED_COLOR = "#ffd166"
+# A dragged part over a spot where the drop would be refused.
+REFUSED_DROP_COLOR = "#ff6b6b"
 SYMBOL_PEN_WIDTH = 2
 BOUNDING_MARGIN = 3
 LABEL_GAP = 6
@@ -68,6 +82,9 @@ LED_LIT_COLORS = {
 }
 LED_GLOW_RADIUS = 0.6
 LED_GLOW_ALPHA = 170
+
+# A part being dragged draws above the others.
+DRAGGED_COMPONENT_Z_VALUE = 2
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -368,9 +385,11 @@ class ComponentItem(QGraphicsItem):
         self.label_offset = QPointF()
         self._bounding_rect = QRectF()
         self.is_lit = False
+        self.wire_nets = None
 
         # Selectable for the property panel, but never dragged by Qt: a
-        # move must go through the collection's checked move (M2).
+        # move must go through the collection's checked move (see the
+        # mouse handlers below).
         self.setFlag(self.ItemIsSelectable, True)
         self.setFlag(self.ItemIsMovable, False)
         # Needed for ItemPositionHasChanged, which moves the label along.
@@ -381,7 +400,158 @@ class ComponentItem(QGraphicsItem):
         # Python reference and puts the label in its scene in itemChange().
         self.label_item = ComponentLabelItem()
 
+        # Item position when the left button went down, and whether the
+        # press has become a drag.
+        self.drag_start_position = None
+        self.is_dragging = False
+        # True while a drag hovers a spot where the drop would be refused.
+        self.is_drop_refused = False
+
         self.refresh_from_component()
+
+    def mousePressEvent(self, event):
+        """
+        Select the part as usual and remember where a drag would start.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        self.is_dragging = False
+        self.drag_start_position = None
+
+        if event.button() == Qt.LeftButton:
+            self.drag_start_position = QPointF(self.pos())
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """
+        Follow the mouse once the press has moved past the drag distance.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        if (self.drag_start_position is None or
+                not event.buttons() & Qt.LeftButton):
+            super().mouseMoveEvent(event)
+            return
+
+        if not self.is_dragging:
+            moved_distance = (
+                event.screenPos() - event.buttonDownScreenPos(Qt.LeftButton)
+            ).manhattanLength()
+
+            if moved_distance < QApplication.startDragDistance():
+                return
+
+            self.is_dragging = True
+            self.setZValue(DRAGGED_COMPONENT_Z_VALUE)
+
+        self.setPos(
+            self.drag_start_position +
+            event.scenePos() -
+            event.buttonDownScenePos(Qt.LeftButton)
+        )
+
+        scene = self.scene()
+
+        if scene is not None and hasattr(scene, "check_component_drop"):
+            self.set_drop_refused(
+                scene.check_component_drop(
+                    self.component.reference, self.pos()
+                ) is not None
+            )
+
+    def set_drop_refused(self, is_drop_refused):
+        """
+        Draw the part in the refused colour (or not) while it is dragged.
+
+        :param is_drop_refused: True when dropping here would be refused.
+        :type is_drop_refused: bool
+        :returns: None
+        """
+        if is_drop_refused != self.is_drop_refused:
+            self.is_drop_refused = is_drop_refused
+            self.update()
+
+    def cancel_drag(self):
+        """
+        Abandon a drag: the part goes back to where the drag started.
+
+        The model is not touched and no signal is sent; the release that
+        may follow does nothing. Used for Esc and for a lost mouse grab.
+
+        :returns: True if a drag was cancelled.
+        :rtype: bool
+        """
+        if not self.is_dragging:
+            return False
+
+        start_position = self.drag_start_position
+        self.drag_start_position = None
+        self.is_dragging = False
+        self.set_drop_refused(False)
+        self.setZValue(COMPONENT_Z_VALUE)
+        self.setPos(start_position)
+
+        if self.scene() is not None and self.scene().mouseGrabberItem() is self:
+            self.ungrabMouse()
+
+        return True
+
+    def sceneEvent(self, event):
+        """
+        Losing the mouse grab mid-drag (a popup, Alt+Tab) cancels the drag.
+
+        QGraphicsItem has no ungrabMouseEvent (only QGraphicsWidget does),
+        so the QEvent.UngrabMouse event is caught here. The part goes back
+        to its start; ungrabMouse() is not called again, so this cannot
+        recurse.
+
+        :param event: Qt event.
+        :type event: QEvent
+        :returns: Whether the event was handled.
+        :rtype: bool
+        """
+        if event.type() == QEvent.UngrabMouse and self.is_dragging:
+            start_position = self.drag_start_position
+            self.drag_start_position = None
+            self.is_dragging = False
+            self.set_drop_refused(False)
+            self.setZValue(COMPONENT_Z_VALUE)
+            self.setPos(start_position)
+
+        return super().sceneEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """
+        End a drag: the scene snaps the part to a grid point or puts it back.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        if not (self.is_dragging and event.button() == Qt.LeftButton):
+            self.drag_start_position = None
+            self.is_dragging = False
+            super().mouseReleaseEvent(event)
+            return
+
+        start_position = self.drag_start_position
+        self.drag_start_position = None
+        self.is_dragging = False
+        self.set_drop_refused(False)
+        self.setZValue(COMPONENT_Z_VALUE)
+        event.accept()
+
+        scene = self.scene()
+
+        if scene is not None and hasattr(scene, "handle_component_drop"):
+            scene.handle_component_drop(self.component.reference, self.pos())
+        else:
+            self.setPos(start_position)
 
     def refresh_from_component(self):
         """
@@ -402,8 +572,7 @@ class ComponentItem(QGraphicsItem):
         stroke_path, fill_path = build_symbol_paths(
             component.kind, component.rotation
         )
-        body_path = QPainterPath()
-        body_path.addRect(get_body_rect(component.kind))
+        body_path = get_body_path(component.kind)
 
         self.stroke_path = transform.map(stroke_path)
         self.fill_path = transform.map(fill_path)
@@ -461,7 +630,7 @@ class ComponentItem(QGraphicsItem):
 
         text_rect = self.label_item.text_rect()
         free_sides = free_label_sides(
-            self.component.get_pin_offsets(),
+            self.get_label_steering_pin_offsets(),
             self.component.get_body_center_offset()
         )
         placements = [
@@ -481,6 +650,26 @@ class ComponentItem(QGraphicsItem):
         self.label_offset = top_left - text_rect.topLeft()
         self.place_label()
 
+    def get_label_steering_pin_offsets(self):
+        """
+        Return the rotated pins that keep the label off their side.
+
+        A kind may list pins in "label_ignores_pins" (the op-amp's V+ and
+        V-): with all five op-amp pins counted, every side would be taken
+        at 90 and 270 degrees and the label would sit on a lead.
+
+        :returns: Rotated pins as (pin_name, dx, dy).
+        :rtype: list
+        """
+        ignored_pins = COMPONENT_DEFINITIONS[self.component.kind].get(
+            "label_ignores_pins", ()
+        )
+
+        return [
+            pin for pin in self.component.get_pin_offsets()
+            if pin[0] not in ignored_pins
+        ]
+
     def get_label_candidates(self):
         """
         Return every place the scene's label layout may put the text.
@@ -498,7 +687,7 @@ class ComponentItem(QGraphicsItem):
         candidates = []
 
         for side in free_label_sides(
-                self.component.get_pin_offsets(),
+                self.get_label_steering_pin_offsets(),
                 self.component.get_body_center_offset()):
             normal_top_left = self.get_label_top_left(side, text_rect)
 
@@ -604,33 +793,53 @@ class ComponentItem(QGraphicsItem):
 
     def build_tool_tip(self):
         """
-        Describe the part: kind, reference, value and the node under each pin.
+        Describe the part for its hover tooltip.
+
+        One line each for the kind, reference, value (or model), every
+        setting (hidden ones such as Offset too) and the rotation, then one
+        "pin <name>: <node>" line per pin. Once the scene has given the item
+        its nets (set_wire_nets), each pin line is followed by an indented
+        "net: ..." line naming the other pins and the wires on that net
+        (see core.wires.WireNets.describe).
 
         :returns: Multi-line tooltip text.
         :rtype: str
         """
         component = self.component
         definition = COMPONENT_DEFINITIONS[component.kind]
-        lines = [f"{component.reference} ({definition['display_name']})"]
+        lines = [
+            f"Kind: {definition['display_name']}",
+            f"Reference: {component.reference}",
+        ]
 
-        if definition["value_kind"] != "none":
+        if definition["value_kind"] == "model":
+            lines.append(f"Model: {component.value_text}")
+        elif definition["value_kind"] != "none":
             value_label = definition.get("value_label", "Value")
             value_unit = definition.get("value_unit", "")
             lines.append(f"{value_label}: {component.value_text}{value_unit}")
 
-        for parameter in get_panel_parameter_definitions(component.kind):
+        for parameter in get_parameter_definitions(component.kind):
             lines.append(
                 f"{parameter['display_name']}: "
                 f"{component.parameter_texts[parameter['name']]}"
                 f"{parameter['unit']}"
             )
 
+        lines.append(f"Rotation: {component.rotation} deg")
+
         pin_names = [name for name, unused_dx, unused_dy in
                      component.get_pin_offsets()]
         pin_identifiers = component.get_pin_identifiers()
 
         for pin_name, identifier in zip(pin_names, pin_identifiers):
-            lines.append(f"{pin_name}: {identifier}")
+            lines.append(f"pin {pin_name}: {identifier}")
+
+            if self.wire_nets is not None:
+                net_text = self.wire_nets.describe(
+                    identifier, f"{component.reference}.{pin_name}"
+                )
+                lines.append(f"  net: {net_text}")
 
         return "\n".join(lines)
 
@@ -696,6 +905,24 @@ class ComponentItem(QGraphicsItem):
             self.is_lit = is_lit
             self.update()
 
+    def set_wire_nets(self, wire_nets):
+        """
+        Give the item the scene's wire nets and rebuild the tooltip.
+
+        :param wire_nets: Nets of the scene's wires, or None to leave the
+            net lines out.
+        :type wire_nets: core.wires.WireNets or None
+        :returns: None
+        :raises ComponentError: If wire_nets is neither None nor WireNets.
+        """
+        if wire_nets is not None and not isinstance(wire_nets, WireNets):
+            raise ComponentError(
+                f"set_wire_nets needs WireNets or None, not {wire_nets!r}."
+            )
+
+        self.wire_nets = wire_nets
+        self.setToolTip(self.build_tool_tip())
+
     def boundingRect(self):
         """
         Return the area this item paints (the label paints itself).
@@ -736,7 +963,9 @@ class ComponentItem(QGraphicsItem):
         if self.is_lit:
             self.paint_glow(painter)
 
-        if self.isSelected():
+        if self.is_drop_refused:
+            color = QColor(REFUSED_DROP_COLOR)
+        elif self.isSelected():
             color = QColor(SELECTED_COLOR)
         else:
             color = QColor(SYMBOL_COLOR)

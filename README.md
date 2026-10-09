@@ -72,6 +72,19 @@ Using it
 - File > Save Project / Open Project stores the grid as a .json file.
 
 
+Third-party files
+-----------------
+
+core/spice_library/LM741_logipipe.lib is the LM741 op-amp model by
+Logipipe, LLC (https://www.logipipe.com/LM741.txt), used under the
+Creative Commons Attribution 4.0 International licence (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/). It is bundled unchanged
+(a test checks its SHA-256); the Op-amp (741) part wraps it in the
+five-pin subcircuit LM741. Full attribution is in
+core/spice_library/README.txt. The rest of PyCircuit does not yet carry
+its own licence file.
+
+
 Tests
 -----
 

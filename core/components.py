@@ -2,9 +2,9 @@
 Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
-DC and AC voltage sources, a DC current source, diodes, transistors, and
-ground), their connection pins, and the Component class that holds one
-placed part. It contains no PyQt5 imports so
+DC and AC voltage sources, a DC current source, diodes, transistors,
+op-amps and ground), their connection pins, and the Component class that
+holds one placed part. It contains no PyQt5 imports so
 the same objects can be used by the GUI label, the later SPICE netlist
 builder, and the solver.
 
@@ -18,6 +18,11 @@ them. ``body_center_half_steps`` gives the body centre from the anchor in
 half grid steps (so it stays a whole number that rotate_offset accepts):
 (1, 0) is half a step to the right. Transistors keep their anchor at the
 body centre with three pins around it; ground's single pin is its anchor.
+Op-amps are a triangle centred on their anchor (pointing right at
+rotation 0): in- at (-1, -1) and in+ at (-1, 1) on the left, out at (1, 0)
+on the right, V+ at (0, -1) above and V- at (0, 1) below. They use the
+SPICE prefix X (a subcircuit); the value names the subcircuit model in
+core.subcircuit_models.
 
 Besides the main value, a kind may define extra numeric ``parameters``,
 for example the AC source's frequency. Each has a name, a unit, a value
@@ -57,6 +62,15 @@ MAXIMUM_MODEL_NAME_LENGTH = 32
 LED_COLORS = ("red", "green", "blue", "yellow", "white", "orange")
 LED_MODEL_BY_COLOR = {color: f"LED_{color.upper()}" for color in LED_COLORS}
 _MODEL_MAPS = {"LED_MODEL_BY_COLOR": LED_MODEL_BY_COLOR}
+
+# Points inside an op-amp triangle (left edge x = -0.6, apex x = 0.75, half
+# height 1.2), in half steps: the anchor, the half points toward out, V+,
+# V- and the left side, and the half points beside the two inputs. A part
+# drawn on any of them would be hidden by the triangle.
+OPAMP_COVERED_HALF_STEPS = [
+    (0, 0), (-1, 0), (1, 0), (0, -1), (0, 1),
+    (-1, -1), (-1, 1), (-1, -2), (-1, 2),
+]
 
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -213,6 +227,36 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "value_kind": "model",
         "default_value_text": "2N3906",
+    },
+    "opamp_generic": {
+        "display_name": "Op-amp (generic)",
+        "prefix": "X",
+        "pins": [
+            ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
+            ("V+", 0, -1), ("V-", 0, 1),
+        ],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
+        # The supply leads are short and usually go straight to a rail;
+        # the label side is chosen from the signal pins only.
+        "label_ignores_pins": ("V+", "V-"),
+        "value_kind": "model",
+        "default_value_text": "OPAMP",
+    },
+    "opamp_741": {
+        "display_name": "Op-amp (741)",
+        "prefix": "X",
+        "pins": [
+            ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
+            ("V+", 0, -1), ("V-", 0, 1),
+        ],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
+        # The supply leads are short and usually go straight to a rail;
+        # the label side is chosen from the signal pins only.
+        "label_ignores_pins": ("V+", "V-"),
+        "value_kind": "model",
+        "default_value_text": "LM741",
     },
     "ground": {
         "display_name": "Ground",
@@ -380,6 +424,32 @@ def validate_value_text(kind, value_text):
                 f"{display_name} model name '{clean_text}' may only use "
                 "the letters A-Z, digits, '_', '.', and '-', with no spaces."
             )
+
+        # Op-amps (prefix X) must name a bundled subcircuit, and the one
+        # that matches their kind; checked here so a bad name is refused
+        # when it is typed, not at netlist time (QC #16).
+        if component_definition["prefix"] == "X":
+            # Imported here to keep core.components importable on its own.
+            from core.subcircuit_models import (
+                DEFAULT_SUBCIRCUIT_BY_KIND,
+                get_subcircuit_model_name,
+            )
+
+            clean_text = get_subcircuit_model_name(clean_text)
+            expected_name = DEFAULT_SUBCIRCUIT_BY_KIND[kind]
+
+            if clean_text != expected_name:
+                other_kind = next(
+                    other for other, name in DEFAULT_SUBCIRCUIT_BY_KIND.items()
+                    if name == clean_text
+                )
+                other_display_name = COMPONENT_DEFINITIONS[other_kind][
+                    "display_name"
+                ]
+                raise ComponentError(
+                    f"{display_name} uses model {expected_name}; for the "
+                    f"{clean_text} choose the {other_display_name} part."
+                )
 
         return (clean_text, None)
 
@@ -1024,9 +1094,9 @@ class ComponentCollection:
     """
     All placed components of one project, keyed by reference designator.
 
-    The collection assigns references, refuses placements and rotations
-    that would put a pin outside the grid or hide another part (the same
-    pin points, any kind; the same body centre; or a body drawn over
+    The collection assigns references, refuses placements, rotations and
+    moves that would put a pin outside the grid or hide another part (the
+    same pin points, any kind; the same body centre; or a body drawn over
     another part's body or pin), and removes parts that no longer fit after
     the grid shrinks. Parts may still share single pins: that is how they
     connect.
@@ -1371,6 +1441,123 @@ class ComponentCollection:
             ) from None
 
         return component.rotation
+
+    def move_component(self, reference, row_number, column_number,
+                       connection_grid):
+        """
+        Move a part's anchor to another grid point, keeping its rotation.
+
+        The move is checked like a placement: every pin must land on the
+        grid and the part must not hide another one (same pin points or
+        same body centre). Moving onto its own spot is allowed and changes
+        nothing.
+
+        :param reference: Reference of the part to move.
+        :type reference: str
+        :param row_number: New one-based anchor row.
+        :type row_number: int
+        :param column_number: New one-based anchor column.
+        :type column_number: int
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :returns: The moved component.
+        :rtype: Component
+        :raises ComponentError: If the part is unknown, the position is not
+            a valid grid point, a pin would leave the grid, or the part
+            would overlap another one. The part then stays where it was.
+        """
+        _validate_connection_grid(connection_grid)
+        component = self.get_component(reference)
+
+        # A drag can end beyond the grid edge: say so plainly instead of
+        # quoting the anchor range check.
+        if (_is_plain_integer(row_number) and
+                _is_plain_integer(column_number) and
+                not (1 <= row_number <= connection_grid.row_count and
+                     1 <= column_number <= connection_grid.column_count)):
+            raise ComponentError(
+                f"{reference} cannot be moved to row {row_number}, column "
+                f"{column_number}: that is outside the "
+                f"{connection_grid.row_count} x {connection_grid.column_count} "
+                "grid."
+            )
+
+        old_row_number = component.row_number
+        old_column_number = component.column_number
+
+        def put_back():
+            component.row_number = old_row_number
+            component.column_number = old_column_number
+
+        try:
+            component.row_number = row_number
+            component.column_number = column_number
+        except ComponentError as error:
+            put_back()
+            raise ComponentError(
+                f"{reference} cannot be moved there: {error}"
+            ) from None
+
+        target_text = (
+            f"{reference} cannot be moved to row {row_number}, column "
+            f"{column_number}"
+        )
+
+        if not component.pins_fit_grid(
+                connection_grid.row_count,
+                connection_grid.column_count):
+            put_back()
+            raise ComponentError(
+                f"{target_text}: a pin would fall outside the "
+                f"{connection_grid.row_count} x {connection_grid.column_count} "
+                "grid."
+            )
+
+        try:
+            self.ensure_no_overlap(component)
+        except ComponentError as error:
+            put_back()
+            raise ComponentError(f"{target_text}: {error}") from None
+
+        return component
+
+    def check_move(self, reference, row_number, column_number,
+                   connection_grid):
+        """
+        Say whether move_component would accept a move, without moving.
+
+        Used while a part is dragged, to show a drop that would be refused.
+
+        :param reference: Reference of the part.
+        :type reference: str
+        :param row_number: Candidate one-based anchor row.
+        :type row_number: int
+        :param column_number: Candidate one-based anchor column.
+        :type column_number: int
+        :param connection_grid: Grid the part must fit on.
+        :type connection_grid: ConnectionGrid
+        :returns: None if the move would be accepted, otherwise the reason
+            move_component would give.
+        :rtype: str or None
+        :raises ComponentError: If the part is unknown or the grid is not a
+            ConnectionGrid.
+        """
+        _validate_connection_grid(connection_grid)
+        component = self.get_component(reference)
+        old_row_number = component.row_number
+        old_column_number = component.column_number
+
+        try:
+            self.move_component(
+                reference, row_number, column_number, connection_grid
+            )
+        except ComponentError as error:
+            return str(error)
+
+        component.row_number = old_row_number
+        component.column_number = old_column_number
+
+        return None
 
     def set_component_value(self, reference, value_text, parameter_texts=None):
         """

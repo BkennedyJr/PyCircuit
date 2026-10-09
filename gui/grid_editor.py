@@ -1,10 +1,16 @@
 """
 PyQt5 graphics-scene classes for the connection-grid editor.
 
-This module draws and manages selectable connection points. It remains
-separate from the core data model so future command-line or test workflows
+This module draws and manages selectable connection points, the placed
+parts and the wires. In Wire mode a left press on a grid point starts a
+wire: a dashed rubber-band line follows the mouse, and releasing on another
+grid point adds a straight wire between the two points (Esc cancels). Out
+of Wire mode, presses behave as before (select, rubber-band select, drag a
+part). It remains separate from the core data model so future command-line or test workflows
 can use the connection-grid model without importing PyQt5.
 """
+
+import math
 
 from PyQt5 import sip
 from PyQt5.QtCore import QPointF
@@ -14,17 +20,24 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from PyQt5.QtGui import QPainter
 from PyQt5.QtGui import QPen
+from PyQt5.QtGui import QTransform
+from PyQt5.QtCore import QLineF
 from PyQt5.QtWidgets import QGraphicsEllipseItem
+from PyQt5.QtWidgets import QGraphicsLineItem
 from PyQt5.QtWidgets import QGraphicsScene
 from PyQt5.QtWidgets import QGraphicsSimpleTextItem
 from PyQt5.QtWidgets import QGraphicsView
 
+from core.exceptions import ComponentError
+from core.wires import WireNets
+from core.wires import find_junction_identifiers
 from gui.component_item import (
     LABEL_PATCH_PADDING,
     LABEL_SIDES,
     ComponentItem,
     text_touches_a_grid_dot,
 )
+from gui.wire_item import WIRE_COLOR, WireItem, build_preview_pen
 
 GRID_POINT_SPACING = 60
 GRID_ORIGIN_X = 90
@@ -38,6 +51,22 @@ HEADER_POSITION = 25
 HEADER_GAP = 8
 # Extra room around everything when the scene grows to fit the parts.
 SCENE_MARGIN = 20
+# In Wire mode a press or release counts as "on" a grid point within this
+# distance of its centre (a third of a step: generous, never ambiguous).
+WIRE_SNAP_DISTANCE = 20
+# The rubber-band line draws above everything while a wire is drawn.
+WIRE_PREVIEW_Z_VALUE = 3
+# Zoom factors: 1.0 shows a grid step as GRID_POINT_SPACING pixels. One
+# wheel notch or one Zoom In/Out is ZOOM_STEP. MINIMUM_ZOOM still shows a
+# 50 x 50 grid in a small window; MAXIMUM_ZOOM makes one step 480 pixels.
+ZOOM_STEP = 1.25
+MINIMUM_ZOOM = 0.1
+MAXIMUM_ZOOM = 8.0
+ZOOM_TOLERANCE = 1e-6
+# Junction dots (core.wires.find_junction_identifiers) sit on top of the
+# grid dot, in the wire color, below the parts.
+JUNCTION_DIAMETER = 14
+JUNCTION_Z_VALUE = 0.5
 
 
 def grid_point_to_scene_position(row_number, column_number):
@@ -57,6 +86,28 @@ def grid_point_to_scene_position(row_number, column_number):
         GRID_ORIGIN_X + ((column_number - 1) * GRID_POINT_SPACING),
         GRID_ORIGIN_Y + ((row_number - 1) * GRID_POINT_SPACING)
     )
+
+
+def scene_position_to_grid_point(scene_position):
+    """
+    Return the (row, column) of the grid point nearest a scene position.
+
+    The result may lie outside the grid (for example row 0); callers check.
+    Halves round up, so the result does not depend on banker's rounding.
+
+    :param scene_position: Position in scene coordinates.
+    :type scene_position: QPointF
+    :returns: One-based (row, column).
+    :rtype: tuple
+    """
+    column_number = math.floor(
+        (scene_position.x() - GRID_ORIGIN_X) / GRID_POINT_SPACING + 0.5
+    ) + 1
+    row_number = math.floor(
+        (scene_position.y() - GRID_ORIGIN_Y) / GRID_POINT_SPACING + 0.5
+    ) + 1
+
+    return (row_number, column_number)
 
 
 class ConnectionPointItem(QGraphicsEllipseItem):
@@ -140,6 +191,15 @@ class ConnectionGridScene(QGraphicsScene):
 
     connection_point_selected = pyqtSignal(object)
     component_selected = pyqtSignal(object)
+    # A dragged part was moved (reference), or its move was refused
+    # (reference, reason); in both cases it is already drawn in place.
+    component_moved = pyqtSignal(str)
+    component_move_refused = pyqtSignal(str, str)
+    # A wire was drawn (reference) or refused (reason). wires_selected
+    # carries the references of the selected wires (possibly empty).
+    wire_added = pyqtSignal(str)
+    wire_refused = pyqtSignal(str)
+    wires_selected = pyqtSignal(object)
 
     def __init__(self, connection_grid, parent=None):
         super(ConnectionGridScene, self).__init__(parent)
@@ -148,8 +208,17 @@ class ConnectionGridScene(QGraphicsScene):
         self.connection_point_items_by_identifier = {}
         self.component_collection = None
         self.component_items_by_reference = {}
+        self.wire_collection = None
+        self.wire_items_by_reference = {}
+        self.junction_items_by_identifier = {}
         self.column_header_items = []
         self.row_header_items = []
+
+        # Wire drawing: the mode flag, the grid point where the current
+        # drag started (None when not drawing) and the rubber-band line.
+        self.is_wire_mode = False
+        self.wire_start_identifier = None
+        self.wire_preview_item = None
 
         # Report selection changes to the main window so it can update the
         # selected-node panel and signal-pickoff controls.
@@ -251,8 +320,14 @@ class ConnectionGridScene(QGraphicsScene):
                 connection_point.identifier
             ] = connection_point_item
 
-        # clear() above already deleted the old component items and labels.
+        # clear() above already deleted the old component items, labels,
+        # wires and any rubber-band line.
         self.component_items_by_reference = {}
+        self.wire_items_by_reference = {}
+        self.junction_items_by_identifier = {}
+        self.wire_start_identifier = None
+        self.wire_preview_item = None
+        self.rebuild_wire_items()
         self.rebuild_component_items()
 
         # Clear the selected-node display after a rebuild because old item
@@ -300,6 +375,8 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.update_wire_nets()
+        self.rebuild_junction_items()
         self.update_scene_extent()
 
     def refresh_component(self, reference):
@@ -325,7 +402,426 @@ class ConnectionGridScene(QGraphicsScene):
         # A turn or a longer value can change the best spot for the
         # neighbours' labels too, so lay out every label again.
         self.layout_component_labels()
+        # A moved ground pin can change which net is node 0.
+        self.update_wire_nets()
+        # A moved or turned pin can start or stop meeting a wire.
+        self.rebuild_junction_items()
         self.update_scene_extent()
+
+    def set_wire_collection(self, wire_collection):
+        """
+        Show the wires of a wire collection on the grid.
+
+        :param wire_collection: Wires to display, or None for none.
+        :type wire_collection: core.wires.WireCollection
+        :returns: None
+        """
+        self.wire_collection = wire_collection
+        self.rebuild_wire_items()
+
+    def rebuild_wire_items(self):
+        """
+        Replace every wire item with fresh ones from the collection.
+
+        :returns: None
+        """
+        for wire_item in self.wire_items_by_reference.values():
+            if not sip.isdeleted(wire_item) and wire_item.scene() is self:
+                self.removeItem(wire_item)
+
+        self.wire_items_by_reference = {}
+
+        if self.wire_collection is not None:
+            for wire in self.wire_collection.get_wires():
+                wire_item = WireItem(
+                    wire,
+                    grid_point_to_scene_position(*wire.start_point),
+                    grid_point_to_scene_position(*wire.end_point)
+                )
+                self.addItem(wire_item)
+                self.wire_items_by_reference[wire.reference] = wire_item
+
+        self.update_wire_nets()
+        self.rebuild_junction_items()
+
+    def rebuild_junction_items(self):
+        """
+        Draw a junction dot wherever three or more connections meet.
+
+        Wires connect every point they cover (breadboard strips), so a dot
+        shows where a wire passes a part pin or meets another wire
+        mid-span. The dots ignore the mouse: a click reaches the grid
+        point underneath.
+
+        :returns: None
+        """
+        for junction_item in self.junction_items_by_identifier.values():
+            if (not sip.isdeleted(junction_item) and
+                    junction_item.scene() is self):
+                self.removeItem(junction_item)
+
+        self.junction_items_by_identifier = {}
+
+        if self.wire_collection is None:
+            return
+
+        pin_identifiers = []
+
+        if self.component_collection is not None:
+            for component in self.component_collection.get_components():
+                pin_identifiers.extend(component.get_pin_identifiers())
+
+        # Junctions are always on a wire, so the wires give their points.
+        point_by_identifier = {}
+
+        for wire in self.wire_collection.get_wires():
+            point_by_identifier.update(
+                zip(wire.get_point_identifiers(), wire.get_points())
+            )
+
+        for identifier in find_junction_identifiers(
+                self.wire_collection, pin_identifiers):
+            center = grid_point_to_scene_position(
+                *point_by_identifier[identifier]
+            )
+            radius = JUNCTION_DIAMETER / 2
+            junction_item = QGraphicsEllipseItem(
+                center.x() - radius, center.y() - radius,
+                JUNCTION_DIAMETER, JUNCTION_DIAMETER
+            )
+            junction_item.setBrush(QColor(WIRE_COLOR))
+            junction_item.setPen(QPen(Qt.NoPen))
+            junction_item.setZValue(JUNCTION_Z_VALUE)
+            junction_item.setAcceptedMouseButtons(Qt.NoButton)
+            self.addItem(junction_item)
+            self.junction_items_by_identifier[identifier] = junction_item
+
+    def update_wire_nets(self):
+        """
+        Give every part item the current nets for its tooltip.
+
+        The nets know every pin ("R1.2"), so parts sharing a point show as
+        connected even without a wire.
+
+        Without a wire collection the items get None and their tooltips
+        have no net lines.
+
+        :returns: None
+        """
+        wire_nets = None
+
+        if self.wire_collection is not None:
+            ground_identifiers = []
+            pin_labels = []
+
+            if self.component_collection is not None:
+                for component in self.component_collection.get_components():
+                    pin_identifiers = component.get_pin_identifiers()
+
+                    if component.kind == "ground":
+                        ground_identifiers.extend(pin_identifiers)
+
+                    for (pin_name, unused_dx, unused_dy), identifier in zip(
+                            component.get_pin_offsets(), pin_identifiers):
+                        pin_labels.append(
+                            (identifier, f"{component.reference}.{pin_name}")
+                        )
+
+            wire_nets = WireNets(
+                self.wire_collection, ground_identifiers, pin_labels
+            )
+
+        for component_item in self.component_items_by_reference.values():
+            component_item.set_wire_nets(wire_nets)
+
+    def set_wire_mode(self, is_wire_mode):
+        """
+        Switch Wire mode on or off; switching off cancels a wire in progress.
+
+        :param is_wire_mode: True to draw wires on press-drag.
+        :type is_wire_mode: bool
+        :returns: None
+        """
+        self.is_wire_mode = bool(is_wire_mode)
+
+        if not self.is_wire_mode:
+            self.cancel_wire_drawing()
+
+    def find_grid_point_near(self, scene_position):
+        """
+        Return the identifier of the grid point within WIRE_SNAP_DISTANCE.
+
+        :param scene_position: Position in scene coordinates.
+        :type scene_position: QPointF
+        :returns: Identifier such as "NODE_R02_C03", or None when no grid
+            point of the current grid is that close.
+        :rtype: str or None
+        """
+        row_number, column_number = scene_position_to_grid_point(
+            scene_position
+        )
+
+        if not (1 <= row_number <= self.connection_grid.row_count and
+                1 <= column_number <= self.connection_grid.column_count):
+            return None
+
+        center = grid_point_to_scene_position(row_number, column_number)
+
+        if QLineF(center, scene_position).length() > WIRE_SNAP_DISTANCE:
+            return None
+
+        return self.connection_grid.build_connection_point_identifier(
+            row_number,
+            column_number
+        )
+
+    def get_connection_point_position(self, identifier):
+        """
+        Return the scene position of a grid point by identifier.
+
+        :rtype: QPointF
+        """
+        connection_point = self.connection_grid.get_connection_point(
+            identifier
+        )
+
+        return grid_point_to_scene_position(
+            connection_point.row_number,
+            connection_point.column_number
+        )
+
+    def start_wire_drawing(self, identifier):
+        """
+        Begin a wire at a grid point and show the rubber-band line.
+
+        :param identifier: Start grid point.
+        :type identifier: str
+        :returns: None
+        """
+        self.cancel_wire_drawing()
+        start_position = self.get_connection_point_position(identifier)
+
+        self.wire_start_identifier = identifier
+        self.wire_preview_item = QGraphicsLineItem(
+            QLineF(start_position, start_position)
+        )
+        self.wire_preview_item.setPen(build_preview_pen())
+        self.wire_preview_item.setZValue(WIRE_PREVIEW_Z_VALUE)
+        # The preview never takes clicks.
+        self.wire_preview_item.setAcceptedMouseButtons(Qt.NoButton)
+        self.addItem(self.wire_preview_item)
+
+    def update_wire_drawing(self, scene_position):
+        """
+        Stretch the rubber-band line to the mouse.
+
+        :param scene_position: Mouse position in scene coordinates.
+        :type scene_position: QPointF
+        :returns: None
+        """
+        if self.wire_preview_item is None:
+            return
+
+        line = self.wire_preview_item.line()
+        self.wire_preview_item.setLine(QLineF(line.p1(), scene_position))
+
+    def cancel_wire_drawing(self):
+        """
+        Stop drawing and remove the rubber-band line, if any.
+
+        :returns: None
+        """
+        if (self.wire_preview_item is not None and
+                not sip.isdeleted(self.wire_preview_item) and
+                self.wire_preview_item.scene() is self):
+            self.removeItem(self.wire_preview_item)
+
+        self.wire_preview_item = None
+        self.wire_start_identifier = None
+
+    def finish_wire_drawing(self, scene_position):
+        """
+        Add a wire from the start point to the grid point under the mouse.
+
+        Releasing on the start point (a click) cancels quietly. Releasing
+        away from any grid point, or a wire the collection refuses, emits
+        wire_refused with the reason.
+
+        :param scene_position: Release position in scene coordinates.
+        :type scene_position: QPointF
+        :returns: None
+        """
+        start_identifier = self.wire_start_identifier
+        self.cancel_wire_drawing()
+
+        if start_identifier is None or self.wire_collection is None:
+            return
+
+        end_identifier = self.find_grid_point_near(scene_position)
+
+        if end_identifier == start_identifier:
+            return
+
+        if end_identifier is None:
+            self.wire_refused.emit(
+                f"release on a grid point to finish the wire from "
+                f"{start_identifier}."
+            )
+            return
+
+        try:
+            wire = self.wire_collection.add_wire(
+                start_identifier,
+                end_identifier,
+                self.connection_grid
+            )
+        except ComponentError as error:
+            self.wire_refused.emit(str(error))
+            return
+
+        self.rebuild_wire_items()
+        self.wire_added.emit(wire.reference)
+
+    def mousePressEvent(self, event):
+        """
+        In Wire mode, a left press on a grid point starts a wire.
+
+        Every other press (and any press out of Wire mode) goes to the
+        items as usual: select, rubber-band select or drag a part.
+
+        :param event: Scene mouse event.
+        :type event: QGraphicsSceneMouseEvent
+        :returns: None
+        """
+        if self.is_wire_mode and event.button() == Qt.LeftButton:
+            identifier = self.find_grid_point_near(event.scenePos())
+
+            if identifier is not None:
+                self.start_wire_drawing(identifier)
+                event.accept()
+                return
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """
+        Stretch the rubber-band line while a wire is being drawn.
+        """
+        if self.wire_start_identifier is not None:
+            self.update_wire_drawing(event.scenePos())
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """
+        Finish a wire on left release.
+        """
+        if (self.wire_start_identifier is not None and
+                event.button() == Qt.LeftButton):
+            self.finish_wire_drawing(event.scenePos())
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+
+    def check_component_drop(self, reference, anchor_position):
+        """
+        Say whether dropping a dragged part here would be refused.
+
+        :param reference: Part being dragged.
+        :type reference: str
+        :param anchor_position: Current anchor position, scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None if the drop would be accepted (or puts the part
+            back on its own point), otherwise the reason.
+        :rtype: str or None
+        """
+        if self.component_collection is None:
+            return None
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            return None
+
+        return self.component_collection.check_move(
+            reference, row_number, column_number, self.connection_grid
+        )
+
+    def keyPressEvent(self, event):
+        """
+        Esc cancels a part drag or a wire being drawn.
+
+        Other keys go to the items as usual.
+
+        :param event: Key event.
+        :type event: QKeyEvent
+        :returns: None
+        """
+        if event.key() == Qt.Key_Escape:
+            grabber = self.mouseGrabberItem()
+
+            if isinstance(grabber, ComponentItem) and grabber.is_dragging:
+                grabber.cancel_drag()
+                event.accept()
+                return
+
+            if self.wire_start_identifier is not None:
+                self.cancel_wire_drawing()
+                event.accept()
+                return
+
+        super().keyPressEvent(event)
+
+    def handle_component_drop(self, reference, anchor_position):
+        """
+        Finish a part drag: snap to the nearest grid point, or put it back.
+
+        The move goes through ComponentCollection.move_component, which
+        refuses off-grid and overlapping moves. Dropping on the part's own
+        grid point just puts it back, with no signal.
+
+        :param reference: Part that was dragged.
+        :type reference: str
+        :param anchor_position: Where the part's anchor was dropped, in
+            scene coordinates.
+        :type anchor_position: QPointF
+        :returns: None
+        """
+        if self.component_collection is None:
+            return
+
+        row_number, column_number = scene_position_to_grid_point(
+            anchor_position
+        )
+        component = self.component_collection.get_component(reference)
+
+        if (row_number, column_number) == (
+                component.row_number, component.column_number):
+            self.refresh_component(reference)
+            return
+
+        try:
+            self.component_collection.move_component(
+                reference,
+                row_number,
+                column_number,
+                self.connection_grid
+            )
+        except ComponentError as error:
+            # refresh_component puts the item back at the model position.
+            self.refresh_component(reference)
+            self.component_move_refused.emit(reference, str(error))
+            return
+
+        self.refresh_component(reference)
+        self.component_moved.emit(reference)
 
     def layout_component_labels(self):
         """
@@ -518,6 +1014,11 @@ class ConnectionGridScene(QGraphicsScene):
         """
         selected_connection_point = None
         selected_component = None
+        selected_wire_references = [
+            selected_item.wire.reference
+            for selected_item in self.selectedItems()
+            if isinstance(selected_item, WireItem)
+        ]
 
         for selected_item in self.selectedItems():
             if isinstance(selected_item, ConnectionPointItem):
@@ -533,6 +1034,7 @@ class ConnectionGridScene(QGraphicsScene):
 
         self.connection_point_selected.emit(selected_connection_point)
         self.component_selected.emit(selected_component)
+        self.wires_selected.emit(selected_wire_references)
 
     def drawBackground(self, painter, rectangle):
         """
@@ -587,14 +1089,20 @@ class ConnectionGridView(QGraphicsView):
     """
     Interactive view for the connection-grid scene.
 
-    Ctrl+mouse-wheel zoom is available for large grids. Standard scrollbars
-    allow navigation without introducing platform-specific mouse handling.
+    The mouse wheel zooms around the point under the cursor, with or without
+    Ctrl; Shift+wheel keeps Qt's normal scrolling. Zoom In, Zoom Out and
+    Zoom to Fit work around the middle of the view. Every zoom is kept
+    between MINIMUM_ZOOM and MAXIMUM_ZOOM (1.0 shows a grid step as 60
+    pixels). Dragging with the middle mouse button pans the view in every
+    mode; scrollbars stay available as well.
 
     :param connection_grid_scene: Scene shown by the view.
     :type connection_grid_scene: ConnectionGridScene
     :param parent: Optional Qt parent object.
     :type parent: QWidget or None
     """
+
+    zoom_changed = pyqtSignal(float)
 
     def __init__(self, connection_grid_scene, parent=None):
         super(ConnectionGridView, self).__init__(
@@ -604,37 +1112,256 @@ class ConnectionGridView(QGraphicsView):
 
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(self.RubberBandDrag)
-        self.setTransformationAnchor(self.AnchorUnderMouse)
+        # Zooms place the anchor point themselves (see zoom_by).
+        self.setTransformationAnchor(self.NoAnchor)
+        self.setResizeAnchor(self.AnchorViewCenter)
+        self.pan_start_position = None
+        self.cursor_before_pan = None
+        connection_grid_scene.sceneRectChanged.connect(
+            self.update_scroll_area
+        )
+        self.update_scroll_area()
+
+    def update_scroll_area(self, *_unused):
+        """
+        Let the view scroll one full viewport past every edge of the scene.
+
+        Without this margin Qt centres a scene smaller than the view and
+        a zoom could not keep the point under the cursor still. Half a
+        viewport was not enough: zooming out near the scene edge hit the
+        scroll limit (QC #15). Called when
+        the scene grows, the zoom changes or the view is resized.
+
+        :returns: None
+        """
+        zoom = self.get_zoom()
+        margin_x = self.viewport().width() / zoom
+        margin_y = self.viewport().height() / zoom
+        self.setSceneRect(
+            self.scene().sceneRect().adjusted(
+                -margin_x, -margin_y, margin_x, margin_y
+            )
+        )
+
+    def resizeEvent(self, event):
+        """
+        Keep the scroll margin at one full new viewport size.
+
+        :param event: Resize event.
+        :type event: QResizeEvent
+        :returns: None
+        """
+        super().resizeEvent(event)
+        self.update_scroll_area()
+
+    def get_zoom(self):
+        """
+        Return the current zoom factor (1.0 = 60 pixels per grid step).
+
+        :returns: Zoom factor.
+        :rtype: float
+        """
+        return self.transform().m11()
+
+    @staticmethod
+    def clamp_zoom(zoom):
+        """
+        Keep a zoom factor between MINIMUM_ZOOM and MAXIMUM_ZOOM.
+
+        :param zoom: Wanted zoom factor.
+        :type zoom: float
+        :returns: The nearest allowed zoom factor.
+        :rtype: float
+        """
+        return min(MAXIMUM_ZOOM, max(MINIMUM_ZOOM, zoom))
+
+    def can_zoom_in(self):
+        """
+        :returns: True when the view is below MAXIMUM_ZOOM.
+        :rtype: bool
+        """
+        return self.get_zoom() < MAXIMUM_ZOOM - ZOOM_TOLERANCE
+
+    def can_zoom_out(self):
+        """
+        :returns: True when the view is above MINIMUM_ZOOM.
+        :rtype: bool
+        """
+        return self.get_zoom() > MINIMUM_ZOOM + ZOOM_TOLERANCE
+
+    def zoom_by(self, factor, viewport_position=None):
+        """
+        Multiply the zoom by a factor, keeping one point of the view still.
+
+        The scene point under viewport_position (the middle of the view
+        when None) stays under that position, as far as the scrollbars
+        allow. The result is clamped; nothing happens when the clamped zoom
+        equals the current one.
+
+        :param factor: Zoom multiplier, above 1 to zoom in.
+        :type factor: float
+        :param viewport_position: Anchor point in viewport coordinates.
+        :type viewport_position: QPoint or QPointF or None
+        :returns: True when the zoom changed.
+        :rtype: bool
+        """
+        current_zoom = self.get_zoom()
+        new_zoom = self.clamp_zoom(current_zoom * factor)
+
+        if abs(new_zoom - current_zoom) <= ZOOM_TOLERANCE:
+            return False
+
+        if viewport_position is None:
+            viewport_position = QPointF(self.viewport().rect().center())
+
+        viewport_position = QPointF(viewport_position)
+        anchor_scene_position = self.mapToScene(viewport_position.toPoint())
+        self.set_zoom(new_zoom)
+        self.keep_scene_point_at(anchor_scene_position, viewport_position)
+        return True
+
+    def set_zoom(self, zoom):
+        """
+        Set the zoom factor directly (clamped) and report the change.
+
+        :param zoom: Wanted zoom factor.
+        :type zoom: float
+        :returns: None
+        """
+        zoom = self.clamp_zoom(zoom)
+        self.setTransform(QTransform.fromScale(zoom, zoom))
+        self.update_scroll_area()
+        self.zoom_changed.emit(zoom)
+
+    def keep_scene_point_at(self, scene_position, viewport_position):
+        """
+        Scroll so a scene point appears at a viewport position.
+
+        :param scene_position: Scene point to move.
+        :type scene_position: QPointF
+        :param viewport_position: Where it should appear in the viewport.
+        :type viewport_position: QPointF
+        :returns: None
+        """
+        offset = self.mapFromScene(scene_position) - viewport_position.toPoint()
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() + offset.x()
+        )
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() + offset.y()
+        )
+
+    def zoom_in(self):
+        """
+        Zoom in one step around the middle of the view.
+
+        :returns: True when the zoom changed.
+        :rtype: bool
+        """
+        return self.zoom_by(ZOOM_STEP)
+
+    def zoom_out(self):
+        """
+        Zoom out one step around the middle of the view.
+
+        :returns: True when the zoom changed.
+        :rtype: bool
+        """
+        return self.zoom_by(1.0 / ZOOM_STEP)
 
     def fit_grid_in_view(self):
         """
         Fit the complete connection grid into the visible editor area.
 
+        The fitted zoom is clamped like any other zoom, so a 50 x 50 grid
+        in a small window may still need scrolling.
+
         :returns: None
         """
         scene_rectangle = self.scene().itemsBoundingRect()
 
-        if not scene_rectangle.isNull():
-            self.fitInView(
-                scene_rectangle.adjusted(-25, -25, 25, 25),
-                Qt.KeepAspectRatio
-            )
+        if scene_rectangle.isNull():
+            return
+
+        scene_rectangle = scene_rectangle.adjusted(-25, -25, 25, 25)
+        self.fitInView(scene_rectangle, Qt.KeepAspectRatio)
+        fitted_zoom = self.get_zoom()
+        self.set_zoom(fitted_zoom)
+        self.centerOn(scene_rectangle.center())
 
     def wheelEvent(self, event):
         """
-        Zoom when Ctrl is held; otherwise preserve normal scrolling.
+        Zoom around the cursor; Shift+wheel scrolls as usual.
+
+        One notch (120 eighths of a degree) is one ZOOM_STEP; touchpads
+        that send smaller deltas zoom by the matching fraction.
 
         :param event: Mouse-wheel event.
         :type event: QWheelEvent
         :returns: None
         """
-        if event.modifiers() & Qt.ControlModifier:
-            if event.angleDelta().y() > 0:
-                self.scale(1.15, 1.15)
-            else:
-                self.scale(1.0 / 1.15, 1.0 / 1.15)
+        delta = event.angleDelta().y()
 
+        if event.modifiers() & Qt.ShiftModifier or delta == 0:
+            super(ConnectionGridView, self).wheelEvent(event)
+            return
+
+        self.zoom_by(ZOOM_STEP ** (delta / 120.0), event.posF())
+        event.accept()
+
+    def mousePressEvent(self, event):
+        """
+        Start a pan on a middle-button press; other buttons work as usual.
+
+        :param event: Mouse press event.
+        :type event: QMouseEvent
+        :returns: None
+        """
+        if event.button() == Qt.MiddleButton:
+            self.pan_start_position = event.pos()
+            self.cursor_before_pan = self.viewport().cursor()
+            self.viewport().setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
 
-        super(ConnectionGridView, self).wheelEvent(event)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """
+        Pan while the middle button is held.
+
+        :param event: Mouse move event.
+        :type event: QMouseEvent
+        :returns: None
+        """
+        if self.pan_start_position is not None:
+            offset = event.pos() - self.pan_start_position
+            self.pan_start_position = event.pos()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - offset.x()
+            )
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - offset.y()
+            )
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """
+        End a middle-button pan and restore the cursor.
+
+        :param event: Mouse release event.
+        :type event: QMouseEvent
+        :returns: None
+        """
+        if (event.button() == Qt.MiddleButton and
+                self.pan_start_position is not None):
+            self.pan_start_position = None
+            self.viewport().setCursor(self.cursor_before_pan)
+            self.cursor_before_pan = None
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
