@@ -71,7 +71,7 @@ Using it
 - Placing a part: click a grid point, pick the part in the Components
   panel and press Place at Selected Point. The part appears
   see-through at that point: the arrow keys or W/A/S/D point it right,
-  down, left or up (green where it fits, red where it would clash),
+  down, left or up (cyan where it fits, red where it would clash),
   clicking another grid point moves it, Enter or a right-click places
   it, and Esc cancels.
 - Ctrl + mouse wheel zooms. View > Fit Grid fits the grid to the window.

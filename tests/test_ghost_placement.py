@@ -12,12 +12,20 @@ Error dialogs are replaced with a recorder, so no modal box opens.
 """
 
 import pytest
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
+from PyQt5.QtGui import QColor, QImage, QPainter
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from gui.component_item import PENDING_OPACITY, PENDING_Z_VALUE
+from gui.component_item import (
+    BACKGROUND_COLOR,
+    PENDING_ALLOWED_COLOR,
+    PENDING_OPACITY,
+    PENDING_Z_VALUE,
+)
 from gui.main_window import MainWindow
+from gui.wire_item import WIRE_COLOR
+from tests.view_mouse import send_mouse
 
 
 @pytest.fixture
@@ -300,7 +308,7 @@ def test_billies_cap_clicked_to_r7_c4_and_turned_down_is_placed(window):
     assert capacitor.label_text().startswith("C1 ")
 
 
-def test_turning_onto_a_free_direction_turns_it_green(window):
+def test_turning_onto_a_free_direction_marks_it_allowed(window):
     billie_layout(window)
     press(window, Qt.Key_Left)
 
@@ -355,7 +363,7 @@ def test_place_again_replaces_the_ghost_and_keeps_its_direction(window):
     assert scene(window).pending_placement.direction == "down"
 
 
-def test_deleting_the_blocking_part_turns_the_ghost_green(window):
+def test_deleting_the_blocking_part_marks_the_ghost_allowed(window):
     billie_layout(window)
     window.component_collection.remove_component("R1")
     scene(window).rebuild_component_items()
@@ -383,7 +391,7 @@ def test_a_new_grid_drops_the_ghost(window):
     assert ghost(window) is None
 
 
-def test_ghost_is_drawn_green_or_red(qt_application, window):
+def test_ghost_is_drawn_cyan_or_red(qt_application, window):
     from PyQt5.QtCore import QRectF
     from PyQt5.QtGui import QColor, QImage, QPainter
 
@@ -412,18 +420,150 @@ def test_ghost_is_drawn_green_or_red(qt_application, window):
             for name in colors
         )
 
-    def has_greenish(colors):
+    def has_cyanish(colors):
         return any(
+            # Cyan: green and blue both well above red and close to each
+            # other (the blue grid dots have blue far above green).
             QColor(name).green() > QColor(name).red() + 60 and
-            QColor(name).green() > QColor(name).blue() + 30
+            abs(QColor(name).green() - QColor(name).blue()) < 30
             for name in colors
         )
 
     colors = body_colors()
 
-    assert has_reddish(colors) and not has_greenish(colors)
+    assert has_reddish(colors) and not has_cyanish(colors)
     press(window, Qt.Key_Down)
     item = ghost(window)
     colors = body_colors()
 
-    assert has_greenish(colors) and not has_reddish(colors)
+    assert has_cyanish(colors) and not has_reddish(colors)
+
+
+# ----- QC #20 fixes -----
+
+def point_position(window, identifier):
+    return scene(window).connection_point_items_by_identifier[identifier].pos()
+
+
+def start_ghost_and_hold_a_part(window):
+    """R1 on R2 C2-C3, a resistor ghost at R6 C2, R1 held mid-drag."""
+    window.resize(1000, 800)
+    window.show()
+    QTest.qWaitForWindowExposed(window)
+    select_point(window, "NODE_R02_C02")
+    window.place_component("resistor", "1k")
+    start_ghost(window, "NODE_R06_C02", "resistor", "2k2")
+    body = QPointF(point_position(window, "NODE_R02_C02")) + QPointF(30, 0)
+    drop = QPointF(point_position(window, "NODE_R04_C02")) + QPointF(30, 0)
+    send_mouse(view(window), QEvent.MouseButtonPress, body)
+
+    for step in range(1, 6):
+        send_mouse(view(window), QEvent.MouseMove,
+                   body + (drop - body) * (step / 5), Qt.NoButton)
+
+    assert item_for(window, "R1").is_dragging is True
+
+    return drop
+
+
+def item_for(window, reference):
+    return scene(window).component_items_by_reference[reference]
+
+
+def release_at(window, drop):
+    send_mouse(view(window), QEvent.MouseButtonRelease, drop, Qt.LeftButton,
+               Qt.NoButton)
+
+
+def test_enter_during_a_part_drag_does_not_place_or_cancel_the_drag(window):
+    drop = start_ghost_and_hold_a_part(window)
+    press(window, Qt.Key_Return)
+
+    assert references(window) == ["R1"]
+    assert scene(window).pending_placement is not None
+    assert item_for(window, "R1").is_dragging is True
+    release_at(window, drop)
+
+    resistor = window.component_collection.get_component("R1")
+    assert (resistor.row_number, resistor.column_number) == (4, 2)
+    assert scene(window).pending_placement is not None
+    assert references(window) == ["R1"]
+
+
+def test_right_click_during_a_part_drag_does_not_place_or_cancel_the_drag(
+        window):
+    drop = start_ghost_and_hold_a_part(window)
+    send_mouse(view(window), QEvent.MouseButtonPress, drop, Qt.RightButton,
+               Qt.LeftButton | Qt.RightButton)
+    send_mouse(view(window), QEvent.MouseButtonRelease, drop, Qt.RightButton,
+               Qt.LeftButton)
+
+    assert references(window) == ["R1"]
+    assert item_for(window, "R1").is_dragging is True
+    release_at(window, drop)
+
+    resistor = window.component_collection.get_component("R1")
+    assert (resistor.row_number, resistor.column_number) == (4, 2)
+    assert scene(window).pending_placement is not None
+    assert references(window) == ["R1"]
+
+
+def test_direction_keys_still_turn_the_ghost_during_a_drag(window):
+    drop = start_ghost_and_hold_a_part(window)
+    press(window, Qt.Key_Down)
+
+    assert scene(window).pending_placement.direction == "down"
+    release_at(window, drop)
+
+
+def test_status_shows_the_placing_text_after_deleting_the_blocker(window):
+    billie_layout(window)
+    blocker = item_for(window, "R1")
+    scene(window).clearSelection()
+    blocker.setSelected(True)
+    window.delete_selection()
+
+    message = window.statusBar().currentMessage()
+    assert message.startswith("Deleted R1.")
+    assert "Placing C1 (Capacitor (polarized)) at NODE_R07_C03" in message
+    assert "Enter or right-click places it" in message
+
+
+def test_status_after_an_edit_without_a_ghost_is_unchanged(window):
+    select_point(window, "NODE_R04_C04")
+    window.place_component("resistor", "1k")
+
+    assert window.statusBar().currentMessage() == (
+        "Placed R1 1k at NODE_R04_C04."
+    )
+
+
+def test_fits_color_is_distinct_from_the_wire_color():
+    fits = QColor(PENDING_ALLOWED_COLOR)
+    wire = QColor(WIRE_COLOR)
+
+    assert PENDING_ALLOWED_COLOR == "#4dd0e1"
+    assert abs(fits.hue() - wire.hue()) >= 40
+
+
+def test_led_ghost_is_fully_tinted(window):
+    start_ghost(window, "NODE_R04_C04", "led")
+    ghost_item = ghost(window)
+    assert ghost_item.pending_allowed is True
+
+    # The LED body centre is (0.5, 0) steps from the anchor; this point is
+    # inside the triangle, just below the grid line through the anchor.
+    point = ghost_item.pos() + QPointF(0.42 * 60, 6)
+    rect = QRectF(point.x() - 1, point.y() - 1, 3, 3)
+    image = QImage(3, 3, QImage.Format_ARGB32)
+    image.fill(QColor(BACKGROUND_COLOR))
+    painter = QPainter(image)
+    scene(window).render(painter, QRectF(image.rect()), rect)
+    painter.end()
+    pixel = QColor(image.pixel(1, 1))
+
+    # Tinted cyan (green and blue well above red, close to each other),
+    # not the grey-white SYMBOL_COLOR fill of a dark LED.
+    assert pixel.green() > pixel.red() + 50, pixel.name()
+    assert pixel.blue() > pixel.red() + 50, pixel.name()
+    assert abs(pixel.green() - pixel.blue()) < 30, pixel.name()

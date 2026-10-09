@@ -736,7 +736,11 @@ class ConnectionGridScene(QGraphicsScene):
         """
         if (self.pending_placement is not None and
                 event.button() == Qt.RightButton):
-            self.commit_pending_placement()
+            # Mid-drag, a right press neither places the ghost nor
+            # disturbs the drag (placing would rebuild the dragged item).
+            if not self.is_part_drag_in_progress():
+                self.commit_pending_placement()
+
             event.accept()
             return
 
@@ -764,7 +768,16 @@ class ConnectionGridScene(QGraphicsScene):
     def mouseReleaseEvent(self, event):
         """
         Finish a wire on left release.
+
+        A right release while a part is held is swallowed: the held part
+        would take any release as its drop (the right press went to a
+        waiting ghost, or nowhere).
         """
+        if (event.button() == Qt.RightButton and
+                self.is_part_drag_in_progress()):
+            event.accept()
+            return
+
         if (self.wire_start_identifier is not None and
                 event.button() == Qt.LeftButton):
             self.finish_wire_drawing(event.scenePos())
@@ -883,7 +896,9 @@ class ConnectionGridScene(QGraphicsScene):
             event.accept()
 
             if action == "commit":
-                self.commit_pending_placement()
+                # Enter waits until a part drag ends, like a right press.
+                if not self.is_part_drag_in_progress():
+                    self.commit_pending_placement()
             elif action == "cancel":
                 self.cancel_pending_placement()
             else:
@@ -893,6 +908,32 @@ class ConnectionGridScene(QGraphicsScene):
             return
 
         super().keyPressEvent(event)
+
+    def is_part_drag_in_progress(self):
+        """
+        Return True while the left button holds a part (pressed or dragged).
+
+        :rtype: bool
+        """
+        grabber = self.mouseGrabberItem()
+
+        return isinstance(grabber, ComponentItem) and (
+            grabber.is_dragging or grabber.drag_start_position is not None
+        )
+
+    def get_pending_status(self):
+        """
+        Return the current "Placing ..." status text, or None.
+
+        Used by the main window to keep the text in the status bar after
+        an edit (delete, move, rotate) while a part waits.
+
+        :rtype: str or None
+        """
+        if self.pending_placement is None:
+            return None
+
+        return self.describe_pending_placement(self.pending_placement.check())
 
     def start_pending_placement(self, kind, value_text, parameter_texts,
                                 identifier):

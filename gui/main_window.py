@@ -706,6 +706,14 @@ class MainWindow(QMainWindow):
         """
         self.is_project_modified = True
         self.update_window_title()
+        pending_status = self.connection_grid_scene.get_pending_status()
+
+        if pending_status is not None:
+            # A part still waits to be placed: keep its "Placing ..." text
+            # (with the up-to-date fits / can't-go-here wording) in view.
+            self.statusBar().showMessage(f"{status_message} {pending_status}")
+            return
+
         self.statusBar().showMessage(status_message, 5000)
 
     def start_pending_placement(self, kind, value_text, parameter_texts=None):

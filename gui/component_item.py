@@ -86,10 +86,11 @@ LED_GLOW_ALPHA = 170
 # A part being dragged draws above the others.
 DRAGGED_COMPONENT_Z_VALUE = 2
 # A part waiting to be placed (a "ghost", make_pending): see-through,
-# above everything, green where it may go and red where it may not.
+# above everything, cyan where it may go and red where it may not. Cyan,
+# not green, so a ghost lying on a wire (WIRE_COLOR #7bd88f) stands out.
 PENDING_OPACITY = 0.6
 PENDING_Z_VALUE = 3
-PENDING_ALLOWED_COLOR = "#3ddc84"
+PENDING_ALLOWED_COLOR = "#4dd0e1"
 LABEL_Z_VALUE = -0.5
 # The label may move this close to the body to keep its text off a dot.
 MIN_LABEL_GAP = 2
@@ -507,8 +508,9 @@ class ComponentItem(QGraphicsItem):
 
         The ghost is see-through, drawn above every part, has no label or
         tooltip and takes no clicks or selection, so a click goes to the
-        grid point under it. It is drawn green where the part may be
-        placed and red where it would be refused.
+        grid point under it. It is drawn cyan where the part may be
+        placed and red where it would be refused, all over (an LED's
+        triangle too).
 
         :param is_allowed: True if the part may be placed here.
         :type is_allowed: bool
