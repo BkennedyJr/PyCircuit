@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self.create_actions()
         self.create_menu_bar()
         self.create_tool_bar()
-        self.create_grid_configuration_dock()
+        self.create_grid_configuration_toolbar()
         self.create_component_dock()
         self.create_selected_node_dock()
 
@@ -327,9 +327,12 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.zoom_out_action)
         main_tool_bar.addAction(self.fit_grid_action)
 
-    def create_grid_configuration_dock(self):
+    def create_grid_configuration_toolbar(self):
         """
-        Create the left-side connection-grid configuration dock.
+        Put rows, columns and Apply on their own toolbar at the top.
+
+        The bar sits on the line under the main toolbar. Enter on Apply
+        resizes the grid (see ApplyGridButton).
 
         :returns: None
         """
@@ -342,16 +345,10 @@ class MainWindow(QMainWindow):
             self.apply_grid_configuration
         )
 
-        grid_configuration_dock = QDockWidget(
-            "Grid Configuration",
-            self
-        )
-        grid_configuration_dock.setWidget(self.grid_configuration_widget)
-
-        self.addDockWidget(
-            Qt.LeftDockWidgetArea,
-            grid_configuration_dock
-        )
+        self.addToolBarBreak(Qt.TopToolBarArea)
+        self.grid_tool_bar = QToolBar("Grid", self)
+        self.grid_tool_bar.addWidget(self.grid_configuration_widget)
+        self.addToolBar(Qt.TopToolBarArea, self.grid_tool_bar)
 
     def create_component_dock(self):
         """
