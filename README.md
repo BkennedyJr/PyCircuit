@@ -16,7 +16,7 @@ Requirements
 
 - Anaconda or Miniconda
 - Python (tested on Python 3.13)
-- PyQt5 5.15, installed with pip from requirements.txt
+- PyQt5 5.15 and sympy, installed with pip from requirements.txt
 
 
 Project layout
@@ -64,7 +64,10 @@ Using it
 --------
 
 - Click a grid point to select it. The right-hand panel shows its
-  identifier (for example NODE_R03_C05), row and column.
+  identifier (for example NODE_R03_C05), row and column, and the
+  s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
+  is not a connection. Diodes and transistors have no formula. An
+  op-amp uses the ideal rule that its two inputs match.
 - Node > Toggle Signal Pickoff marks the selected point green.
 - The Grid toolbar at the top sets the rows and columns. Press Apply,
   or tab to Apply and press Enter.

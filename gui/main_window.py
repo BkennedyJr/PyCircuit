@@ -32,6 +32,7 @@ from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
 from core.project_io import load_project_file
 from core.project_io import save_project_file
+from core.node_formula import build_node_formulas
 from core.wires import WireCollection
 from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
@@ -392,6 +393,12 @@ class MainWindow(QMainWindow):
         self.selected_node_row_label = QLabel("-")
         self.selected_node_column_label = QLabel("-")
         self.selected_node_pickoff_label = QLabel("-")
+        self.selected_node_formula_label = QLabel("-")
+        self.selected_node_formula_label.setWordWrap(True)
+        self.selected_node_formula_label.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        self._node_formula_book = None
 
         self.toggle_pickoff_button = QPushButton(
             "Toggle Signal Pickoff"
@@ -416,6 +423,10 @@ class MainWindow(QMainWindow):
         selected_node_layout.addRow(
             "Signal Pickoff:",
             self.selected_node_pickoff_label
+        )
+        selected_node_layout.addRow(
+            "Formula:",
+            self.selected_node_formula_label
         )
         selected_node_layout.addRow(self.toggle_pickoff_button)
 
@@ -479,6 +490,8 @@ class MainWindow(QMainWindow):
         )
         self.select_component_by_reference(selected_component_reference)
         self.selected_connection_point_identifier = None
+        self._node_formula_book = None
+        self.refresh_selected_node_formula()
         self.is_project_modified = True
 
         self.update_window_title()
@@ -546,6 +559,7 @@ class MainWindow(QMainWindow):
             self.selected_node_row_label.setText("-")
             self.selected_node_column_label.setText("-")
             self.selected_node_pickoff_label.setText("-")
+            self.selected_node_formula_label.setText("-")
 
             self.toggle_pickoff_action.setEnabled(False)
             self.toggle_pickoff_button.setEnabled(False)
@@ -572,6 +586,32 @@ class MainWindow(QMainWindow):
 
         self.toggle_pickoff_action.setEnabled(True)
         self.toggle_pickoff_button.setEnabled(True)
+        self.refresh_selected_node_formula()
+
+    def refresh_selected_node_formula(self):
+        """
+        Show the s-domain voltage at the selected grid point.
+
+        The same formula is shared by every point on that node. A bridge
+        does not join the point it hops.
+
+        :returns: None
+        """
+        identifier = self.selected_connection_point_identifier
+
+        if identifier is None:
+            self.selected_node_formula_label.setText("-")
+            return
+
+        if self._node_formula_book is None:
+            self._node_formula_book = build_node_formulas(
+                self.component_collection.get_components(),
+                self.wire_collection
+            )
+
+        self.selected_node_formula_label.setText(
+            self._node_formula_book.text_at(identifier)
+        )
 
     def handle_component_selection(self, component):
         """
@@ -753,6 +793,8 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self.is_project_modified = True
+        self._node_formula_book = None
+        self.refresh_selected_node_formula()
         self.update_window_title()
         pending_status = self.connection_grid_scene.get_pending_status()
 
@@ -1180,7 +1222,9 @@ class MainWindow(QMainWindow):
         )
         self.wire_collection = WireCollection()
         self.selected_wire_references = []
+        self._node_formula_book = None
         self.connection_grid_scene.set_wire_collection(self.wire_collection)
+        self.refresh_selected_node_formula()
 
     def toggle_selected_signal_pickoff(self):
         """

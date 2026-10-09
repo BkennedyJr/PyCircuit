@@ -56,7 +56,7 @@ TALKING TO BILLIE
 
 ROADMAP (status)
 Done: grid, parts and symbols, values, labels, ghost placement, drag, wires,
-zoom, sources, op-amps, LED colour, tooltips.
+zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node.
 Next: netlist builder, ngspice runner, probes (Direct, 1 Mohm, 10x scope,
 Differential, Current), a dockable oscilloscope with Start/Stop, then Bode
 and FFT docks, then saving parts, wires and probes.
