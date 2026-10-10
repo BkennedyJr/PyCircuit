@@ -58,9 +58,10 @@ TALKING TO BILLIE
 ROADMAP (status)
 Done: grid, parts and symbols, values, labels, ghost placement, drag, wires,
 zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node,
-named nets (Vcc, Vss: same name, same node).
-Next: netlist builder, ngspice runner, probes (Direct, 1 Mohm, 10x scope,
-Differential, Current), a dockable oscilloscope with Start/Stop, then Bode
-and FFT docks, then saving parts, wires and probes.
+named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
+10x, differential, current) with a parameter box when the probe is not
+on a plot.
+Next: netlist builder, ngspice runner, a dockable oscilloscope with
+Start/Stop, then Bode and FFT docks, then saving parts, wires and probes.
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.

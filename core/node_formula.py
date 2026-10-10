@@ -91,11 +91,19 @@ def _exact(number):
     """
     Turn a parsed part value into an exact rational.
 
-    :param number: Value from the part, such as 10000.0 or 1e-6.
+    The slack scales with the value. A fixed 1e-9 would turn 10 pF into
+    0, and a 10x probe would then ignore its capacitor.
+
+    :param number: Value from the part, such as 10000.0 or 1e-11.
     :type number: float
     :rtype: sympy.Expr
     """
-    return sympy.nsimplify(number, rational=True, tolerance=1e-9)
+    if number == 0:
+        return sympy.Integer(0)
+
+    tolerance = abs(float(number)) * 1e-9
+
+    return sympy.nsimplify(number, rational=True, tolerance=tolerance)
 
 
 def _pin_identifier(component, pin_name):
@@ -134,6 +142,68 @@ def _format_voltage(expression):
     return f"V(s) = {text} V"
 
 
+def _format_current(expression):
+    """
+    Return the user-facing current, such as "I = 0.01 A".
+
+    :param expression: Solved part current.
+    :type expression: sympy.Expr
+    :rtype: str
+    """
+    simplified = sympy.simplify(sympy.together(expression))
+
+    if simplified.free_symbols:
+        return f"I = {sympy.sstr(simplified)} A"
+
+    number = float(simplified)
+    text = f"{number:.6f}".rstrip("0").rstrip(".")
+
+    return f"I = {text} A"
+
+
+def _validate_shunts(shunts):
+    """
+    Check probe loads before they are stamped.
+
+    :param shunts: (point, "resistor" or "capacitor", value) tuples.
+    :rtype: tuple
+    :raises ComponentError: If a load is not a positive resistor or capacitor.
+    """
+    validated = []
+
+    for shunt in shunts:
+        if not isinstance(shunt, tuple) or len(shunt) != 3:
+            raise ComponentError(
+                "A probe load must be (point, kind, value), "
+                f"not {shunt!r}."
+            )
+
+        identifier, kind, value = shunt
+
+        if not isinstance(identifier, str) or identifier == "":
+            raise ComponentError(
+                f"A probe load needs a grid point, not {identifier!r}."
+            )
+
+        if kind not in ("resistor", "capacitor"):
+            raise ComponentError(
+                "A probe load must be a resistor or a capacitor, "
+                f"not {kind!r}."
+            )
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ComponentError(
+                f"A probe load value must be a number, not {value!r}."
+            )
+
+        if value <= 0:
+            raise ComponentError("A probe load must be greater than zero.")
+
+        validated.append((identifier, kind, float(value)))
+
+    return tuple(validated)
+
+
 class NodeFormulas:
     """
     The s-domain voltage at every grid point of one circuit.
@@ -145,9 +215,13 @@ class NodeFormulas:
     :param connection_grid: Grid whose net labels join same-named points.
         None means no labels.
     :type connection_grid: ConnectionGrid or None
+    :param shunts: Loads from a point to ground. Each entry is
+        ``(identifier, "resistor" or "capacitor", value)``.
+    :type shunts: iterable of tuple
     """
 
-    def __init__(self, components, wire_collection, connection_grid=None):
+    def __init__(self, components, wire_collection, connection_grid=None,
+                 shunts=()):
         if not isinstance(wire_collection, WireCollection):
             raise ComponentError(
                 "Expected a WireCollection, not "
@@ -173,7 +247,9 @@ class NodeFormulas:
 
         self._wires = wire_collection
         self._grid = connection_grid
+        self._shunts = _validate_shunts(shunts)
         self._nets = _Nets()
+        self._current_by_reference = {}
         self._text_by_root = {}
         self._expression_by_root = {}
         self._supply_roots = set()
@@ -217,6 +293,86 @@ class NodeFormulas:
             return None
 
         return self._expression_by_root.get(self._nets.find(identifier))
+
+    def difference_text(self, first_identifier, second_identifier):
+        """
+        Return the voltage at the first point minus the voltage at the second.
+
+        :param first_identifier: Plus point of a differential probe.
+        :param second_identifier: Minus point, or None until it is chosen.
+        :rtype: str
+        """
+        if not second_identifier:
+            return "Click the other point for this differential probe."
+
+        left = self.expression_at(first_identifier)
+        right = self.expression_at(second_identifier)
+
+        if left is None or right is None:
+            for identifier in (first_identifier, second_identifier):
+                text = self.text_at(identifier)
+
+                if not text.startswith("V(s)"):
+                    return text
+
+            return _NOT_CONNECTED
+
+        return _format_voltage(sympy.simplify(left - right))
+
+    def current_text(self, component):
+        """
+        Return the current through one part.
+
+        Positive current enters a resistor at pin 1 and leaves at pin 2.
+        For a source it leaves the positive terminal. For an op-amp it
+        leaves the output pin. For a current source it leaves the out pin.
+
+        :param component: Part the probe sits on.
+        :rtype: str
+        """
+        if component.kind in _NONLINEAR_NAMES:
+            return _nonlinear_text([component])
+
+        expression = self.current_expression(component)
+
+        if expression is None:
+            identifiers = component.get_pin_identifiers()
+
+            if identifiers:
+                return self.text_at(identifiers[0])
+
+            return _NO_FORMULA
+
+        return _format_current(expression)
+
+    def current_expression(self, component):
+        """
+        Return the solved current through one part, or None.
+
+        :rtype: sympy.Expr or None
+        """
+        if component.kind in _NONLINEAR_NAMES:
+            return None
+
+        stored = self._current_by_reference.get(component.reference)
+
+        if stored is not None:
+            return stored
+
+        if component.kind not in (
+                "resistor", "capacitor", "capacitor_polarized", "inductor"):
+            return None
+
+        first_name, second_name = _passive_pins(component.kind)
+        first = self.expression_at(_pin_identifier(component, first_name))
+        second = self.expression_at(_pin_identifier(component, second_name))
+
+        if first is None or second is None:
+            return None
+
+        return sympy.simplify(
+            (first - second) * _admittance(component.kind, component.value)
+        )
 
     def _build(self):
         nonlinear = [
@@ -301,6 +457,9 @@ class NodeFormulas:
         unknowns = []
         voltage_of = {}
         currents = {}
+        branch_symbols = []
+        fixed_currents = {}
+        self._current_by_reference = {}
 
         def voltage(root):
             if root == ground_root:
@@ -336,7 +495,8 @@ class NodeFormulas:
                 output = touch(_pin_identifier(component, "out"))
                 current = sympy.Symbol(f"I_{component.reference}")
                 unknowns.append(current)
-                # The op-amp pushes this current out of its output pin.
+                # The symbol is the current pushed out of the output pin.
+                branch_symbols.append((component.reference, 1))
                 leave(output, -current)
                 equations.append(voltage(plus) - voltage(minus))
 
@@ -352,6 +512,9 @@ class NodeFormulas:
                 minus = touch(_pin_identifier(component, "minus"))
                 current = sympy.Symbol(f"I_{component.reference}")
                 unknowns.append(current)
+                # The symbol enters the source at plus. The probe reports
+                # the current leaving the positive terminal, which is minus that.
+                branch_symbols.append((component.reference, -1))
                 leave(plus, current)
                 leave(minus, -current)
                 equations.append(
@@ -364,6 +527,7 @@ class NodeFormulas:
                 minus = touch(_pin_identifier(component, "minus"))
                 current = sympy.Symbol(f"I_{component.reference}")
                 unknowns.append(current)
+                branch_symbols.append((component.reference, -1))
                 leave(plus, current)
                 leave(minus, -current)
                 source = sympy.Symbol(component.reference)
@@ -376,6 +540,7 @@ class NodeFormulas:
                 outgoing = touch(_pin_identifier(component, "out"))
                 incoming = touch(_pin_identifier(component, "in"))
                 amps = _exact(component.value)
+                fixed_currents[component.reference] = amps
                 leave(outgoing, -amps)
                 leave(incoming, amps)
                 continue
@@ -390,6 +555,10 @@ class NodeFormulas:
                 admittance = _admittance(kind, component.value)
                 leave(first, (voltage(first) - voltage(second)) * admittance)
                 leave(second, (voltage(second) - voltage(first)) * admittance)
+
+        for identifier, kind, value in self._shunts:
+            root = touch(identifier)
+            leave(root, voltage(root) * _admittance(kind, value))
 
         for identifier in supply_identifiers:
             root = self._nets.find(identifier)
@@ -408,6 +577,7 @@ class NodeFormulas:
 
         self._text_by_root[ground_root] = _format_voltage(sympy.Integer(0))
         self._expression_by_root[ground_root] = sympy.Integer(0)
+        self._current_by_reference = dict(fixed_currents)
 
         if not ordered_roots and not unknowns:
             return
@@ -430,6 +600,12 @@ class NodeFormulas:
             expression = sympy.simplify(symbol)
             self._expression_by_root[root] = expression
             self._text_by_root[root] = _format_voltage(expression)
+
+        self._current_by_reference = dict(fixed_currents)
+        branch_values = list(solved[len(ordered_roots):])
+
+        for (reference, sign), value in zip(branch_symbols, branch_values):
+            self._current_by_reference[reference] = sympy.simplify(value * sign)
 
     def _blame_stamped(self, roots, text):
         for root in roots:
@@ -473,7 +649,8 @@ def _nonlinear_text(components):
     )
 
 
-def build_node_formulas(components, wire_collection, connection_grid=None):
+def build_node_formulas(components, wire_collection, connection_grid=None,
+                         shunts=()):
     """
     Solve the s-domain voltage at each node of a circuit.
 
@@ -483,6 +660,11 @@ def build_node_formulas(components, wire_collection, connection_grid=None):
     :type wire_collection: WireCollection
     :param connection_grid: Grid whose net labels join same-named points.
     :type connection_grid: ConnectionGrid or None
+    :param shunts: Loads from a point to ground, each
+        ``(identifier, "resistor" or "capacitor", value)``.
+    :type shunts: iterable of tuple
     :rtype: NodeFormulas
     """
-    return NodeFormulas(components, wire_collection, connection_grid)
+    return NodeFormulas(
+        components, wire_collection, connection_grid, shunts
+    )

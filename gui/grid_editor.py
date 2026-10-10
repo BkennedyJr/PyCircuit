@@ -37,9 +37,11 @@ from PyQt5.QtWidgets import QGraphicsView
 
 from core.components import COMPONENT_DEFINITIONS
 from core.exceptions import ComponentError
+from core.exceptions import GridConfigurationError
 from core.placement import PendingPlacement
 from core.wires import WireNets
 from core.wires import find_junction_identifiers
+from gui.probe_item import ProbeItem
 from gui.component_item import (
     LABEL_PATCH_PADDING,
     LABEL_SIDES,
@@ -249,6 +251,14 @@ class ConnectionGridScene(QGraphicsScene):
     wire_added = pyqtSignal(str)
     wire_refused = pyqtSignal(str)
     wires_selected = pyqtSignal(object)
+    # A probe was added or moved (reference), refused (reason), or the
+    # selection changed (references, possibly empty). Esc while choosing
+    # the second point of a differential probe cancels that choice.
+    probe_added = pyqtSignal(str)
+    probe_moved = pyqtSignal(str)
+    probe_refused = pyqtSignal(str)
+    probes_selected = pyqtSignal(object)
+    differential_cancelled = pyqtSignal()
     # A part waiting to be placed (core.placement.PendingPlacement):
     # status text after each change, the reference once placed, the
     # refusal message when Enter or a right-click is refused (it stays
@@ -268,6 +278,14 @@ class ConnectionGridScene(QGraphicsScene):
         self.wire_collection = None
         self.wire_items_by_reference = {}
         self.junction_items_by_identifier = {}
+        self.probe_collection = None
+        self.probe_items = []
+        self.probe_readouts = {}
+        # Probe mode places a probe on a click. While this reference is
+        # set, the next grid click is the minus point of that differential
+        # probe instead of a new probe.
+        self.is_probe_mode = False
+        self.pending_differential_reference = None
         self.column_header_items = []
         self.row_header_items = []
 
@@ -394,10 +412,12 @@ class ConnectionGridScene(QGraphicsScene):
         self.component_items_by_reference = {}
         self.wire_items_by_reference = {}
         self.junction_items_by_identifier = {}
+        self.probe_items = []
         self.wire_start_identifier = None
         self.wire_preview_item = None
         self.rebuild_wire_items()
         self.rebuild_component_items()
+        self.rebuild_probe_items()
 
         # Clear the selected-node display after a rebuild because old item
         # references are no longer valid once the scene has been cleared.
@@ -633,6 +653,352 @@ class ConnectionGridScene(QGraphicsScene):
             # A click in Wire mode starts a wire, not a ghost move.
             self.cancel_pending_placement()
 
+    def set_probe_collection(self, probe_collection):
+        """
+        Show the probes of a collection on the grid.
+
+        :param probe_collection: Probes to display, or None for none.
+        :type probe_collection: core.probes.ProbeCollection
+        :returns: None
+        """
+        self.probe_collection = probe_collection
+        self.pending_differential_reference = None
+        self.rebuild_probe_items()
+
+    def set_probe_mode(self, is_probe_mode):
+        """
+        Switch Probe mode on or off.
+
+        Switching on cancels a part that is waiting to be placed. Switching
+        off forgets a differential probe that is still waiting for its
+        second point.
+
+        :param is_probe_mode: True to place probes by clicking.
+        :type is_probe_mode: bool
+        :returns: None
+        """
+        self.is_probe_mode = bool(is_probe_mode)
+
+        if self.is_probe_mode:
+            if self.pending_placement is not None:
+                self.cancel_pending_placement()
+        else:
+            self.pending_differential_reference = None
+
+    def rebuild_probe_items(self):
+        """
+        Replace every probe flag with fresh ones from the collection.
+
+        :returns: None
+        """
+        for probe_item in self.probe_items:
+            if not sip.isdeleted(probe_item) and probe_item.scene() is self:
+                self.removeItem(probe_item)
+
+        self.probe_items = []
+
+        if self.probe_collection is None or self.connection_grid is None:
+            return
+
+        slots = {}
+
+        for probe in self.probe_collection.get_probes():
+            if probe.method == "current":
+                anchor = self._current_probe_anchor(probe)
+
+                if anchor is None:
+                    continue
+
+                self._add_probe_item(probe, "primary", anchor, slots)
+                continue
+
+            if probe.identifier:
+                self._add_probe_item(
+                    probe, "primary", self._identifier_point(probe.identifier),
+                    slots
+                )
+
+            if probe.second_identifier:
+                self._add_probe_item(
+                    probe, "second",
+                    self._identifier_point(probe.second_identifier),
+                    slots
+                )
+
+    def finish_probe_drag(self, probe_item, scene_position):
+        """
+        Snap a dragged flag to the point or part under the cursor.
+
+        A miss puts the flag back where it was.
+
+        :param probe_item: Flag that was dragged.
+        :type probe_item: gui.probe_item.ProbeItem
+        :param scene_position: Cursor position when the button was released.
+        :type scene_position: QPointF
+        :returns: None
+        """
+        probe = probe_item.probe
+
+        try:
+            if probe.method == "current" and probe_item.role == "primary":
+                component = self._component_for_probe_drop(scene_position)
+
+                if component is None:
+                    raise ComponentError("Drop the current probe on a part.")
+
+                self.probe_collection.move_current(probe.reference, component)
+            else:
+                identifier = self.find_grid_point_near(scene_position)
+
+                if identifier is None:
+                    raise ComponentError("Drop the probe on a grid point.")
+
+                which = "second" if probe_item.role == "second" else "primary"
+                self.probe_collection.move_point(
+                    probe.reference,
+                    identifier,
+                    self.connection_grid,
+                    which
+                )
+        except ComponentError as error:
+            self.rebuild_probe_items()
+            self.probe_refused.emit(str(error))
+            return
+
+        self.rebuild_probe_items()
+        self.select_probe(probe.reference)
+        self.probe_moved.emit(probe.reference)
+
+    def select_probe(self, reference):
+        """
+        Select the flags of one probe.
+
+        :param reference: Probe reference, such as ``P1``.
+        :type reference: str
+        :returns: None
+        """
+        self.clearSelection()
+
+        for probe_item in self.probe_items:
+            if probe_item.probe.reference == reference:
+                probe_item.setSelected(True)
+
+    def _add_probe_item(self, probe, role, point, slots):
+        """
+        Add one flag at a grid point.
+
+        :param point: ``(row, column)`` or None when the point is gone.
+        :returns: None
+        """
+        if point is None:
+            return
+
+        slot = slots.get(point, 0)
+        slots[point] = slot + 1
+        probe_item = ProbeItem(probe, role, slot)
+
+        if role == "primary":
+            probe_item.set_readout(
+                self.probe_readouts.get(probe.reference, ())
+            )
+
+        probe_item.setPos(grid_point_to_scene_position(*point))
+        self.addItem(probe_item)
+        self.probe_items.append(probe_item)
+
+    def set_probe_readouts(self, lines_by_reference):
+        """
+        Show a parameter box on each probe that has meter lines.
+
+        A probe with no lines (not ready, or drawn on a plot) keeps its
+        flag and hides the box.
+
+        :param lines_by_reference: Probe reference to ``(label, value)``
+            pairs.
+        :returns: None
+        """
+        self.probe_readouts = {
+            reference: tuple(tuple(line) for line in lines)
+            for reference, lines in lines_by_reference.items()
+        }
+
+        for probe_item in self.probe_items:
+            if probe_item.role != "primary":
+                continue
+
+            probe_item.set_readout(
+                self.probe_readouts.get(probe_item.probe.reference, ())
+            )
+
+    def _identifier_point(self, identifier):
+        """
+        Return ``(row, column)`` for a point that is still on the grid.
+
+        :rtype: tuple or None
+        """
+        try:
+            connection_point = self.connection_grid.get_connection_point(
+                identifier
+            )
+        except GridConfigurationError:
+            return None
+
+        return (connection_point.row_number, connection_point.column_number)
+
+    def _current_probe_anchor(self, probe):
+        """
+        Return the anchor ``(row, column)`` of a current probe's part.
+
+        :rtype: tuple or None
+        """
+        if self.component_collection is None or not probe.component_reference:
+            return None
+
+        try:
+            component = self.component_collection.get_component(
+                probe.component_reference
+            )
+        except ComponentError:
+            return None
+
+        return (component.row_number, component.column_number)
+
+    def _component_at(self, scene_position):
+        """
+        Return the part drawn under a scene position, or None.
+
+        :rtype: core.components.Component or None
+        """
+        for item in self.items(scene_position):
+            if isinstance(item, ComponentItem):
+                return item.component
+
+        return None
+
+    def _component_for_probe_drop(self, scene_position):
+        """
+        Return the part a current probe was dropped on.
+
+        A drop on a grid point that holds exactly one part uses that part.
+
+        :rtype: core.components.Component or None
+        """
+        component = self._component_at(scene_position)
+
+        if component is not None:
+            return component
+
+        identifier = self.find_grid_point_near(scene_position)
+
+        if identifier is None or self.component_collection is None:
+            return None
+
+        matches = [
+            part for part in self.component_collection.get_components()
+            if identifier in part.get_pin_identifiers()
+        ]
+
+        if len(matches) == 1:
+            return matches[0]
+
+        return None
+
+    def _probe_item_at(self, scene_position):
+        """
+        Return the probe flag under a scene position, or None.
+
+        :rtype: gui.probe_item.ProbeItem or None
+        """
+        for item in self.items(scene_position):
+            if isinstance(item, ProbeItem):
+                return item
+
+        return None
+
+    def _place_probe_at(self, scene_position):
+        """
+        Place or extend a probe from a click in Probe mode.
+
+        :returns: None
+        """
+        if self.probe_collection is None:
+            return
+
+        if self.pending_differential_reference:
+            identifier = self.find_grid_point_near(scene_position)
+
+            if identifier is None:
+                self.probe_refused.emit(
+                    "Click a grid point for the other end of the "
+                    "differential probe."
+                )
+                return
+
+            try:
+                self.probe_collection.set_second_point(
+                    self.pending_differential_reference,
+                    identifier,
+                    self.connection_grid
+                )
+            except ComponentError as error:
+                self.probe_refused.emit(str(error))
+                return
+
+            reference = self.pending_differential_reference
+            self.pending_differential_reference = None
+            self.rebuild_probe_items()
+            self.select_probe(reference)
+            self.probe_moved.emit(reference)
+            return
+
+        component = self._component_at(scene_position)
+        identifier = self.find_grid_point_near(scene_position)
+
+        # A click on a part that is not also a bare grid point places a
+        # current probe. A click on a grid point places a Direct probe.
+        # The part wins when the cursor is on the body rather than a pin
+        # dot; a pin dot is a grid point and stays a voltage probe.
+        if component is not None and identifier is None:
+            existing = self.probe_collection.current_probe_for(
+                component.reference
+            )
+
+            if existing is not None:
+                self.select_probe(existing.reference)
+                return
+
+            try:
+                probe = self.probe_collection.add_current(component)
+            except ComponentError as error:
+                self.probe_refused.emit(str(error))
+                return
+
+            self.rebuild_probe_items()
+            self.select_probe(probe.reference)
+            self.probe_added.emit(probe.reference)
+            return
+
+        if identifier is None:
+            return
+
+        existing = self.probe_collection.voltage_probe_at(identifier)
+
+        if existing is not None:
+            self.select_probe(existing.reference)
+            return
+
+        try:
+            probe = self.probe_collection.add_voltage(
+                identifier, self.connection_grid
+            )
+        except ComponentError as error:
+            self.probe_refused.emit(str(error))
+            return
+
+        self.rebuild_probe_items()
+        self.select_probe(probe.reference)
+        self.probe_added.emit(probe.reference)
+
     def find_grid_point_near(self, scene_position):
         """
         Return the identifier of the grid point within WIRE_SNAP_DISTANCE.
@@ -831,6 +1197,12 @@ class ConnectionGridScene(QGraphicsScene):
             event.accept()
             return
 
+        if (self.is_probe_mode and event.button() == Qt.LeftButton and
+                self._probe_item_at(event.scenePos()) is None):
+            self._place_probe_at(event.scenePos())
+            event.accept()
+            return
+
         if self.is_wire_mode and event.button() == Qt.LeftButton:
             identifier = self.find_grid_point_near(event.scenePos())
 
@@ -974,6 +1346,12 @@ class ConnectionGridScene(QGraphicsScene):
 
             if self.wire_start_identifier is not None:
                 self.cancel_wire_drawing()
+                event.accept()
+                return
+
+            if self.pending_differential_reference is not None:
+                self.pending_differential_reference = None
+                self.differential_cancelled.emit()
                 event.accept()
                 return
 
@@ -1445,9 +1823,19 @@ class ConnectionGridScene(QGraphicsScene):
                 selected_component = selected_item.component
                 break
 
+        selected_probe_references = []
+
+        for selected_item in self.selectedItems():
+            if isinstance(selected_item, ProbeItem):
+                reference = selected_item.probe.reference
+
+                if reference not in selected_probe_references:
+                    selected_probe_references.append(reference)
+
         self.connection_point_selected.emit(selected_connection_point)
         self.component_selected.emit(selected_component)
         self.wires_selected.emit(selected_wire_references)
+        self.probes_selected.emit(selected_probe_references)
 
     def drawBackground(self, painter, rectangle):
         """
@@ -1821,13 +2209,20 @@ class ConnectionGridView(QGraphicsView):
         """
         scene = self.scene()
 
-        if scene is not None and getattr(scene, "is_wire_mode", False):
+        if scene is not None and (
+                getattr(scene, "is_wire_mode", False) or
+                getattr(scene, "is_probe_mode", False)):
             return True
 
         if event.modifiers() & Qt.ShiftModifier:
             return True
 
-        return self.is_draggable_part(self.itemAt(event.pos()))
+        item = self.itemAt(event.pos())
+
+        if isinstance(item, ProbeItem):
+            return True
+
+        return self.is_draggable_part(item)
 
     def is_draggable_part(self, item):
         """
