@@ -60,8 +60,8 @@ Done: grid, parts and symbols, values, labels, ghost placement, drag, wires,
 zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node,
 named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
 10x, differential, current) with a parameter box when the probe is not
-on a plot.
+on a plot, save and load of the whole circuit, print.
 Next: netlist builder, ngspice runner, a dockable oscilloscope with
-Start/Stop, then Bode and FFT docks, then saving parts, wires and probes.
+Start/Stop, then Bode and FFT docks.
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.

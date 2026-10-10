@@ -472,12 +472,11 @@ def test_open_project_clears_the_parts(window, monkeypatch, tmp_path):
     assert window.connection_grid_scene.component_items_by_reference == {}
 
 
-def test_saving_with_parts_warns_they_are_not_stored(window, tmp_path):
+def test_saving_with_parts_reports_the_file(window, tmp_path):
     place(window, "NODE_R02_C02", "resistor", "1k")
     assert window.save_project_to_path(tmp_path / "a.pycircuit") is True
     assert window.statusBar().currentMessage() == (
-        "Saved project 'a.pycircuit'. Note: parts are not saved to project "
-        "files yet and will not be there when the project is opened again."
+        "Saved project 'a.pycircuit'."
     )
 
 

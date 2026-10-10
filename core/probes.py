@@ -81,6 +81,30 @@ class Probe:
         self.component_reference = component_reference
         self.has_plot = False
 
+    def to_dict(self):
+        """
+        Return this probe as JSON-ready data.
+
+        A plot is not saved: opening the file shows the parameter box again.
+
+        :rtype: dict
+        """
+        data = {
+            "reference": self.reference,
+            "method": self.method,
+            "color": self.color,
+        }
+
+        if self.method == "current":
+            data["part"] = self.component_reference
+        else:
+            data["point"] = self.identifier
+
+            if self.second_identifier:
+                data["second_point"] = self.second_identifier
+
+        return data
+
 
 class ProbeCollection:
     """
@@ -177,6 +201,96 @@ class ProbeCollection:
             _color_for(reference),
             component_reference=component.reference
         )
+        self.probes_by_reference[reference] = probe
+
+        return probe
+
+    def place_saved(self, reference, method, color, connection_grid,
+                    identifier=None, second_identifier=None,
+                    component_reference=None, components=()):
+        """
+        Put a probe from a project file onto the circuit, keeping its name.
+
+        :rtype: Probe
+        :raises ComponentError: If the probe is invalid or the name is
+            already used. Nothing is stored then.
+        """
+        if reference in self.probes_by_reference:
+            raise ComponentError(
+                f"{reference} is already on this circuit."
+            )
+
+        if not _valid_probe_reference(reference):
+            raise ComponentError(
+                f"Probe reference {reference!r} is not valid. Use P "
+                "followed by a number, for example P1."
+            )
+
+        if method not in PROBE_METHODS:
+            raise ComponentError(
+                f"{method!r} is not a probe method. Choose Direct, "
+                "1 Mohm, 10x scope, Differential or Current."
+            )
+
+        if not _valid_probe_color(color):
+            raise ComponentError(
+                f"Probe colour {color!r} is not valid. Use a colour such "
+                "as #ff6b6b."
+            )
+
+        if method == "current":
+            if identifier or second_identifier:
+                raise ComponentError(
+                    f"{reference} measures current, so it sits on a part, "
+                    "not a grid point."
+                )
+
+            component = _component_by_reference(
+                components, component_reference
+            )
+            existing = self.current_probe_for(component.reference)
+
+            if existing is not None:
+                raise ComponentError(
+                    f"{component.reference} already has current probe "
+                    f"{existing.reference}."
+                )
+
+            probe = Probe(
+                reference,
+                "current",
+                color,
+                component_reference=component.reference
+            )
+        else:
+            if component_reference:
+                raise ComponentError(
+                    f"{reference} measures a point, not a part's current."
+                )
+
+            _require_point(identifier, connection_grid)
+
+            if method == "differential" and second_identifier:
+                _require_point(second_identifier, connection_grid)
+
+                if second_identifier == identifier:
+                    raise ComponentError(
+                        "The two points of a differential probe must be "
+                        "different."
+                    )
+            elif second_identifier:
+                raise ComponentError(
+                    f"{reference} is not differential, so it has one point."
+                )
+
+            probe = Probe(
+                reference,
+                method,
+                color,
+                identifier=identifier,
+                second_identifier=second_identifier
+            )
+
         self.probes_by_reference[reference] = probe
 
         return probe
@@ -910,6 +1024,32 @@ def _color_for(reference):
     number = int(reference[len(PROBE_REFERENCE_PREFIX):])
 
     return PROBE_COLORS[(number - 1) % len(PROBE_COLORS)]
+
+
+def _valid_probe_reference(reference):
+    """
+    Return whether ``reference`` is P1, P2, P10 and not P0 or P01.
+
+    :rtype: bool
+    """
+    if not isinstance(reference, str) or not reference.startswith("P"):
+        return False
+
+    number = reference[1:]
+
+    return number.isdigit() and not number.startswith("0")
+
+
+def _valid_probe_color(color):
+    """
+    Return whether ``color`` is a ``#`` RGB colour such as ``#ff6b6b``.
+
+    :rtype: bool
+    """
+    if not isinstance(color, str) or len(color) != 7 or color[0] != "#":
+        return False
+
+    return all(character in "0123456789abcdefABCDEF" for character in color[1:])
 
 
 def _probe_sort_key(reference):

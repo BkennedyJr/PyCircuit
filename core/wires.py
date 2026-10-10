@@ -322,6 +322,19 @@ class Wire:
 
         return text
 
+    def to_dict(self):
+        """
+        Return this wire as JSON-ready data.
+
+        :rtype: dict
+        """
+        return {
+            "reference": self.reference,
+            "start": self.start_identifier,
+            "end": self.end_identifier,
+            "bridged": list(self.bridged_identifiers),
+        }
+
 
 def _wire_sort_key(reference):
     """
@@ -400,6 +413,41 @@ class WireCollection:
             self.next_reference(), start_point, end_point, bridged_points
         )
         self.wires_by_reference[wire.reference] = wire
+
+        return wire
+
+    def place_saved(self, reference, start_identifier, end_identifier,
+                    connection_grid, bridged_identifiers=()):
+        """
+        Put a wire from a project file onto the circuit, keeping its name.
+
+        :param reference: Saved reference, such as ``W1``.
+        :rtype: Wire
+        :raises ComponentError: If the wire is invalid or the name is
+            already used. Nothing is stored then.
+        """
+        if reference in self.wires_by_reference:
+            raise ComponentError(
+                f"{reference} is already on this circuit."
+            )
+
+        _validate_connection_grid(connection_grid)
+        start_point = self.get_grid_point(start_identifier, connection_grid)
+        end_point = self.get_grid_point(end_identifier, connection_grid)
+        self.refuse_duplicate(start_point, end_point)
+
+        if isinstance(bridged_identifiers, str):
+            raise ComponentError(
+                f"Bridged points {bridged_identifiers!r} must be grid "
+                "points between the wire's ends."
+            )
+
+        bridged_points = [
+            self.get_grid_point(identifier, connection_grid)
+            for identifier in bridged_identifiers
+        ]
+        wire = Wire(reference, start_point, end_point, bridged_points)
+        self.wires_by_reference[reference] = wire
 
         return wire
 
