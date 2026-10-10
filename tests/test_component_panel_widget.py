@@ -35,7 +35,7 @@ def recorder(signal):
 def test_combo_lists_all_14_kinds_in_definition_order(panel):
     combo = panel.kind_combo_box
 
-    assert combo.count() == len(COMPONENT_DEFINITIONS) == 14
+    assert combo.count() == len(COMPONENT_DEFINITIONS) == 28
     assert [combo.itemData(index) for index in range(combo.count())] == (
         list(COMPONENT_DEFINITIONS)
     )
@@ -79,7 +79,9 @@ def test_every_kind_fills_its_default_value(panel, kind):
     assert panel.value_line_edit.text() == (
         COMPONENT_DEFINITIONS[kind]["default_value_text"]
     )
-    assert panel.value_line_edit.isEnabled() == (kind != "ground")
+    assert panel.value_line_edit.isEnabled() == (
+        COMPONENT_DEFINITIONS[kind]["value_kind"] != "none"
+    )
 
 
 def test_ground_has_no_value_and_switching_back_re_enables(panel):

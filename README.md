@@ -66,8 +66,11 @@ Using it
 - Click a grid point to select it. The right-hand panel shows its
   identifier (for example NODE_R03_C05), row and column, and the
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
-  is not a connection. Diodes and transistors have no formula. An
-  op-amp uses the ideal rule that its two inputs match.
+  is not a connection. Diodes, transistors and logic gates have no
+  formula. An op-amp uses the ideal rule that its two inputs match.
+  The part list also has an LM358, a TL072, an NE5532, a comparator,
+  the standard gates, a voltage follower, and inverting and
+  non-inverting amplifiers (the gain is the value).
 - Probe Mode (Component menu, toolbar, or P): click a grid point to
   place a probe, or click a part to measure its current. The Probe
   panel sets the method: Direct (no load), 1 Mohm to ground, 10x scope

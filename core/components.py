@@ -3,10 +3,10 @@ Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
 DC and AC voltage sources, a DC current source, diodes, transistors,
-op-amps and ground), their connection pins, and the Component class that
-holds one placed part. It contains no PyQt5 imports so
-the same objects can be used by the GUI label, the later SPICE netlist
-builder, and the solver.
+op-amps, a comparator, logic gates, a few small amplifier blocks and
+ground), their connection pins, and the Component class that holds one
+placed part. It contains no PyQt5 imports so the same objects can be
+used by the GUI label, the later SPICE netlist builder, and the solver.
 
 Pin offsets are measured in grid steps from the part's anchor grid point.
 ``dx`` is the column offset and ``dy`` is the row offset; a positive ``dy``
@@ -18,11 +18,13 @@ them. ``body_center_half_steps`` gives the body centre from the anchor in
 half grid steps (so it stays a whole number that rotate_offset accepts):
 (1, 0) is half a step to the right. Transistors keep their anchor at the
 body centre with three pins around it; ground's single pin is its anchor.
-Op-amps are a triangle centred on their anchor (pointing right at
-rotation 0): in- at (-1, -1) and in+ at (-1, 1) on the left, out at (1, 0)
-on the right, V+ at (0, -1) above and V- at (0, 1) below. They use the
-SPICE prefix X (a subcircuit); the value names the subcircuit model in
-core.subcircuit_models.
+Op-amps, the comparator and the logic gates are centred on their anchor
+and point right at rotation 0. An op-amp has in- at (-1, -1) and in+ at
+(-1, 1) on the left, out at (1, 0), V+ above and V- below. A two-input
+gate uses that same footprint with A, B, Y, VCC and GND. A NOT gate, a
+buffer gate and the amplifier blocks have one input at (-1, 0). Op-amps,
+the comparator and the gates use the SPICE prefix X; the amplifier
+blocks use A. The subcircuit text lives in core.subcircuit_models.
 
 Besides the main value, a kind may define extra numeric ``parameters``,
 for example the AC source's frequency. Each has a name, a unit, a value
@@ -72,8 +74,53 @@ OPAMP_COVERED_HALF_STEPS = [
     (-1, -1), (-1, 1), (-1, -2), (-1, 2),
 ]
 
+_OPAMP_PINS = [
+    ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
+    ("V+", 0, -1), ("V-", 0, 1),
+]
+_GATE_PINS = [
+    ("A", -1, -1), ("B", -1, 1), ("Y", 1, 0),
+    ("VCC", 0, -1), ("GND", 0, 1),
+]
+_SINGLE_INPUT_PINS = [
+    ("A", -1, 0), ("Y", 1, 0), ("VCC", 0, -1), ("GND", 0, 1),
+]
+_AMP_PINS = [
+    ("in", -1, 0), ("out", 1, 0), ("V+", 0, -1), ("V-", 0, 1),
+]
+_SUPPLY_PIN_NAMES = ("V+", "V-", "VCC", "GND")
+
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def _integrated(display_name, prefix, pins, default_value, **extra):
+    """
+    One multi-pin part centred on its anchor.
+
+    The body covers the same half-steps as an op-amp, so two of these
+    symbols cannot be drawn on top of each other. Supply pins are left
+    out of the label placement.
+
+    :returns: Definition dictionary for COMPONENT_DEFINITIONS.
+    :rtype: dict
+    """
+    definition = {
+        "display_name": display_name,
+        "prefix": prefix,
+        "pins": [tuple(pin) for pin in pins],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
+        "label_ignores_pins": tuple(
+            name for name, _dx, _dy in pins if name in _SUPPLY_PIN_NAMES
+        ),
+        "value_kind": "model",
+        "default_value_text": default_value,
+    }
+    definition.update(extra)
+
+    return definition
+
 
 COMPONENT_DEFINITIONS = {
     "resistor": {
@@ -228,36 +275,66 @@ COMPONENT_DEFINITIONS = {
         "value_kind": "model",
         "default_value_text": "2N3906",
     },
-    "opamp_generic": {
-        "display_name": "Op-amp (generic)",
-        "prefix": "X",
-        "pins": [
-            ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
-            ("V+", 0, -1), ("V-", 0, 1),
-        ],
-        "body_center_half_steps": (0, 0),
-        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
-        # The supply leads are short and usually go straight to a rail;
-        # the label side is chosen from the signal pins only.
-        "label_ignores_pins": ("V+", "V-"),
-        "value_kind": "model",
-        "default_value_text": "OPAMP",
-    },
-    "opamp_741": {
-        "display_name": "Op-amp (741)",
-        "prefix": "X",
-        "pins": [
-            ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
-            ("V+", 0, -1), ("V-", 0, 1),
-        ],
-        "body_center_half_steps": (0, 0),
-        "covered_half_steps": OPAMP_COVERED_HALF_STEPS,
-        # The supply leads are short and usually go straight to a rail;
-        # the label side is chosen from the signal pins only.
-        "label_ignores_pins": ("V+", "V-"),
-        "value_kind": "model",
-        "default_value_text": "LM741",
-    },
+    "opamp_generic": _integrated(
+        "Op-amp (generic)", "X", _OPAMP_PINS, "OPAMP", formula="ideal_opamp"
+    ),
+    "opamp_741": _integrated(
+        "Op-amp (741)", "X", _OPAMP_PINS, "LM741", formula="ideal_opamp"
+    ),
+    "opamp_lm358": _integrated(
+        "Op-amp (LM358)", "X", _OPAMP_PINS, "LM358", formula="ideal_opamp"
+    ),
+    "opamp_tl072": _integrated(
+        "Op-amp (TL072)", "X", _OPAMP_PINS, "TL072", formula="ideal_opamp"
+    ),
+    "opamp_ne5532": _integrated(
+        "Op-amp (NE5532)", "X", _OPAMP_PINS, "NE5532", formula="ideal_opamp"
+    ),
+    "comparator": _integrated(
+        "Comparator", "X", _OPAMP_PINS, "COMP", nonlinear_name="comparator"
+    ),
+    "gate_not": _integrated(
+        "NOT gate", "X", _SINGLE_INPUT_PINS, "NOT",
+        nonlinear_name="NOT gate"
+    ),
+    "gate_buffer": _integrated(
+        "Buffer gate", "X", _SINGLE_INPUT_PINS, "BUF",
+        nonlinear_name="buffer gate"
+    ),
+    "gate_and": _integrated(
+        "AND gate", "X", _GATE_PINS, "AND2",
+        nonlinear_name="two-input AND gate"
+    ),
+    "gate_or": _integrated(
+        "OR gate", "X", _GATE_PINS, "OR2",
+        nonlinear_name="two-input OR gate"
+    ),
+    "gate_nand": _integrated(
+        "NAND gate", "X", _GATE_PINS, "NAND2",
+        nonlinear_name="two-input NAND gate"
+    ),
+    "gate_nor": _integrated(
+        "NOR gate", "X", _GATE_PINS, "NOR2",
+        nonlinear_name="two-input NOR gate"
+    ),
+    "gate_xor": _integrated(
+        "XOR gate", "X", _GATE_PINS, "XOR2",
+        nonlinear_name="two-input XOR gate"
+    ),
+    "follower": _integrated(
+        "Voltage follower", "A", _AMP_PINS, "",
+        value_kind="none", label_style="reference", formula="follower"
+    ),
+    "inverting_amp": _integrated(
+        "Inverting amplifier", "A", _AMP_PINS, "10",
+        value_kind="positive", value_label="Gain",
+        label_style="signed_gain", gain_sign="-", formula="inverting"
+    ),
+    "noninverting_amp": _integrated(
+        "Non-inverting amplifier", "A", _AMP_PINS, "2",
+        value_kind="positive", value_label="Gain", minimum_value=1,
+        label_style="signed_gain", gain_sign="", formula="noninverting"
+    ),
     "ground": {
         "display_name": "Ground",
         "prefix": "GND",
@@ -459,6 +536,13 @@ def validate_value_text(kind, value_text):
     if value_kind == "positive" and not numeric_value > 0:
         raise ComponentError(
             f"{display_name} value must be greater than zero."
+        )
+
+    minimum_value = component_definition.get("minimum_value")
+
+    if minimum_value is not None and numeric_value < minimum_value:
+        raise ComponentError(
+            f"{display_name} gain must be at least {minimum_value}."
         )
 
     return (clean_text, numeric_value)
@@ -1044,6 +1128,16 @@ class Component:
         :rtype: str
         """
         component_definition = COMPONENT_DEFINITIONS[self.kind]
+        label_style = component_definition.get("label_style")
+
+        if label_style == "reference":
+            return self.reference
+
+        if label_style == "signed_gain":
+            return (
+                f"{self.reference} "
+                f"{component_definition['gain_sign']}{self.value_text}"
+            )
 
         if component_definition["value_kind"] == "none":
             return ""

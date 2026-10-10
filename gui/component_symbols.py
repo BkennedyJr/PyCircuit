@@ -64,6 +64,20 @@ BODY_RECTS = {
     # clear of the five pins; the real body is the triangle below.
     "opamp_generic": QRectF(-0.6, -0.6, 1.35, 1.2),
     "opamp_741": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_lm358": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_tl072": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_ne5532": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "comparator": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "gate_and": QRectF(-0.55, -0.75, 1.45, 1.5),
+    "gate_or": QRectF(-0.72, -0.75, 1.57, 1.5),
+    "gate_xor": QRectF(-0.92, -0.75, 1.77, 1.5),
+    "gate_nand": QRectF(-0.55, -0.75, 1.41, 1.5),
+    "gate_nor": QRectF(-0.72, -0.75, 1.55, 1.5),
+    "gate_not": QRectF(-0.45, -0.40, 1.05, 0.80),
+    "gate_buffer": QRectF(-0.45, -0.40, 0.95, 0.80),
+    "follower": QRectF(-0.45, -0.40, 0.95, 0.80),
+    "inverting_amp": QRectF(-0.45, -0.40, 0.95, 0.80),
+    "noninverting_amp": QRectF(-0.45, -0.40, 0.95, 0.80),
 }
 
 # Op-amp triangle, pointing right at rotation 0: left side at x = -0.6 from
@@ -106,9 +120,64 @@ def opamp_edge_y(x):
 
 
 # Non-rectangular bodies, around the body centre like BODY_RECTS.
+# One-input triangle (buffer, follower, amplifiers). Short enough that the
+# label fits in the gap above the body, between the grid rows.
+BLOCK_LEFT = -0.45
+BLOCK_APEX = 0.50
+BLOCK_HALF = 0.40
+# NOT gate triangle stops short so the bubble fits before the output pin.
+NOT_LEFT = -0.45
+NOT_APEX = 0.40
+NOT_HALF = 0.40
+BUBBLE_RADIUS = 0.08
+# AND/OR body. A bubbled gate is shorter so the bubble stays off the pin.
+GATE_LEFT = -0.55
+GATE_TOP = -0.75
+GATE_BOTTOM = 0.75
+AND_MID = 0.15
+AND_RADIUS = 0.75
+NAND_MID = 0.05
+NAND_RADIUS = 0.62
+
+
+def _buffer_triangle():
+    """
+    Triangle for a one-input gate or amplifier block, pointing right.
+
+    :rtype: QPolygonF
+    """
+    return QPolygonF([
+        QPointF(BLOCK_LEFT, -BLOCK_HALF),
+        QPointF(BLOCK_APEX, 0.0),
+        QPointF(BLOCK_LEFT, BLOCK_HALF),
+    ])
+
+
+def _not_triangle():
+    """
+    Smaller triangle, leaving room for the output bubble.
+
+    :rtype: QPolygonF
+    """
+    return QPolygonF([
+        QPointF(NOT_LEFT, -NOT_HALF),
+        QPointF(NOT_APEX, 0.0),
+        QPointF(NOT_LEFT, NOT_HALF),
+    ])
+
+
 BODY_POLYGONS = {
     "opamp_generic": _opamp_triangle,
     "opamp_741": _opamp_triangle,
+    "opamp_lm358": _opamp_triangle,
+    "opamp_tl072": _opamp_triangle,
+    "opamp_ne5532": _opamp_triangle,
+    "comparator": _opamp_triangle,
+    "gate_buffer": _buffer_triangle,
+    "gate_not": _not_triangle,
+    "follower": _buffer_triangle,
+    "inverting_amp": _buffer_triangle,
+    "noninverting_amp": _buffer_triangle,
 }
 
 # AC source: a 36 px circle with 12 px leads at the 60 px spacing.
@@ -558,6 +627,243 @@ def _opamp_plus_glyph_path():
     return path
 
 
+def _and_shape(stroke_path, mid, radius):
+    """
+    D-shaped AND body. The flat side is on the left; the arc bulges right.
+
+    :returns: The x of the right-most point of the arc.
+    :rtype: float
+    """
+    stroke_path.moveTo(GATE_LEFT, GATE_TOP)
+    stroke_path.lineTo(mid, GATE_TOP)
+    stroke_path.arcTo(
+        mid - radius, GATE_TOP, 2 * radius, GATE_BOTTOM - GATE_TOP,
+        90, -180
+    )
+    stroke_path.lineTo(GATE_LEFT, GATE_BOTTOM)
+    stroke_path.closeSubpath()
+
+    return mid + radius
+
+
+def _or_shape(stroke_path, tip):
+    """
+    OR body: curved back, pointed front.
+
+    :returns: None
+    """
+    stroke_path.moveTo(-0.55, GATE_TOP)
+    stroke_path.quadTo(-0.20, 0.0, -0.55, GATE_BOTTOM)
+    stroke_path.quadTo(0.15, GATE_BOTTOM, tip, 0.0)
+    stroke_path.quadTo(0.15, GATE_TOP, -0.55, GATE_TOP)
+
+
+def _supply_leads(stroke_path, top_y, bottom_y):
+    """
+    Leads from the VCC/V+ pin above and the GND/V- pin below.
+
+    :returns: None
+    """
+    _add_line(stroke_path, 0.0, -1.0, 0.0, top_y)
+    _add_line(stroke_path, 0.0, 1.0, 0.0, bottom_y)
+
+
+def _output_bubble(fill_path, left_x):
+    """
+    Filled bubble just to the right of ``left_x``.
+
+    :returns: The x where the output lead should start.
+    :rtype: float
+    """
+    center = left_x + BUBBLE_RADIUS
+    fill_path.addEllipse(
+        QPointF(center, 0.0), BUBBLE_RADIUS, BUBBLE_RADIUS
+    )
+
+    return center + BUBBLE_RADIUS
+
+
+def _and_paths():
+    """
+    2-input AND gate.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    tip = _and_shape(stroke_path, AND_MID, AND_RADIUS)
+    _add_line(stroke_path, -1.0, -1.0, GATE_LEFT, -0.40)
+    _add_line(stroke_path, -1.0, 1.0, GATE_LEFT, 0.40)
+    _add_line(stroke_path, tip, 0.0, 1.0, 0.0)
+    _supply_leads(stroke_path, GATE_TOP, GATE_BOTTOM)
+
+    return (stroke_path, QPainterPath())
+
+
+def _nand_paths():
+    """
+    2-input NAND gate: AND with an output bubble.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+    tip = _and_shape(stroke_path, NAND_MID, NAND_RADIUS)
+    lead = _output_bubble(fill_path, tip)
+    _add_line(stroke_path, -1.0, -1.0, GATE_LEFT, -0.40)
+    _add_line(stroke_path, -1.0, 1.0, GATE_LEFT, 0.40)
+    _add_line(stroke_path, lead, 0.0, 1.0, 0.0)
+    _supply_leads(stroke_path, GATE_TOP, GATE_BOTTOM)
+
+    return (stroke_path, fill_path)
+
+
+def _or_paths():
+    """
+    2-input OR gate.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    _or_shape(stroke_path, 0.85)
+    _add_line(stroke_path, -1.0, -1.0, -0.48, -0.42)
+    _add_line(stroke_path, -1.0, 1.0, -0.48, 0.42)
+    _add_line(stroke_path, 0.85, 0.0, 1.0, 0.0)
+    _supply_leads(stroke_path, -0.55, 0.55)
+
+    return (stroke_path, QPainterPath())
+
+
+def _nor_paths():
+    """
+    2-input NOR gate: OR with an output bubble.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+    _or_shape(stroke_path, 0.62)
+    lead = _output_bubble(fill_path, 0.62)
+    _add_line(stroke_path, -1.0, -1.0, -0.48, -0.42)
+    _add_line(stroke_path, -1.0, 1.0, -0.48, 0.42)
+    _add_line(stroke_path, lead, 0.0, 1.0, 0.0)
+    _supply_leads(stroke_path, -0.55, 0.55)
+
+    return (stroke_path, fill_path)
+
+
+def _xor_paths():
+    """
+    2-input XOR gate: OR plus a second curve on the input side.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    _or_shape(stroke_path, 0.85)
+    stroke_path.moveTo(-0.75, GATE_TOP)
+    stroke_path.quadTo(-0.40, 0.0, -0.75, GATE_BOTTOM)
+    _add_line(stroke_path, -1.0, -1.0, -0.70, -0.42)
+    _add_line(stroke_path, -1.0, 1.0, -0.70, 0.42)
+    _add_line(stroke_path, 0.85, 0.0, 1.0, 0.0)
+    _supply_leads(stroke_path, -0.55, 0.55)
+
+    return (stroke_path, QPainterPath())
+
+
+def _one_input_paths(left, apex, half, bubble):
+    """
+    Triangle with one input on the left, supplies above and below.
+
+    :param bubble: Draw a filled output bubble when True.
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+    stroke_path.moveTo(left, -half)
+    stroke_path.lineTo(apex, 0.0)
+    stroke_path.lineTo(left, half)
+    stroke_path.closeSubpath()
+    _add_line(stroke_path, -1.0, 0.0, left, 0.0)
+    edge = half * (apex - 0.0) / (apex - left)
+    _supply_leads(stroke_path, -edge, edge)
+
+    if bubble:
+        lead = _output_bubble(fill_path, apex)
+        _add_line(stroke_path, lead, 0.0, 1.0, 0.0)
+    else:
+        _add_line(stroke_path, apex, 0.0, 1.0, 0.0)
+
+    return (stroke_path, fill_path)
+
+
+def _not_paths():
+    """
+    NOT gate.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _one_input_paths(NOT_LEFT, NOT_APEX, NOT_HALF, True)
+
+
+def _buffer_gate_paths():
+    """
+    Non-inverting logic buffer.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _one_input_paths(BLOCK_LEFT, BLOCK_APEX, BLOCK_HALF, False)
+
+
+def _amp_block_paths(feedback):
+    """
+    Amplifier-block triangle. ``feedback`` draws the follower's loop.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path, fill_path = _one_input_paths(
+        BLOCK_LEFT, BLOCK_APEX, BLOCK_HALF, False
+    )
+
+    if feedback:
+        _add_line(stroke_path, 0.15, 0.06, 0.15, -0.08)
+        _add_line(stroke_path, 0.15, -0.08, -0.10, -0.08)
+
+    return (stroke_path, fill_path)
+
+
+def _follower_paths():
+    """
+    Voltage follower: one input and an internal feedback loop.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _amp_block_paths(True)
+
+
+def _plain_amp_paths():
+    """
+    Inverting or non-inverting amplifier block. The sign is a glyph.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _amp_block_paths(False)
+
+
+_OPAMP_KINDS = (
+    "opamp_generic", "opamp_741", "opamp_lm358", "opamp_tl072",
+    "opamp_ne5532", "comparator",
+)
+
 _SYMBOL_BUILDERS = {
     "resistor": _resistor_paths,
     "capacitor": _capacitor_paths,
@@ -571,9 +877,18 @@ _SYMBOL_BUILDERS = {
     "npn": _npn_paths,
     "pnp": _pnp_paths,
     "ground": _ground_paths,
-    "opamp_generic": _opamp_paths,
-    "opamp_741": _opamp_paths,
+    "gate_and": _and_paths,
+    "gate_nand": _nand_paths,
+    "gate_or": _or_paths,
+    "gate_nor": _nor_paths,
+    "gate_xor": _xor_paths,
+    "gate_not": _not_paths,
+    "gate_buffer": _buffer_gate_paths,
+    "follower": _follower_paths,
+    "inverting_amp": _plain_amp_paths,
+    "noninverting_amp": _plain_amp_paths,
 }
+_SYMBOL_BUILDERS.update({kind: _opamp_paths for kind in _OPAMP_KINDS})
 
 _OPAMP_GLYPHS = (
     ((OPAMP_SIGN_X, -OPAMP_SIGN_Y), _opamp_minus_glyph_path),
@@ -585,11 +900,16 @@ _OPAMP_GLYPHS = (
 # would read as "|"). Each is built around its own (0, 0), turned back by
 # the part's rotation and moved to its centre (body-centre coordinates),
 # so the item's own rotation leaves it upright where it belongs.
+_AMP_MINUS = (((-0.28, 0.0), _opamp_minus_glyph_path),)
+_AMP_PLUS = (((-0.28, 0.0), _opamp_plus_glyph_path),)
+
 _UPRIGHT_GLYPHS = {
     "ac_source": (((0.0, 0.0), _sine_glyph_path),),
-    "opamp_generic": _OPAMP_GLYPHS,
-    "opamp_741": _OPAMP_GLYPHS,
+    "inverting_amp": _AMP_MINUS,
+    "noninverting_amp": _AMP_PLUS,
+    "follower": _AMP_PLUS,
 }
+_UPRIGHT_GLYPHS.update({kind: _OPAMP_GLYPHS for kind in _OPAMP_KINDS})
 
 ALLOWED_SYMBOL_ROTATIONS = (0, 90, 180, 270)
 

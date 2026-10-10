@@ -24,8 +24,11 @@ PROJECT FACTS
   there). One function decides connectivity; reuse it everywhere. A net
   label such as Vcc joins every point with that name, ignoring case.
 - Sources: dc_source (battery), ac_source (sine, peak amplitude, frequency,
-  offset, phase), current_source. Op-amps: generic OPAMP and LM741
-  (Logipipe, CC BY 4.0, credited in the README).
+  offset, phase), current_source. Op-amps: generic OPAMP, LM741
+  (Logipipe, CC BY 4.0, credited in the README), plus behavioural
+  LM358, TL072 and NE5532 stand-ins. Also a comparator, NOT/buffer/AND/
+  OR/NAND/NOR/XOR gates, a voltage follower, and inverting and
+  non-inverting amplifier blocks.
 - LEDs have a colour that picks the model; set_lit(True) lights them after a
   simulation.
 
@@ -60,7 +63,9 @@ Done: grid, parts and symbols, values, labels, ghost placement, drag, wires,
 zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node,
 named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
 10x, differential, current) with a parameter box when the probe is not
-on a plot, save and load of the whole circuit, print.
+on a plot, save and load of the whole circuit, print, standard
+op-amps (LM358, TL072, NE5532), logic gates and follower / amplifier
+blocks.
 Next: netlist builder, ngspice runner, a dockable oscilloscope with
 Start/Stop, then Bode and FFT docks.
 First demo: a unity-gain buffer with the AC input and the output shown on the

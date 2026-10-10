@@ -11,6 +11,7 @@ from PyQt5.QtGui import QTransform
 from core.components import COMPONENT_DEFINITIONS, Component, ComponentCollection
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
+from core.subcircuit_models import SUBCIRCUIT_MODELS
 from gui.component_item import ComponentItem
 from gui.component_symbols import (
     OPAMP_APEX_X,
@@ -21,7 +22,10 @@ from gui.component_symbols import (
     opamp_edge_y,
 )
 
-OPAMP_KINDS = ["opamp_generic", "opamp_741"]
+OPAMP_KINDS = [
+    "opamp_generic", "opamp_741", "opamp_lm358", "opamp_tl072",
+    "opamp_ne5532", "comparator",
+]
 SPACING = 60
 GRID_DOT_RADIUS_IN_PITCH = 8.0 / 60.0
 
@@ -37,6 +41,10 @@ def grid():
 @pytest.mark.parametrize("kind, display_name, default", [
     ("opamp_generic", "Op-amp (generic)", "OPAMP"),
     ("opamp_741", "Op-amp (741)", "LM741"),
+    ("opamp_lm358", "Op-amp (LM358)", "LM358"),
+    ("opamp_tl072", "Op-amp (TL072)", "TL072"),
+    ("opamp_ne5532", "Op-amp (NE5532)", "NE5532"),
+    ("comparator", "Comparator", "COMP"),
 ])
 def test_opamp_definitions(kind, display_name, default):
     definition = COMPONENT_DEFINITIONS[kind]
@@ -287,10 +295,12 @@ def test_click_area_is_the_triangle(qt, kind):
 
 def test_opamp_value_must_be_a_known_model():
     with pytest.raises(ComponentError) as error:
-        Component("opamp_generic", "X1", "TL072", 4, 4)
+        Component("opamp_generic", "X1", "LM324", 4, 4)
 
     assert str(error.value) == (
-        "No op-amp model named 'TL072'. Known models: OPAMP, LM741."
+        "No subcircuit model named 'LM324'. Known models: "
+        + ", ".join(SUBCIRCUIT_MODELS)
+        + "."
     )
 
 
@@ -324,6 +334,6 @@ def test_refused_opamp_value_edit_keeps_the_old_value():
     collection.add_component("opamp_generic", 4, 4, "", ConnectionGrid(8, 8))
 
     with pytest.raises(ComponentError):
-        collection.set_component_value("X1", "TL072")
+        collection.set_component_value("X1", "LM324")
 
     assert collection.get_component("X1").value_text == "OPAMP"
