@@ -10,32 +10,21 @@ Resistors, capacitors, inductors and sources are stamped as impedances
 joins are one node. Points that share a net label are also one node, and
 Vcc matches vcc. An op-amp is ideal here: its two inputs are held at
 the same voltage, and its supply pins are not part of the formula. A
-diode, LED or transistor has no formula.
+follower copies its input. An inverting amplifier multiplies by minus
+its gain, and a non-inverting amplifier multiplies by its gain. A
+diode, LED, transistor, comparator or logic gate has no formula.
 """
 
 import itertools
 
 import sympy
 
-from core.components import Component
+from core.components import COMPONENT_DEFINITIONS, Component
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
 from core.wires import WireCollection
 
 _LAPLACE = sympy.symbols("s")
-
-_LINEAR_KINDS = (
-    "resistor",
-    "capacitor",
-    "capacitor_polarized",
-    "inductor",
-    "dc_source",
-    "ac_source",
-    "current_source",
-    "opamp_generic",
-    "opamp_741",
-    "ground",
-)
 
 _NONLINEAR_NAMES = {
     "diode": "diode",
@@ -43,6 +32,11 @@ _NONLINEAR_NAMES = {
     "npn": "transistor",
     "pnp": "transistor",
 }
+_NONLINEAR_NAMES.update({
+    kind: definition["nonlinear_name"]
+    for kind, definition in COMPONENT_DEFINITIONS.items()
+    if "nonlinear_name" in definition
+})
 
 _NO_GROUND = "Add a ground part before a formula can be written."
 _NO_FORMULA = (
@@ -488,7 +482,7 @@ class NodeFormulas:
             if kind in ("ground",):
                 continue
 
-            if kind in ("opamp_generic", "opamp_741"):
+            if COMPONENT_DEFINITIONS[kind].get("formula") == "ideal_opamp":
                 self._ideal_opamp = True
                 plus = touch(_pin_identifier(component, "in+"))
                 minus = touch(_pin_identifier(component, "in-"))
@@ -499,6 +493,32 @@ class NodeFormulas:
                 branch_symbols.append((component.reference, 1))
                 leave(output, -current)
                 equations.append(voltage(plus) - voltage(minus))
+
+                for pin_name in ("V+", "V-"):
+                    supply_identifiers.append(
+                        _pin_identifier(component, pin_name)
+                    )
+
+                continue
+
+            formula = COMPONENT_DEFINITIONS[kind].get("formula")
+
+            if formula in ("follower", "noninverting", "inverting"):
+                pin_in = touch(_pin_identifier(component, "in"))
+                output = touch(_pin_identifier(component, "out"))
+                current = sympy.Symbol(f"I_{component.reference}")
+                unknowns.append(current)
+                branch_symbols.append((component.reference, 1))
+                leave(output, -current)
+                gain = sympy.Integer(1)
+
+                if formula != "follower":
+                    gain = _exact(component.value)
+
+                if formula == "inverting":
+                    gain = -gain
+
+                equations.append(voltage(output) - gain * voltage(pin_in))
 
                 for pin_name in ("V+", "V-"):
                     supply_identifiers.append(

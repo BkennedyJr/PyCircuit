@@ -40,10 +40,15 @@ def test_module_does_not_import_qt():
 
 
 def test_library_and_defaults():
-    assert list(SUBCIRCUIT_MODELS) == ["OPAMP", "LM741"]
-    assert DEFAULT_SUBCIRCUIT_BY_KIND == {
-        "opamp_generic": "OPAMP", "opamp_741": "LM741"
-    }
+    assert list(SUBCIRCUIT_MODELS)[:2] == ["OPAMP", "LM741"]
+    assert {
+        "LM358", "TL072", "NE5532", "COMP", "NOT", "BUF", "AND2", "OR2",
+        "NAND2", "NOR2", "XOR2", "FOLLOW", "INVAMP", "NONINV",
+    } <= set(SUBCIRCUIT_MODELS)
+    assert DEFAULT_SUBCIRCUIT_BY_KIND["opamp_generic"] == "OPAMP"
+    assert DEFAULT_SUBCIRCUIT_BY_KIND["opamp_741"] == "LM741"
+    assert DEFAULT_SUBCIRCUIT_BY_KIND["gate_and"] == "AND2"
+    assert DEFAULT_SUBCIRCUIT_BY_KIND["inverting_amp"] == "INVAMP"
     assert SUBCIRCUIT_PORT_ORDER == ("in+", "in-", "V+", "V-", "out")
     assert SUBCIRCUIT_MODELS["LM741"]["license"].startswith("CC BY 4.0")
     assert "logipipe.com/LM741.txt" in SUBCIRCUIT_MODELS["LM741"]["source"]
@@ -60,10 +65,9 @@ def test_names_ignore_case(name, expected):
 def test_unknown_name_lists_the_known_models():
     with pytest.raises(
         ComponentError,
-        match=r"^No op-amp model named 'TL072'\. Known models: OPAMP, "
-              r"LM741\.$"
+        match=r"^No subcircuit model named 'LM324'\."
     ):
-        get_subcircuit_model_name("TL072")
+        get_subcircuit_model_name("LM324")
 
 
 def test_name_must_be_text():

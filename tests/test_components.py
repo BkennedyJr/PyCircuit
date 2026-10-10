@@ -51,6 +51,15 @@ def test_rotate_offset_rejects_non_integer_offsets(dx, dy):
 OPAMP_PINS = [
     ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0), ("V+", 0, -1), ("V-", 0, 1)
 ]
+GATE_PINS = [
+    ("A", -1, -1), ("B", -1, 1), ("Y", 1, 0), ("VCC", 0, -1), ("GND", 0, 1)
+]
+SINGLE_PINS = [
+    ("A", -1, 0), ("Y", 1, 0), ("VCC", 0, -1), ("GND", 0, 1)
+]
+AMP_PINS = [
+    ("in", -1, 0), ("out", 1, 0), ("V+", 0, -1), ("V-", 0, 1)
+]
 OPAMP_COVERED = [
     (0, 0), (-1, 0), (1, 0), (0, -1), (0, 1),
     (-1, -1), (-1, 1), (-1, -2), (-1, 2),
@@ -101,6 +110,20 @@ def test_plan_definitions_are_exact():
         "ground": ("GND", [("gnd", 0, 0)], "none", ""),
         "opamp_generic": ("X", OPAMP_PINS, "model", "OPAMP"),
         "opamp_741": ("X", OPAMP_PINS, "model", "LM741"),
+        "opamp_lm358": ("X", OPAMP_PINS, "model", "LM358"),
+        "opamp_tl072": ("X", OPAMP_PINS, "model", "TL072"),
+        "opamp_ne5532": ("X", OPAMP_PINS, "model", "NE5532"),
+        "comparator": ("X", OPAMP_PINS, "model", "COMP"),
+        "gate_not": ("X", SINGLE_PINS, "model", "NOT"),
+        "gate_buffer": ("X", SINGLE_PINS, "model", "BUF"),
+        "gate_and": ("X", GATE_PINS, "model", "AND2"),
+        "gate_or": ("X", GATE_PINS, "model", "OR2"),
+        "gate_nand": ("X", GATE_PINS, "model", "NAND2"),
+        "gate_nor": ("X", GATE_PINS, "model", "NOR2"),
+        "gate_xor": ("X", GATE_PINS, "model", "XOR2"),
+        "follower": ("A", AMP_PINS, "none", ""),
+        "inverting_amp": ("A", AMP_PINS, "positive", "10"),
+        "noninverting_amp": ("A", AMP_PINS, "positive", "2"),
     }
 
     assert set(COMPONENT_DEFINITIONS) == set(expected)
@@ -122,6 +145,13 @@ def test_body_centres_are_exact():
         "dc_source": (0, 1), "ac_source": (0, 1), "current_source": (0, 1),
         "npn": (0, 0), "pnp": (0, 0), "ground": (0, 0),
         "opamp_generic": (0, 0), "opamp_741": (0, 0),
+        "opamp_lm358": (0, 0), "opamp_tl072": (0, 0),
+        "opamp_ne5532": (0, 0), "comparator": (0, 0),
+        "gate_not": (0, 0), "gate_buffer": (0, 0),
+        "gate_and": (0, 0), "gate_or": (0, 0), "gate_nand": (0, 0),
+        "gate_nor": (0, 0), "gate_xor": (0, 0),
+        "follower": (0, 0), "inverting_amp": (0, 0),
+        "noninverting_amp": (0, 0),
     }
 
     assert {
@@ -669,6 +699,20 @@ def test_covered_half_steps_are_exact():
         # anchor, half points to out / V+ / V- / left, beside each input.
         "opamp_generic": OPAMP_COVERED,
         "opamp_741": OPAMP_COVERED,
+        "opamp_lm358": OPAMP_COVERED,
+        "opamp_tl072": OPAMP_COVERED,
+        "opamp_ne5532": OPAMP_COVERED,
+        "comparator": OPAMP_COVERED,
+        "gate_not": OPAMP_COVERED,
+        "gate_buffer": OPAMP_COVERED,
+        "gate_and": OPAMP_COVERED,
+        "gate_or": OPAMP_COVERED,
+        "gate_nand": OPAMP_COVERED,
+        "gate_nor": OPAMP_COVERED,
+        "gate_xor": OPAMP_COVERED,
+        "follower": OPAMP_COVERED,
+        "inverting_amp": OPAMP_COVERED,
+        "noninverting_amp": OPAMP_COVERED,
     }
 
     assert {
