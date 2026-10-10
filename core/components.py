@@ -843,6 +843,22 @@ class Component:
         self.parameter_texts = texts
         self.parameter_values = values
 
+    def to_dict(self):
+        """
+        Return this part as JSON-ready data.
+
+        :rtype: dict
+        """
+        return {
+            "kind": self.kind,
+            "reference": self.reference,
+            "value": self.value_text,
+            "row": self.row_number,
+            "column": self.column_number,
+            "rotation": self.rotation,
+            "parameters": dict(self.parameter_texts),
+        }
+
     @staticmethod
     def validate_reference(reference, component_definition):
         """
@@ -1194,6 +1210,44 @@ class ComponentCollection:
         self.ensure_no_overlap(component)
 
         self.components_by_reference[component.reference] = component
+
+        return component
+
+    def place_saved(
+            self,
+            kind,
+            reference,
+            value_text,
+            row_number,
+            column_number,
+            connection_grid,
+            rotation=0,
+            parameter_texts=None):
+        """
+        Put a part from a project file onto the circuit, keeping its name.
+
+        :param reference: Saved reference, such as ``R1``.
+        :rtype: Component
+        :raises ComponentError: If the part is invalid, off the grid,
+            overlapping, or the name is already used. Nothing is stored then.
+        """
+        if reference in self.components_by_reference:
+            raise ComponentError(
+                f"{reference} is already on this circuit."
+            )
+
+        component = Component(
+            kind,
+            reference,
+            value_text,
+            row_number,
+            column_number,
+            rotation,
+            parameter_texts
+        )
+        self.ensure_pins_fit_grid(component, connection_grid)
+        self.ensure_no_overlap(component)
+        self.components_by_reference[reference] = component
 
         return component
 

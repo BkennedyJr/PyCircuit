@@ -9,13 +9,18 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from PyQt5.QtCore import QRectF
 from PyQt5.QtCore import QStandardPaths
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QPainter
+from PyQt5.QtPrintSupport import QPrintDialog
+from PyQt5.QtPrintSupport import QPrinter
 from PyQt5.QtWidgets import QAction
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QComboBox
+from PyQt5.QtWidgets import QDialog
 from PyQt5.QtWidgets import QDockWidget
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QFormLayout
@@ -236,6 +241,11 @@ class MainWindow(QMainWindow):
             self.save_project_as
         )
 
+        self.print_action = QAction("Print...", self)
+        self.print_action.setShortcut(QKeySequence.Print)
+        self.print_action.setToolTip("Print the circuit")
+        self.print_action.triggered.connect(self.print_circuit)
+
         self.toggle_pickoff_action = QAction(
             "Toggle Signal Pickoff",
             self
@@ -327,6 +337,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.save_project_action)
         file_menu.addAction(self.save_project_as_action)
         file_menu.addSeparator()
+        file_menu.addAction(self.print_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
 
         node_menu = self.menuBar().addMenu("&Node")
@@ -356,6 +368,7 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.new_project_action)
         main_tool_bar.addAction(self.open_project_action)
         main_tool_bar.addAction(self.save_project_action)
+        main_tool_bar.addAction(self.print_action)
         main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.toggle_pickoff_action)
         main_tool_bar.addSeparator()
@@ -1754,8 +1767,7 @@ class MainWindow(QMainWindow):
 
     def reset_component_collection(self):
         """
-        Start with no parts, wires or probes (project files do not store
-        them yet).
+        Start with no parts, wires or probes.
 
         :returns: None
         """
@@ -1891,9 +1903,7 @@ class MainWindow(QMainWindow):
         try:
             # Fully load and validate into temporary state so a failed load
             # does not overwrite the project currently displayed in the GUI.
-            loaded_connection_grid = load_project_file(
-                selected_project_file_path
-            )
+            workbook = load_project_file(selected_project_file_path)
 
         except ProjectFileError as error:
             self.show_error_message(
@@ -1905,19 +1915,10 @@ class MainWindow(QMainWindow):
             return
 
         # Commit the loaded project only after successful file validation.
-        self.connection_grid = loaded_connection_grid
         self.current_project_file_path = selected_project_file_path
         self.is_project_modified = False
         self.selected_connection_point_identifier = None
-        self.reset_component_collection()
-
-        self.connection_grid_scene.set_connection_grid(
-            self.connection_grid
-        )
-        self.grid_configuration_widget.set_grid_configuration(
-            self.connection_grid.row_count,
-            self.connection_grid.column_count
-        )
+        self.show_workbook(workbook)
         self.update_window_title()
 
         QTimer.singleShot(
@@ -1925,14 +1926,48 @@ class MainWindow(QMainWindow):
             self.connection_grid_view.fit_grid_in_view
         )
 
+        part_count = len(self.component_collection.get_components())
+        wire_count = len(self.wire_collection.get_wires())
+        probe_count = len(self.probe_collection.get_probes())
         self.statusBar().showMessage(
-            "Loaded project '{}' with {} connection points."
-            .format(
-                selected_project_file_path.name,
-                self.connection_grid.get_connection_point_count()
-            ),
+            f"Loaded project '{selected_project_file_path.name}': "
+            f"{self.connection_grid.row_count} x "
+            f"{self.connection_grid.column_count} grid, "
+            f"{part_count} parts, {wire_count} wires, {probe_count} probes.",
             5000
         )
+
+    def show_workbook(self, workbook):
+        """
+        Replace the open circuit with a loaded workbook.
+
+        :param workbook: Grid, parts, wires and probes.
+        :type workbook: core.project_io.Workbook
+        :returns: None
+        """
+        self.connection_grid = workbook.connection_grid
+        self.component_collection = workbook.component_collection
+        self.selected_component_reference = None
+        self.wire_collection = workbook.wire_collection
+        self.selected_wire_references = []
+        self.probe_collection = workbook.probe_collection
+        self.selected_probe_reference = None
+        self._probe_parameter_lines = {}
+        self._node_formula_book = None
+        self.connection_grid_scene.component_collection = (
+            self.component_collection
+        )
+        self.connection_grid_scene.wire_collection = self.wire_collection
+        self.connection_grid_scene.probe_collection = self.probe_collection
+        self.connection_grid_scene.pending_differential_reference = None
+        self.connection_grid_scene.set_connection_grid(self.connection_grid)
+        self.grid_configuration_widget.set_grid_configuration(
+            self.connection_grid.row_count,
+            self.connection_grid.column_count
+        )
+        self.show_probe(None)
+        self.refresh_selected_node_formula()
+        self.refresh_probe_parameters()
 
     def save_current_project(self):
         """
@@ -1994,7 +2029,10 @@ class MainWindow(QMainWindow):
         try:
             save_project_file(
                 project_file_path,
-                self.connection_grid
+                self.connection_grid,
+                self.component_collection,
+                self.wire_collection,
+                self.probe_collection
             )
 
         except ProjectFileError as error:
@@ -2010,16 +2048,70 @@ class MainWindow(QMainWindow):
         self.is_project_modified = False
         self.update_window_title()
 
-        saved_message = f"Saved project '{project_file_path.name}'."
+        self.statusBar().showMessage(
+            f"Saved project '{project_file_path.name}'.",
+            5000
+        )
 
-        # Project files do not store parts yet (components-plan, LATER).
-        if self.component_collection.get_components():
-            saved_message += (
-                " Note: parts are not saved to project files yet and will "
-                "not be there when the project is opened again."
-            )
+        return True
 
-        self.statusBar().showMessage(saved_message, 10000)
+    def print_circuit(self):
+        """
+        Ask for a printer and print the circuit on one page.
+
+        :returns: None
+        """
+        printer = QPrinter(QPrinter.HighResolution)
+        source = self.connection_grid_scene.itemsBoundingRect()
+
+        if source.width() > source.height():
+            printer.setOrientation(QPrinter.Landscape)
+
+        dialog = QPrintDialog(printer, self)
+        dialog.setWindowTitle("Print Circuit")
+
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        if self.render_circuit(printer):
+            self.statusBar().showMessage("Printed the circuit.", 5000)
+            return
+
+        self.show_error_message(
+            "Print Failed",
+            "The printer did not start.",
+            "Check the printer and try again."
+        )
+
+    def render_circuit(self, printer):
+        """
+        Draw the grid, parts, wires and probes onto one printer page.
+
+        The drawing keeps its shape. A wide circuit is rotated to
+        landscape before the print dialog when Print calls this.
+
+        :param printer: Printer or a PDF printer.
+        :type printer: QPrinter
+        :returns: True when the page was drawn.
+        :rtype: bool
+        """
+        painter = QPainter(printer)
+
+        try:
+            if not painter.isActive():
+                return False
+
+            painter.setRenderHint(QPainter.Antialiasing)
+            page = QRectF(printer.pageRect())
+            source = self.connection_grid_scene.itemsBoundingRect()
+
+            if source.isNull():
+                source = self.connection_grid_scene.sceneRect()
+
+            source = source.adjusted(-24, -24, 24, 24)
+            self.connection_grid_scene.render(painter, page, source)
+        finally:
+            painter.end()
 
         return True
 
@@ -2153,7 +2245,10 @@ class MainWindow(QMainWindow):
 
             save_project_file(
                 recovery_file_path,
-                self.connection_grid
+                self.connection_grid,
+                self.component_collection,
+                self.wire_collection,
+                self.probe_collection
             )
 
         except (OSError, ProjectFileError):
