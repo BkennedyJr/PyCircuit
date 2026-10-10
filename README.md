@@ -70,7 +70,11 @@ Using it
   formula. An op-amp uses the ideal rule that its two inputs match.
   The part list also has an LM358, a TL072, an NE5532, a comparator,
   the standard gates, a voltage follower, and inverting and
-  non-inverting amplifiers (the gain is the value).
+  non-inverting amplifiers (the gain is the value). NMOS and PMOS,
+  and the 555 timer, have no formula. A switch is open or closed, a
+  potentiometer splits its resistance by a position from 0 to 1, a
+  transformer uses its turns ratio, and a voltage regulator holds
+  its output at the voltage you type (it ignores dropout).
 - Probe Mode (Component menu, toolbar, or P): click a grid point to
   place a probe, or click a part to measure its current. The Probe
   panel sets the method: Direct (no load), 1 Mohm to ground, 10x scope

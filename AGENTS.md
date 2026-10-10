@@ -28,7 +28,10 @@ PROJECT FACTS
   (Logipipe, CC BY 4.0, credited in the README), plus behavioural
   LM358, TL072 and NE5532 stand-ins. Also a comparator, NOT/buffer/AND/
   OR/NAND/NOR/XOR gates, a voltage follower, and inverting and
-  non-inverting amplifier blocks.
+  non-inverting amplifier blocks. Also NMOS and PMOS (no formula), a
+  switch (open or closed), a potentiometer (position 0 to 1), an ideal
+  transformer (turns ratio Ns/Np), a 555 timer (no formula; the bundled
+  text is only the 5k divider), and an ideal voltage regulator.
 - LEDs have a colour that picks the model; set_lit(True) lights them after a
   simulation.
 
@@ -65,8 +68,8 @@ named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
 10x, differential, current) with a parameter box when the probe is not
 on a plot, save and load of the whole circuit, print, standard
 op-amps (LM358, TL072, NE5532), logic gates and follower / amplifier
-blocks.
-Next: netlist builder, ngspice runner, a dockable oscilloscope with
-Start/Stop, then Bode and FFT docks.
+blocks, NMOS and PMOS, switch, potentiometer, transformer, 555 timer
+and voltage regulator.
+Next: see docs/plan-next.txt. First step is the netlist builder.
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.

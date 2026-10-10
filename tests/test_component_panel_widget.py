@@ -35,7 +35,7 @@ def recorder(signal):
 def test_combo_lists_all_14_kinds_in_definition_order(panel):
     combo = panel.kind_combo_box
 
-    assert combo.count() == len(COMPONENT_DEFINITIONS) == 28
+    assert combo.count() == len(COMPONENT_DEFINITIONS) == 35
     assert [combo.itemData(index) for index in range(combo.count())] == (
         list(COMPONENT_DEFINITIONS)
     )
@@ -230,8 +230,12 @@ def selected_frequency_row_hidden(panel):
 
 
 def test_frequency_and_color_are_the_panel_settings(panel):
-    assert list(panel.parameter_line_edits) == ["frequency", "color"]
-    assert list(panel.selected_parameter_line_edits) == ["frequency", "color"]
+    assert list(panel.parameter_line_edits) == [
+        "frequency", "color", "state", "position",
+    ]
+    assert list(panel.selected_parameter_line_edits) == [
+        "frequency", "color", "state", "position",
+    ]
     assert panel.parameter_labels["frequency"].text() == "Frequency (Hz):"
     assert panel.parameter_labels["color"].text() == "Color:"
 

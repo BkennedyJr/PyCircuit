@@ -23,7 +23,8 @@ from gui.component_symbols import (
 
 ALL_KINDS = list(COMPONENT_DEFINITIONS)
 KINDS_WITH_FILL = [
-    "current_source", "diode", "led", "npn", "pnp",
+    "current_source", "diode", "led", "npn", "pnp", "nmos", "pmos",
+    "potentiometer", "transformer", "voltage_regulator",
     "gate_nand", "gate_nor", "gate_not",
 ]
 KINDS_WITHOUT_FILL = sorted(set(ALL_KINDS) - set(KINDS_WITH_FILL))

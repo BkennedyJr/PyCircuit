@@ -68,8 +68,8 @@ named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
 10x, differential, current) with a parameter box when the probe is not
 on a plot, save and load of the whole circuit, print, standard
 op-amps (LM358, TL072, NE5532), logic gates and follower / amplifier
-blocks.
-Next: netlist builder, ngspice runner, a dockable oscilloscope with
-Start/Stop, then Bode and FFT docks.
+blocks, NMOS and PMOS, switch, potentiometer, transformer, 555 timer
+and voltage regulator.
+Next: see docs/plan-next.txt. First step is the netlist builder.
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.

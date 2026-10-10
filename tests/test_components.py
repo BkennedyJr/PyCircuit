@@ -107,6 +107,18 @@ def test_plan_definitions_are_exact():
             "model",
             "2N3906",
         ),
+        "nmos": (
+            "M",
+            [("gate", -1, 0), ("drain", 0, -1), ("source", 0, 1)],
+            "model",
+            "2N7000",
+        ),
+        "pmos": (
+            "M",
+            [("gate", -1, 0), ("source", 0, -1), ("drain", 0, 1)],
+            "model",
+            "BS250",
+        ),
         "ground": ("GND", [("gnd", 0, 0)], "none", ""),
         "opamp_generic": ("X", OPAMP_PINS, "model", "OPAMP"),
         "opamp_741": ("X", OPAMP_PINS, "model", "LM741"),
@@ -124,6 +136,33 @@ def test_plan_definitions_are_exact():
         "follower": ("A", AMP_PINS, "none", ""),
         "inverting_amp": ("A", AMP_PINS, "positive", "10"),
         "noninverting_amp": ("A", AMP_PINS, "positive", "2"),
+        "switch": ("S", [("1", 0, 0), ("2", 1, 0)], "none", ""),
+        "potentiometer": (
+            "RV",
+            [("1", 0, 0), ("2", 2, 0), ("wiper", 1, 1)],
+            "positive",
+            "10k",
+        ),
+        "transformer": (
+            "T",
+            [("p1", 0, 0), ("p2", 0, 1), ("s1", 1, 0), ("s2", 1, 1)],
+            "positive",
+            "1",
+        ),
+        "timer_555": (
+            "X",
+            [
+                ("GND", -1, -2), ("TRIG", -1, -1), ("OUT", -1, 1),
+                ("RESET", -1, 2), ("CONT", 1, 2), ("THRES", 1, 1),
+                ("DISCH", 1, -1), ("VCC", 1, -2),
+            ],
+            "model",
+            "NE555",
+        ),
+        "voltage_regulator": (
+            "U", [("in", -1, 0), ("gnd", 0, 1), ("out", 1, 0)],
+            "positive", "5",
+        ),
     }
 
     assert set(COMPONENT_DEFINITIONS) == set(expected)
@@ -143,7 +182,8 @@ def test_body_centres_are_exact():
         "capacitor_polarized": (1, 0), "inductor": (1, 0),
         "diode": (1, 0), "led": (1, 0),
         "dc_source": (0, 1), "ac_source": (0, 1), "current_source": (0, 1),
-        "npn": (0, 0), "pnp": (0, 0), "ground": (0, 0),
+        "npn": (0, 0), "pnp": (0, 0),
+        "nmos": (0, 0), "pmos": (0, 0), "ground": (0, 0),
         "opamp_generic": (0, 0), "opamp_741": (0, 0),
         "opamp_lm358": (0, 0), "opamp_tl072": (0, 0),
         "opamp_ne5532": (0, 0), "comparator": (0, 0),
@@ -152,6 +192,9 @@ def test_body_centres_are_exact():
         "gate_nor": (0, 0), "gate_xor": (0, 0),
         "follower": (0, 0), "inverting_amp": (0, 0),
         "noninverting_amp": (0, 0),
+        "switch": (1, 0), "potentiometer": (2, 0),
+        "transformer": (1, 1), "timer_555": (0, 0),
+        "voltage_regulator": (0, 0),
     }
 
     assert {
@@ -170,7 +213,7 @@ def test_every_two_pin_part_is_listed():
     assert TWO_PIN_KINDS == [
         "ac_source", "capacitor", "capacitor_polarized", "current_source",
         "dc_source",
-        "diode", "inductor", "led", "resistor",
+        "diode", "inductor", "led", "resistor", "switch",
     ]
 
 
@@ -498,8 +541,12 @@ def test_bad_rotation_raises_in_constructor_and_setter():
 
 
 def test_only_the_ac_source_and_the_led_have_settings():
-    expected = {"ac_source": ["frequency", "offset", "phase"],
-                "led": ["color"]}
+    expected = {
+        "ac_source": ["frequency", "offset", "phase"],
+        "led": ["color"],
+        "switch": ["state"],
+        "potentiometer": ["position"],
+    }
 
     for kind in COMPONENT_DEFINITIONS:
         names = [parameter["name"] for parameter in
@@ -694,6 +741,8 @@ def test_covered_half_steps_are_exact():
         "current_source": [(0, 1)],
         "npn": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "pnp": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "nmos": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "pmos": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "ground": [(0, 1)],
         # Inside the triangle (left x = -0.6, apex 0.75, half height 1.2):
         # anchor, half points to out / V+ / V- / left, beside each input.
@@ -713,6 +762,17 @@ def test_covered_half_steps_are_exact():
         "follower": OPAMP_COVERED,
         "inverting_amp": OPAMP_COVERED,
         "noninverting_amp": OPAMP_COVERED,
+        "switch": [(1, 0)],
+        "potentiometer": [(1, 0), (2, 0), (3, 0), (2, 1)],
+        "transformer": [(1, 1), (0, 1), (2, 1), (1, 0), (1, 2)],
+        "timer_555": [
+            (0, 0),
+            (-1, 0), (1, 0), (0, -1), (0, 1),
+            (-1, -1), (-1, 1), (1, -1), (1, 1),
+            (0, -2), (0, 2),
+            (-1, -2), (-1, 2), (1, -2), (1, 2),
+        ],
+        "voltage_regulator": [(0, 0), (-1, 0), (1, 0), (0, 1)],
     }
 
     assert {

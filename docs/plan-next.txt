@@ -1,0 +1,68 @@
+PyCircuit: what to build next
+================================
+
+The parts that were missing are on the bench now: NMOS, PMOS, switch,
+potentiometer, transformer, 555 timer and voltage regulator. This note
+is the order for everything else that a schematic-and-simulate bench
+still needs. Do one step, then the next. Do not start a later step
+while an earlier one is unfinished.
+
+Keep the exact V(s) next to whatever the simulator prints. That number
+and that formula are the reason to use this bench. Do not add a PCB
+layout tool.
+
+The behavioural op-amps (LM358, TL072, NE5532) are flat-gain stand-ins
+on purpose. Real output swing and gain-bandwidth wait until a simulator
+can show them.
+
+The details of the netlist, the ngspice run and the scope are already
+written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
+which of those to do, and what comes after them.
+
+1. Netlist builder
+   Write the circuit out as a SPICE netlist (core/netlist.py, no Qt).
+   Ground is node 0. Other nets get stable names. Every part we can
+   place, including the new ones, gets a line. Saving that text to a
+   file is part of this step, so the same netlist can be opened in
+   LTspice and checked by hand. Do not add a second exporter later.
+
+2. DC operating point
+   Run ngspice on that netlist and read the DC voltages and currents.
+   Plain error text when the circuit will not solve (floating node,
+   voltage-source loop, missing ground). No plot yet.
+
+3. DC numbers on the schematic
+   Draw those voltages on the nodes and those currents on the parts,
+   next to the existing V(s). A node that has no formula still shows
+   the simulated number when ngspice has one.
+
+4. Transient run and the oscilloscope
+   Start and Stop on a dock. Drag a probe and the trace follows it.
+   The first circuit to get right is a unity-gain buffer, with the
+   input and the output both on the scope.
+
+5. AC sweep and Bode
+   A frequency sweep, magnitude and phase, in its own dock.
+
+6. FFT
+   A spectrum of the transient waveform, in its own dock.
+
+7. Cursors on the plots
+   Only after the scope, Bode and FFT exist. Two cursors, and the
+   difference between them.
+
+8. Re-run when a value changes
+   Change a resistor, a source, a pot position or a switch and the
+   DC numbers and the plots update. No extra Run button for that.
+
+9. Real op-amp limits
+   Output swing and gain-bandwidth on the op-amp models, checked
+   against the simulator. The flat-gain stand-ins stay available.
+
+10. Example circuits
+    A small menu: a divider, an RC, a unity-gain buffer, and one gate.
+    Each one opens as a normal circuit the user can edit.
+
+11. Undo, and copy and paste
+    Undo and redo for place, move, wire, value and delete. Copy a
+    selected chunk of the circuit and paste it somewhere else.
