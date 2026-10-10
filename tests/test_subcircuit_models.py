@@ -44,6 +44,7 @@ def test_library_and_defaults():
     assert {
         "LM358", "TL072", "NE5532", "COMP", "NOT", "BUF", "AND2", "OR2",
         "NAND2", "NOR2", "XOR2", "FOLLOW", "INVAMP", "NONINV",
+        "NE555", "REG",
     } <= set(SUBCIRCUIT_MODELS)
     assert DEFAULT_SUBCIRCUIT_BY_KIND["opamp_generic"] == "OPAMP"
     assert DEFAULT_SUBCIRCUIT_BY_KIND["opamp_741"] == "LM741"

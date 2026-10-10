@@ -196,6 +196,29 @@ RF out inn {10k*(gain-1)}
 XAMP inp inn vp vn out OPAMP
 .ends NONINV
 """,
+    "NE555": """\
+* NE555: simplified timer for a later netlist. The three 5k resistors
+* are the real divider: CONT sits at 2/3 of VCC, and the internal
+* node "third" sits at 1/3. The latch, the output driver and the
+* discharge transistor are not in this text. Do not treat it as a
+* full 555 until a transient simulator is wired up.
+* Ports: GND TRIG OUT RESET CONT THRES DISCH VCC.
+.subckt NE555 GND TRIG OUT RESET CONT THRES DISCH VCC
+R1 VCC CONT 5k
+R2 CONT third 5k
+R3 third GND 5k
+.ends NE555
+""",
+    "REG": """\
+* REG: ideal regulator. V(out) is the voltage parameter, measured from
+* gnd. Dropout is ignored. The s-domain formula sets the input current
+* equal to the output current; this text only holds the output voltage.
+* Ports: in gnd out. Pass voltage= on the instance line.
+.subckt REG inp gnd out voltage=5
+VOUT out gnd {voltage}
+RIN inp gnd 1T
+.ends REG
+""",
 }
 
 def _opamp_model(description):
@@ -296,6 +319,26 @@ SUBCIRCUIT_MODELS = {
         "source": "PyCircuit",
         "license": "same as PyCircuit",
     },
+    "NE555": {
+        "description": (
+            "555 timer stand-in: the 5k divider only; latch not modelled"
+        ),
+        "ports": (
+            "GND", "TRIG", "OUT", "RESET", "CONT", "THRES", "DISCH", "VCC"
+        ),
+        "supply_pins": ("VCC", "GND"),
+        "supply_pins_required": True,
+        "source": "PyCircuit (divider only, not a vendor 555 model)",
+        "license": "same as PyCircuit",
+    },
+    "REG": {
+        "description": "Ideal voltage regulator, voltage parameter, default 5",
+        "ports": ("in", "gnd", "out"),
+        "supply_pins": (),
+        "supply_pins_required": False,
+        "source": "PyCircuit",
+        "license": "same as PyCircuit",
+    },
 }
 
 DEFAULT_SUBCIRCUIT_BY_KIND = {
@@ -315,6 +358,8 @@ DEFAULT_SUBCIRCUIT_BY_KIND = {
     "follower": "FOLLOW",
     "inverting_amp": "INVAMP",
     "noninverting_amp": "NONINV",
+    "timer_555": "NE555",
+    "voltage_regulator": "REG",
 }
 
 

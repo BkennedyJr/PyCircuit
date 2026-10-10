@@ -60,6 +60,13 @@ BODY_RECTS = {
     "led": QRectF(-0.2, -0.4, 0.5, 0.6),
     "npn": QRectF(-0.55, -0.5, 1.0, 1.0),
     "pnp": QRectF(-0.55, -0.5, 1.0, 1.0),
+    "nmos": QRectF(-0.55, -0.5, 1.0, 1.0),
+    "pmos": QRectF(-0.55, -0.5, 1.0, 1.0),
+    "switch": QRectF(-0.24, -0.26, 0.52, 0.42),
+    "potentiometer": QRectF(-0.32, -0.16, 0.64, 0.50),
+    "transformer": QRectF(-0.42, -0.38, 0.84, 0.76),
+    "timer_555": QRectF(-0.40, -0.36, 0.80, 0.72),
+    "voltage_regulator": QRectF(-0.38, -0.28, 0.76, 0.58),
     # Op-amps: the largest rectangle inside the triangle band that keeps
     # clear of the five pins; the real body is the triangle below.
     "opamp_generic": QRectF(-0.6, -0.6, 1.35, 1.2),
@@ -581,6 +588,194 @@ def _pnp_paths():
     return (stroke_path, fill_path)
 
 
+def _mosfet_paths(source_at_top):
+    """
+    Enhancement MOSFET. The gate stops short of the channel (the oxide).
+    The arrow is on the source: out of the channel for an NMOS, into the
+    channel for a PMOS.
+
+    :param source_at_top: True for a PMOS (source on the top pin).
+    :type source_at_top: bool
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+
+    stroke_path.addEllipse(
+        QPointF(TRANSISTOR_CIRCLE_CENTER_X, 0.0),
+        TRANSISTOR_CIRCLE_RADIUS,
+        TRANSISTOR_CIRCLE_RADIUS
+    )
+    _add_line(stroke_path, -1.0, 0.0, -0.40, 0.0)
+    _add_line(stroke_path, -0.22, -0.32, -0.22, 0.32)
+
+    if source_at_top:
+        _add_line(stroke_path, -0.22, 0.16, 0.0, 0.40)
+        _add_line(stroke_path, 0.0, 0.40, 0.0, 1.0)
+        _add_line(stroke_path, 0.0, -1.0, 0.0, -0.42)
+        _add_arrow(stroke_path, fill_path, 0.0, -0.42, -0.22, -0.16)
+    else:
+        _add_line(stroke_path, -0.22, -0.16, 0.0, -0.40)
+        _add_line(stroke_path, 0.0, -0.40, 0.0, -1.0)
+        _add_arrow(stroke_path, fill_path, -0.22, 0.16, 0.0, 0.42)
+        _add_line(stroke_path, 0.0, 0.42, 0.0, 1.0)
+
+    return (stroke_path, fill_path)
+
+
+def _nmos_paths():
+    """
+    NMOS: drain on top, source on the bottom, arrow pointing out.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _mosfet_paths(False)
+
+
+def _pmos_paths():
+    """
+    PMOS: source on top, drain on the bottom, arrow pointing in.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _mosfet_paths(True)
+
+
+def _switch_paths():
+    """
+    Switch, drawn open: a lever that does not meet the right contact.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+
+    _add_horizontal_leads(stroke_path, 0.18)
+    _add_line(stroke_path, -0.18, 0.0, 0.22, -0.20)
+    _add_line(stroke_path, 0.18, -0.08, 0.18, 0.08)
+
+    return (stroke_path, QPainterPath())
+
+
+def _potentiometer_paths():
+    """
+    Potentiometer: a resistor from pin 1 to pin 2 and an arrow up from
+    the wiper. Drawn around the body centre, halfway between the end pins.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+    zigzag_points = [
+        (-0.65, 0.0), (-0.50, -0.12), (-0.32, 0.12), (-0.14, -0.12),
+        (0.04, 0.12), (0.22, -0.12), (0.40, 0.12), (0.65, 0.0),
+    ]
+
+    _add_line(stroke_path, -1.0, 0.0, -0.65, 0.0)
+    stroke_path.moveTo(QPointF(*zigzag_points[0]))
+
+    for point in zigzag_points[1:]:
+        stroke_path.lineTo(QPointF(*point))
+
+    _add_line(stroke_path, 0.65, 0.0, 1.0, 0.0)
+    _add_line(stroke_path, 0.0, 1.0, 0.0, 0.42)
+    _add_arrow(stroke_path, fill_path, 0.0, 0.42, 0.0, 0.14)
+
+    return (stroke_path, fill_path)
+
+
+def _coil_bumps(stroke_path, wire_x, y_start, y_end, bulge_right):
+    """
+    Three semicircles along a vertical wire.
+
+    :param bulge_right: Bulge toward +x when True, toward -x when False.
+    :returns: None
+    """
+    span = y_end - y_start
+    step = span / 3.0
+    radius = step / 2.0
+    stroke_path.moveTo(wire_x, y_start)
+
+    for index in range(3):
+        top = y_start + index * step
+        rectangle = QRectF(wire_x - radius, top, step, step)
+        sweep = -180 if bulge_right else 180
+        stroke_path.arcTo(rectangle, 90, sweep)
+
+
+def _transformer_paths():
+    """
+    Ideal transformer. Two coils, dots on p1 and s1 (the upper pins).
+    Drawn around the body centre; the anchor shift lands the leads on
+    the four pins.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+
+    _add_line(stroke_path, -0.5, -0.5, -0.38, -0.18)
+    _coil_bumps(stroke_path, -0.38, -0.18, 0.18, True)
+    _add_line(stroke_path, -0.38, 0.18, -0.5, 0.5)
+    _add_line(stroke_path, 0.5, -0.5, 0.38, -0.18)
+    _coil_bumps(stroke_path, 0.38, -0.18, 0.18, False)
+    _add_line(stroke_path, 0.38, 0.18, 0.5, 0.5)
+    fill_path.addEllipse(QPointF(-0.28, -0.28), 0.045, 0.045)
+    fill_path.addEllipse(QPointF(0.28, -0.28), 0.045, 0.045)
+
+    return (stroke_path, fill_path)
+
+
+def _timer_paths():
+    """
+    555 timer: a box with a lead to each of the eight pins.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    stroke_path.addRect(QRectF(-0.40, -0.36, 0.80, 0.72))
+    leads = (
+        (-1.0, -2.0, -0.40, -0.36),
+        (-1.0, -1.0, -0.40, -0.28),
+        (-1.0, 1.0, -0.40, 0.28),
+        (-1.0, 2.0, -0.40, 0.36),
+        (1.0, -2.0, 0.40, -0.36),
+        (1.0, -1.0, 0.40, -0.28),
+        (1.0, 1.0, 0.40, 0.28),
+        (1.0, 2.0, 0.40, 0.36),
+    )
+
+    for x1, y1, x2, y2 in leads:
+        _add_line(stroke_path, x1, y1, x2, y2)
+
+    return (stroke_path, QPainterPath())
+
+
+def _regulator_paths():
+    """
+    Voltage regulator: a box, leads to in / gnd / out, and an arrow
+    toward the output.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+    stroke_path.addRect(QRectF(-0.36, -0.26, 0.72, 0.52))
+    _add_line(stroke_path, -1.0, 0.0, -0.36, 0.0)
+    _add_line(stroke_path, 0.36, 0.0, 1.0, 0.0)
+    _add_line(stroke_path, 0.0, 0.26, 0.0, 1.0)
+    _add_arrow(stroke_path, fill_path, -0.20, 0.0, 0.20, 0.0)
+
+    return (stroke_path, fill_path)
+
+
 def _opamp_paths():
     """
     Op-amp: triangle pointing right, in- (top) and in+ (bottom) on the
@@ -876,6 +1071,13 @@ _SYMBOL_BUILDERS = {
     "led": _led_paths,
     "npn": _npn_paths,
     "pnp": _pnp_paths,
+    "nmos": _nmos_paths,
+    "pmos": _pmos_paths,
+    "switch": _switch_paths,
+    "potentiometer": _potentiometer_paths,
+    "transformer": _transformer_paths,
+    "timer_555": _timer_paths,
+    "voltage_regulator": _regulator_paths,
     "ground": _ground_paths,
     "gate_and": _and_paths,
     "gate_nand": _nand_paths,

@@ -3,10 +3,12 @@ Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
 DC and AC voltage sources, a DC current source, diodes, transistors,
-op-amps, a comparator, logic gates, a few small amplifier blocks and
-ground), their connection pins, and the Component class that holds one
-placed part. It contains no PyQt5 imports so the same objects can be
-used by the GUI label, the later SPICE netlist builder, and the solver.
+MOSFETs, a switch, a potentiometer, a transformer, op-amps, a comparator,
+logic gates, a few small amplifier blocks, a 555 timer, a voltage
+regulator and ground), their connection pins, and the Component class
+that holds one placed part. It contains no PyQt5 imports so the same
+objects can be used by the GUI label, the later SPICE netlist builder,
+and the solver.
 
 Pin offsets are measured in grid steps from the part's anchor grid point.
 ``dx`` is the column offset and ``dy`` is the row offset; a positive ``dy``
@@ -88,7 +90,27 @@ _SINGLE_INPUT_PINS = [
 _AMP_PINS = [
     ("in", -1, 0), ("out", 1, 0), ("V+", 0, -1), ("V-", 0, 1),
 ]
+# 555, notch at the top: pin 1 (GND) is the upper left and the pins
+# number down the left side, then up the right. The four corner pins
+# sit two rows from the anchor so the label can use the right side.
+_TIMER_PINS = [
+    ("GND", -1, -2), ("TRIG", -1, -1), ("OUT", -1, 1), ("RESET", -1, 2),
+    ("CONT", 1, 2), ("THRES", 1, 1), ("DISCH", 1, -1), ("VCC", 1, -2),
+]
+_TIMER_COVERED = [
+    (0, 0),
+    (-1, 0), (1, 0), (0, -1), (0, 1),
+    (-1, -1), (-1, 1), (1, -1), (1, 1),
+    (0, -2), (0, 2),
+    (-1, -2), (-1, 2), (1, -2), (1, 2),
+]
+_REGULATOR_PINS = [("in", -1, 0), ("gnd", 0, 1), ("out", 1, 0)]
+_REGULATOR_COVERED = [(0, 0), (-1, 0), (1, 0), (0, 1)]
+_MOSFET_COVERED = [(0, 0), (-1, 0), (0, -1), (0, 1)]
+_POT_COVERED = [(1, 0), (2, 0), (3, 0), (2, 1)]
+_TRANSFORMER_COVERED = [(1, 1), (0, 1), (2, 1), (1, 0), (1, 2)]
 _SUPPLY_PIN_NAMES = ("V+", "V-", "VCC", "GND")
+SWITCH_STATES = ("open", "closed")
 
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -275,6 +297,26 @@ COMPONENT_DEFINITIONS = {
         "value_kind": "model",
         "default_value_text": "2N3906",
     },
+    "nmos": {
+        "display_name": "NMOS",
+        "prefix": "M",
+        "pins": [("gate", -1, 0), ("drain", 0, -1), ("source", 0, 1)],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": list(_MOSFET_COVERED),
+        "value_kind": "model",
+        "default_value_text": "2N7000",
+        "nonlinear_name": "MOSFET",
+    },
+    "pmos": {
+        "display_name": "PMOS",
+        "prefix": "M",
+        "pins": [("gate", -1, 0), ("source", 0, -1), ("drain", 0, 1)],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": list(_MOSFET_COVERED),
+        "value_kind": "model",
+        "default_value_text": "BS250",
+        "nonlinear_name": "MOSFET",
+    },
     "opamp_generic": _integrated(
         "Op-amp (generic)", "X", _OPAMP_PINS, "OPAMP", formula="ideal_opamp"
     ),
@@ -334,6 +376,83 @@ COMPONENT_DEFINITIONS = {
         "Non-inverting amplifier", "A", _AMP_PINS, "2",
         value_kind="positive", value_label="Gain", minimum_value=1,
         label_style="signed_gain", gain_sign="", formula="noninverting"
+    ),
+    "switch": {
+        # Drawn open. Closed is a perfect short; open carries no current.
+        # The picture does not change with the state.
+        "display_name": "Switch",
+        "prefix": "S",
+        "pins": [("1", 0, 0), ("2", 1, 0)],
+        "body_center_half_steps": (1, 0),
+        "covered_half_steps": [(1, 0)],
+        "value_kind": "none",
+        "default_value_text": "",
+        "formula": "switch",
+        "parameters": (
+            {
+                "name": "state",
+                "display_name": "State",
+                "unit": "",
+                "value_kind": "choice",
+                "choices": SWITCH_STATES,
+                "default_value_text": "open",
+                "shown_in_panel": True,
+                "shown_in_label": True,
+            },
+        ),
+    },
+    "potentiometer": {
+        # Three pins so the wiper sits on a grid point. The element spans
+        # two steps: pin 1, then pin 2, with the wiper one row below the
+        # middle. Position 0 puts the wiper on pin 2; position 1 puts it
+        # on pin 1; 0.5 splits the resistance in half.
+        "display_name": "Potentiometer",
+        "prefix": "RV",
+        "pins": [("1", 0, 0), ("2", 2, 0), ("wiper", 1, 1)],
+        "body_center_half_steps": (2, 0),
+        "covered_half_steps": list(_POT_COVERED),
+        "value_kind": "positive",
+        "default_value_text": "10k",
+        "value_label": "Resistance",
+        "formula": "potentiometer",
+        "parameters": (
+            {
+                "name": "position",
+                "display_name": "Position",
+                "unit": "",
+                "value_kind": "any",
+                "default_value_text": "0.5",
+                "minimum_value": 0,
+                "maximum_value": 1,
+                "shown_in_panel": True,
+                "shown_in_label": True,
+            },
+        ),
+    },
+    "transformer": {
+        # Ideal transformer. The value is Ns/Np. Dots are on p1 and s1.
+        "display_name": "Transformer",
+        "prefix": "T",
+        "pins": [("p1", 0, 0), ("p2", 0, 1), ("s1", 1, 0), ("s2", 1, 1)],
+        "body_center_half_steps": (1, 1),
+        "covered_half_steps": list(_TRANSFORMER_COVERED),
+        "value_kind": "positive",
+        "default_value_text": "1",
+        "value_label": "Turns",
+        "formula": "transformer",
+    },
+    "timer_555": _integrated(
+        "555 timer", "X", _TIMER_PINS, "NE555",
+        nonlinear_name="555 timer",
+        covered_half_steps=list(_TIMER_COVERED),
+        label_ignores_pins=("GND", "RESET", "CONT", "VCC"),
+    ),
+    "voltage_regulator": _integrated(
+        "Voltage regulator", "U", _REGULATOR_PINS, "5",
+        value_kind="positive", value_label="Voltage", value_unit="V",
+        formula="regulator",
+        covered_half_steps=list(_REGULATOR_COVERED),
+        label_ignores_pins=(),
     ),
     "ground": {
         "display_name": "Ground",
@@ -684,6 +803,25 @@ def validate_parameter_texts(kind, parameter_texts, current_texts=None):
             raise ComponentError(
                 f"{display_name} {parameter['display_name'].lower()} must "
                 "be greater than zero."
+            )
+
+        low = parameter.get("minimum_value")
+        high = parameter.get("maximum_value")
+
+        if (low is not None and high is not None and
+                (numeric_value < low or numeric_value > high)):
+            raise ComponentError(
+                f"{display_name} {name_lower} must be from {low} to {high}."
+            )
+
+        if low is not None and numeric_value < low:
+            raise ComponentError(
+                f"{display_name} {name_lower} must be at least {low}."
+            )
+
+        if high is not None and numeric_value > high:
+            raise ComponentError(
+                f"{display_name} {name_lower} must be at most {high}."
             )
 
         texts[name] = clean_text
@@ -1124,7 +1262,8 @@ class Component:
         Sources add their units and shown settings: "V1 9V",
         "V2 1V 1kHz".
 
-        :returns: Reference and value text, or "" for ground.
+        :returns: Reference and value text, or "" for ground. A part with
+            no value still shows a setting, so a switch reads "S1 open".
         :rtype: str
         """
         component_definition = COMPONENT_DEFINITIONS[self.kind]
@@ -1140,22 +1279,42 @@ class Component:
             )
 
         if component_definition["value_kind"] == "none":
-            return ""
+            extras = _shown_parameter_label_parts(self)
+
+            if not extras:
+                return ""
+
+            return " ".join([self.reference, *extras])
 
         parts = [
             self.reference,
             self.value_text + component_definition.get("value_unit", "")
         ]
 
-        for parameter in get_panel_parameter_definitions(self.kind):
-            if not parameter.get("shown_in_label", True):
-                continue
-
-            parts.append(
-                self.parameter_texts[parameter["name"]] + parameter["unit"]
-            )
+        parts.extend(_shown_parameter_label_parts(self))
 
         return " ".join(parts)
+
+
+def _shown_parameter_label_parts(component):
+    """
+    Return the setting texts that belong on a part's label.
+
+    :param component: Placed part.
+    :type component: Component
+    :rtype: list
+    """
+    parts = []
+
+    for parameter in get_panel_parameter_definitions(component.kind):
+        if not parameter.get("shown_in_label", True):
+            continue
+
+        parts.append(
+            component.parameter_texts[parameter["name"]] + parameter["unit"]
+        )
+
+    return parts
 
 
 def _reference_sort_key(reference):

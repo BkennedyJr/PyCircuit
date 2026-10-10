@@ -12,7 +12,12 @@ Vcc matches vcc. An op-amp is ideal here: its two inputs are held at
 the same voltage, and its supply pins are not part of the formula. A
 follower copies its input. An inverting amplifier multiplies by minus
 its gain, and a non-inverting amplifier multiplies by its gain. A
-diode, LED, transistor, comparator or logic gate has no formula.
+closed switch is a short and an open switch carries no current. A
+potentiometer splits its resistance by the wiper position (0 is pin 2,
+1 is pin 1). An ideal transformer uses Ns/Np, with both currents into
+the dotted terminals. An ideal regulator holds its output at the set
+voltage and ignores dropout. A diode, LED, transistor, MOSFET,
+comparator, logic gate or 555 timer has no formula.
 """
 
 import itertools
@@ -353,6 +358,9 @@ class NodeFormulas:
         if stored is not None:
             return stored
 
+        if component.kind == "potentiometer":
+            return _potentiometer_current(self, component)
+
         if component.kind not in (
                 "resistor", "capacitor", "capacitor_polarized", "inductor"):
             return None
@@ -476,6 +484,39 @@ class NodeFormulas:
 
             return root
 
+        def stamp_branch(reference_key, first_identifier, second_identifier):
+            # Current enters the part at the first pin and leaves at the
+            # second. The stored current for reference_key is that current.
+            first = touch(first_identifier)
+            second = touch(second_identifier)
+            current = sympy.Symbol(f"I_{reference_key}")
+            unknowns.append(current)
+            branch_symbols.append((reference_key, 1))
+            leave(first, current)
+            leave(second, -current)
+
+            return (first, second, current)
+
+        def stamp_short(reference_key, first_identifier, second_identifier):
+            first, second, _current = stamp_branch(
+                reference_key, first_identifier, second_identifier
+            )
+            equations.append(voltage(first) - voltage(second))
+
+        def stamp_resistance(first_identifier, second_identifier, ohms,
+                             short_key):
+            if ohms == 0:
+                stamp_short(short_key, first_identifier, second_identifier)
+                return
+
+            first = touch(first_identifier)
+            second = touch(second_identifier)
+            admittance = 1 / _exact(ohms)
+            leave(first, (voltage(first) - voltage(second)) * admittance)
+            leave(
+                second, (voltage(second) - voltage(first)) * admittance
+            )
+
         for component in self._components:
             kind = component.kind
 
@@ -565,6 +606,77 @@ class NodeFormulas:
                 leave(incoming, amps)
                 continue
 
+            if formula == "switch":
+                pin_1 = _pin_identifier(component, "1")
+                pin_2 = _pin_identifier(component, "2")
+
+                if component.parameter_values["state"] == "closed":
+                    stamp_short(component.reference, pin_1, pin_2)
+                else:
+                    touch(pin_1)
+                    touch(pin_2)
+                    fixed_currents[component.reference] = sympy.Integer(0)
+
+                continue
+
+            if formula == "potentiometer":
+                # Position 0 shorts the wiper to pin 2. Position 1 shorts
+                # it to pin 1. A zero-ohm half is a short, not 1/0.
+                resistance = component.value
+                position = component.parameter_values["position"]
+                pin_1 = _pin_identifier(component, "1")
+                pin_2 = _pin_identifier(component, "2")
+                wiper = _pin_identifier(component, "wiper")
+                stamp_resistance(
+                    pin_1, wiper, (1.0 - position) * resistance,
+                    component.reference
+                )
+                stamp_resistance(
+                    wiper, pin_2, position * resistance,
+                    f"{component.reference}_bottom"
+                )
+                continue
+
+            if formula == "transformer":
+                # Vs = n * Vp, and Ip + n * Is = 0. Both currents enter
+                # the dotted pins (p1 and s1), so the power in equals the
+                # power out. The stored current is Ip.
+                n = _exact(component.value)
+                _p1, _p2, primary = stamp_branch(
+                    component.reference,
+                    _pin_identifier(component, "p1"),
+                    _pin_identifier(component, "p2"),
+                )
+                _s1, _s2, secondary = stamp_branch(
+                    f"{component.reference}_secondary",
+                    _pin_identifier(component, "s1"),
+                    _pin_identifier(component, "s2"),
+                )
+                equations.append(
+                    voltage(_s1) - voltage(_s2)
+                    - n * (voltage(_p1) - voltage(_p2))
+                )
+                equations.append(primary + n * secondary)
+                continue
+
+            if formula == "regulator":
+                # V(out) - V(gnd) = Vset. The same current enters "in"
+                # and leaves "out"; ground current is 0. Dropout is
+                # ignored, so 3 V in still "regulates" to 5 V.
+                pin_in = touch(_pin_identifier(component, "in"))
+                ground_pin = touch(_pin_identifier(component, "gnd"))
+                pin_out = touch(_pin_identifier(component, "out"))
+                current = sympy.Symbol(f"I_{component.reference}")
+                unknowns.append(current)
+                branch_symbols.append((component.reference, 1))
+                leave(pin_in, current)
+                leave(pin_out, -current)
+                equations.append(
+                    voltage(pin_out) - voltage(ground_pin)
+                    - _exact(component.value)
+                )
+                continue
+
             if kind in (
                     "resistor", "capacitor", "capacitor_polarized",
                     "inductor"):
@@ -650,6 +762,30 @@ def _admittance(kind, value):
         return _LAPLACE * exact
 
     return 1 / (_LAPLACE * exact)
+
+
+def _potentiometer_current(formulas, component):
+    """
+    Current into pin 1 of a potentiometer, toward the wiper.
+
+    Position 1 is a short from pin 1 to the wiper, and that branch
+    current is already stored. Any other position uses the top resistor.
+
+    :rtype: sympy.Expr or None
+    """
+    position = component.parameter_values["position"]
+    top = (1.0 - position) * component.value
+
+    if top == 0:
+        return None
+
+    first = formulas.expression_at(_pin_identifier(component, "1"))
+    wiper = formulas.expression_at(_pin_identifier(component, "wiper"))
+
+    if first is None or wiper is None:
+        return None
+
+    return sympy.simplify((first - wiper) / _exact(top))
 
 
 def _nonlinear_text(components):
