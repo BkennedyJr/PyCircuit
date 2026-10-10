@@ -19,12 +19,11 @@ The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
 which of those to do, and what comes after them.
 
-1. Netlist builder
-   Write the circuit out as a SPICE netlist (core/netlist.py, no Qt).
-   Ground is node 0. Other nets get stable names. Every part we can
-   place, including the new ones, gets a line. Saving that text to a
-   file is part of this step, so the same netlist can be opened in
-   LTspice and checked by hand. Do not add a second exporter later.
+1. Netlist builder (done)
+   File > Export Netlist writes the circuit as a SPICE netlist
+   (core/netlist.py, no Qt) to a .cir file. Ground is node 0. Other
+   nets are N001, N002, ... or a name such as Vcc. Open that file in
+   LTspice and check it by hand. There is one exporter.
 
 2. DC operating point
    Run ngspice on that netlist and read the DC voltages and currents.

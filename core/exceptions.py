@@ -35,3 +35,9 @@ class ComponentError(CircuitWorkbenchError):
     """
     Raised when a component definition, value, or placement is invalid.
     """
+
+
+class SimulationError(CircuitWorkbenchError):
+    """
+    Raised when a netlist cannot be written or a simulation cannot run.
+    """

@@ -5,10 +5,11 @@ A desktop circuit workbench written in Python with PyQt5. Today it shows a
 grid of connection points (8 x 8 by default, resizable up to 50 x 50). You
 can select points, mark points as "signal pickoffs" for later analysis
 plots, and save or open the whole circuit as a JSON project file. File >
-Print prints that circuit on one page.
+Print prints that circuit on one page. File > Export Netlist writes a
+SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: a SPICE netlist, ngspice simulation, and Bode, oscilloscope
-and FFT plots.
+Planned next: an ngspice DC operating point, then those voltages and
+currents on the schematic, then the oscilloscope, Bode and FFT.
 
 
 Requirements
@@ -107,7 +108,9 @@ Using it
   window.
 - File > Save Project / Open Project stores the grid, parts, wires and
   probes as a .json file. An older file that only has the grid still
-  opens. File > Print (Ctrl+P) prints the circuit on one page.
+  opens. File > Print (Ctrl+P) prints the circuit on one page. File >
+  Export Netlist writes a .cir file of the same circuit, without probe
+  loads.
 
 
 Third-party files
