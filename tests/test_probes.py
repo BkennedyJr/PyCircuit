@@ -7,6 +7,8 @@ A 10x probe (10 Mohm || 10 pF) is 10000/2001 V at DC (4.9975 V).
 Current through the top resistor is 0.5 mA.
 """
 
+import math
+
 import pytest
 import sympy
 from PyQt5.QtCore import QPointF
@@ -16,7 +18,12 @@ from core.components import Component
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
 from core.node_formula import build_node_formulas
-from core.probes import ProbeCollection, describe_reading, shunt_loads
+from core.probes import (
+    ProbeCollection,
+    describe_reading,
+    parameter_lines,
+    shunt_loads,
+)
 from core.wires import WireCollection
 from gui.grid_editor import grid_point_to_scene_position
 from gui.main_window import MainWindow
@@ -69,10 +76,14 @@ def close_window(window):
 # ----- readings -------------------------------------------------------------
 
 def test_direct_probe_does_not_load_the_divider():
-    book, probe, _parts = loaded("direct")
+    book, probe, parts = loaded("direct")
 
     same(book.expression_at(point(2, 3)), 5)
     assert describe_reading(probe, book) == "V(s) = 5 V"
+    assert parameter_lines(probe, book, parts) == [
+        ("Voltage", "5 V"),
+        ("Frequency", "DC"),
+    ]
 
 
 def test_one_megohm_probe_reads_4_975_volts():
@@ -82,6 +93,8 @@ def test_one_megohm_probe_reads_4_975_volts():
 
     same(book.expression_at(point(2, 3)), sympy.Rational(1000, 201))
     assert describe_reading(probe, book).startswith("V(s) = 4.975")
+    assert parameter_lines(probe, book, _parts)[0][1].startswith("4.975")
+    assert ("Frequency", "DC") in parameter_lines(probe, book, _parts)
 
 
 def test_10x_probe_reads_4_9975_volts_at_dc():
@@ -93,6 +106,9 @@ def test_10x_probe_reads_4_9975_volts_at_dc():
 
     same(expression.subs(laplace, 0), sympy.Rational(10000, 2001))
     assert "At DC: 4.9975" in describe_reading(probe, book)
+    voltage = parameter_lines(probe, book, _parts)[0][1]
+    assert voltage.startswith("4.9975")
+    assert ("Frequency", "DC") in parameter_lines(probe, book, _parts)
 
 
 def test_differential_is_the_midpoint_minus_ground():
@@ -133,6 +149,11 @@ def test_current_through_the_top_resistor_is_half_a_milliamp():
     same(book.current_expression(parts[2]), sympy.Rational(1, 2000))
     assert describe_reading(probe, book, parts[2]) == "I = 0.0005 A"
     same(book.current_expression(parts[1]), sympy.Rational(1, 2000))
+    assert parameter_lines(probe, book, parts, parts[2]) == [
+        ("Current", "0.0005 A"),
+        ("Voltage", "5 V"),
+        ("Frequency", "DC"),
+    ]
 
 
 def test_an_open_source_supplies_no_current():
@@ -248,6 +269,88 @@ def test_shrinking_the_grid_drops_a_probe_outside_it():
     assert probes.get("P3").second_identifier is None
 
 
+def test_an_ac_divider_shows_peak_voltage_and_frequency():
+    # 10 V peak at 1 kHz across 10k/10k is 5 V peak, in phase.
+    grid = ConnectionGrid(8, 8)
+    parts = [
+        Component("ground", "GND1", "", 4, 2),
+        Component("ac_source", "V1", "10", 2, 2, parameter_texts={
+            "frequency": "1k",
+        }),
+        Component("resistor", "R1", "10k", 2, 2),
+        Component("resistor", "R2", "10k", 2, 3, 90),
+    ]
+    probes = ProbeCollection()
+    probe = probes.add_voltage(point(2, 3), grid)
+    book = build_node_formulas(parts, divider_wires(grid), grid)
+
+    assert parameter_lines(probe, book, parts) == [
+        ("Voltage", "5 V peak"),
+        ("Frequency", "1 kHz"),
+        ("Phase", "0 deg"),
+    ]
+
+
+def test_a_lowpass_probe_shows_the_phase_lag():
+    # 1 V peak at 1 kHz, 1k series, 1 uF to ground.
+    # |H| = 1/sqrt(1+(2*pi)**2), angle = -atan(2*pi).
+    grid = ConnectionGrid(8, 8)
+    parts = [
+        Component("ground", "GND1", "", 4, 2),
+        Component("ac_source", "V1", "1", 2, 2),
+        Component("resistor", "R1", "1k", 2, 2),
+        Component("capacitor", "C1", "1u", 2, 3, 90),
+    ]
+    wires = WireCollection()
+    wires.add_wire(point(3, 2), point(4, 2), grid)
+    wires.add_wire(point(3, 3), point(3, 2), grid)
+    probes = ProbeCollection()
+    probe = probes.add_voltage(point(2, 3), grid)
+    book = build_node_formulas(parts, wires, grid)
+    magnitude = 1 / math.sqrt(1 + (2 * math.pi) ** 2)
+    degrees = -math.degrees(math.atan(2 * math.pi))
+    voltage = f"{magnitude:.6f}".rstrip("0").rstrip(".")
+    phase = f"{degrees:.2f}".rstrip("0").rstrip(".")
+
+    assert parameter_lines(probe, book, parts) == [
+        ("Voltage", f"{voltage} V peak"),
+        ("Frequency", "1 kHz"),
+        ("Phase", f"{phase} deg"),
+    ]
+
+
+def test_two_ac_frequencies_are_listed_separately():
+    # V1 (10 V peak, 1 kHz) stacked on V2 (4 V peak, 2 kHz), both to ground.
+    grid = ConnectionGrid(8, 8)
+    parts = [
+        Component("ground", "GND1", "", 4, 2),
+        Component("ac_source", "V2", "4", 3, 2, parameter_texts={
+            "frequency": "2k",
+        }),
+        Component("ac_source", "V1", "10", 2, 2, parameter_texts={
+            "frequency": "1k",
+        }),
+    ]
+    probes = ProbeCollection()
+    probe = probes.add_voltage(point(2, 2), grid)
+    book = build_node_formulas(parts, WireCollection(), grid)
+
+    assert parameter_lines(probe, book, parts) == [
+        ("Voltage", "10 V peak at 1 kHz"),
+        ("Voltage", "4 V peak at 2 kHz"),
+        ("Phase", "0 deg at 1 kHz"),
+        ("Phase", "0 deg at 2 kHz"),
+    ]
+
+
+def test_a_plotted_probe_has_no_parameter_lines():
+    book, probe, parts = loaded("direct")
+
+    probe.has_plot = True
+
+    assert parameter_lines(probe, book, parts) == []
+
+
 def test_a_bad_probe_load_is_refused():
     with pytest.raises(ComponentError, match="resistor or a capacitor"):
         build_node_formulas(
@@ -289,6 +392,18 @@ def test_probe_mode_places_a_1_megohm_probe(qt_application):
         assert probe.identifier == point(2, 3)
         assert window.probe_reading_label.text() == "V(s) = 5 V"
         assert window.probe_name_label.text() == "P1"
+        assert window.probe_parameter_label.text() == (
+            "Voltage: 5 V\nFrequency: DC"
+        )
+        flag = next(
+            item for item in window.connection_grid_scene.probe_items
+            if item.probe.reference == "P1"
+        )
+        assert flag.readout_lines == (
+            ("Voltage", "5 V"),
+            ("Frequency", "DC"),
+        )
+        assert flag.boundingRect().width() > flag._flag_rect().width()
 
         window.probe_method_combo.setCurrentIndex(
             window.probe_method_combo.findData("megohm")
@@ -296,6 +411,9 @@ def test_probe_mode_places_a_1_megohm_probe(qt_application):
 
         assert probe.method == "megohm"
         assert window.probe_reading_label.text().startswith("V(s) = 4.975")
+        assert window.probe_parameter_label.text().startswith(
+            "Voltage: 4.975"
+        )
         assert any(
             item.probe.reference == "P1" and "1M" in item._flag_text()
             for item in window.connection_grid_scene.probe_items
@@ -350,6 +468,40 @@ def test_clicking_a_part_places_a_current_probe(qt_application):
         assert probe.method == "current"
         assert probe.component_reference == "R1"
         assert window.probe_reading_label.text() == "I = 0.01 A"
+        assert window.probe_parameter_label.text() == (
+            "Current: 0.01 A\nVoltage: 10 V\nFrequency: DC"
+        )
+    finally:
+        close_window(window)
+
+
+def test_a_plotted_probe_hides_the_parameter_box(qt_application):
+    window = MainWindow()
+
+    try:
+        grid = window.connection_grid
+
+        for part in divider_parts():
+            window.component_collection.components_by_reference[
+                part.reference
+            ] = part
+
+        window.wire_collection.add_wire(point(3, 2), point(4, 2), grid)
+        window.wire_collection.add_wire(point(3, 3), point(3, 2), grid)
+        window.connection_grid_scene.rebuild_component_items()
+        window.connection_grid_scene.rebuild_wire_items()
+        window.show()
+        QApplication.processEvents()
+        window.probe_mode_action.setChecked(True)
+        click(
+            window.connection_grid_view,
+            grid_point_to_scene_position(2, 3),
+        )
+        window.probe_collection.set_has_plot("P1", True)
+        window.refresh_probe_parameters()
+
+        assert window.probe_parameter_label.text() == "On a plot."
+        assert window.connection_grid_scene.probe_items[0].readout_lines == ()
     finally:
         close_window(window)
 

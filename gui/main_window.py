@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import QComboBox
 from PyQt5.QtWidgets import QDockWidget
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QFormLayout
+from PyQt5.QtWidgets import QGroupBox
 from PyQt5.QtWidgets import QHBoxLayout
 from PyQt5.QtWidgets import QLabel
 from PyQt5.QtWidgets import QLineEdit
@@ -26,6 +27,7 @@ from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QToolBar
+from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QWidget
 
 from core.components import ComponentCollection
@@ -40,6 +42,7 @@ from core.probes import PROBE_METHOD_LABELS
 from core.probes import PROBE_METHODS
 from core.probes import ProbeCollection
 from core.probes import describe_reading
+from core.probes import parameter_lines
 from core.probes import shunt_loads
 from core.wires import WireCollection
 from core.wires import describe_crossings
@@ -88,6 +91,7 @@ class MainWindow(QMainWindow):
         self.selected_wire_references = []
         self.probe_collection = ProbeCollection()
         self.selected_probe_reference = None
+        self._probe_parameter_lines = {}
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -532,6 +536,15 @@ class MainWindow(QMainWindow):
         self.probe_reading_label.setTextInteractionFlags(
             Qt.TextSelectableByMouse
         )
+        self.probe_parameter_box = QGroupBox("Parameters")
+        self.probe_parameter_label = QLabel("-")
+        self.probe_parameter_label.setWordWrap(True)
+        self.probe_parameter_label.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        parameter_layout = QVBoxLayout()
+        parameter_layout.addWidget(self.probe_parameter_label)
+        self.probe_parameter_box.setLayout(parameter_layout)
         self.probe_note_label = QLabel(
             "Probe Mode (P): click a grid point, or click a part for current."
         )
@@ -541,6 +554,7 @@ class MainWindow(QMainWindow):
         probe_layout.addRow("Method:", self.probe_method_combo)
         probe_layout.addRow("Where:", self.probe_where_label)
         probe_layout.addRow("Reading:", self.probe_reading_label)
+        probe_layout.addRow(self.probe_parameter_box)
         probe_layout.addRow(self.probe_note_label)
         probe_widget.setLayout(probe_layout)
 
@@ -1011,6 +1025,7 @@ class MainWindow(QMainWindow):
             self.probe_method_combo.setEnabled(False)
             self.probe_where_label.setText("-")
             self.probe_reading_label.setText("-")
+            self.probe_parameter_label.setText("-")
             return
 
         self.probe_name_label.setText(probe.reference)
@@ -1022,6 +1037,7 @@ class MainWindow(QMainWindow):
         self.probe_method_combo.setEnabled(True)
         self.probe_where_label.setText(self._probe_where_text(probe))
         self.probe_reading_label.setText(self._probe_reading(probe))
+        self._fill_parameter_box(probe)
 
     def apply_probe_method(self, index):
         """
@@ -1095,23 +1111,95 @@ class MainWindow(QMainWindow):
 
         return probe.identifier or "-"
 
+    def refresh_probe_parameters(self):
+        """
+        Fill every unplotted probe's parameter box from the formula.
+
+        The selected probe's box is in the Probe dock. Every probe also
+        draws its box on the grid, beside its flag.
+
+        :returns: None
+        """
+        if not hasattr(self, "probe_parameter_label"):
+            return
+
+        components = self.component_collection.get_components()
+        book = self.formula_book()
+        lines_by_reference = {}
+
+        for probe in self.probe_collection.get_probes():
+            lines_by_reference[probe.reference] = parameter_lines(
+                probe,
+                book,
+                components,
+                self._probe_component(probe)
+            )
+
+        self._probe_parameter_lines = lines_by_reference
+        self.connection_grid_scene.set_probe_readouts(lines_by_reference)
+
+        if self.selected_probe_reference is None:
+            self.probe_parameter_label.setText("-")
+            return
+
+        try:
+            probe = self.probe_collection.get(self.selected_probe_reference)
+        except ComponentError:
+            self.probe_parameter_label.setText("-")
+            return
+
+        self._fill_parameter_box(probe)
+
+    def _fill_parameter_box(self, probe):
+        """
+        Put one probe's meter lines in the Parameters box.
+
+        :param probe: Selected probe, or None.
+        :returns: None
+        """
+        if probe is None:
+            self.probe_parameter_label.setText("-")
+            return
+
+        if probe.has_plot:
+            self.probe_parameter_label.setText("On a plot.")
+            return
+
+        lines = self._probe_parameter_lines.get(probe.reference, ())
+
+        if not lines:
+            self.probe_parameter_label.setText("-")
+            return
+
+        self.probe_parameter_label.setText(
+            "\n".join(f"{label}: {value}" for label, value in lines)
+        )
+
+    def _probe_component(self, probe):
+        """
+        Return the part a current probe sits on, or None.
+
+        :rtype: core.components.Component or None
+        """
+        if not probe.component_reference:
+            return None
+
+        try:
+            return self.component_collection.get_component(
+                probe.component_reference
+            )
+        except ComponentError:
+            return None
+
     def _probe_reading(self, probe):
         """
         Return the formula or current shown for one probe.
 
         :rtype: str
         """
-        component = None
-
-        if probe.component_reference:
-            try:
-                component = self.component_collection.get_component(
-                    probe.component_reference
-                )
-            except ComponentError:
-                component = None
-
-        return describe_reading(probe, self.formula_book(), component)
+        return describe_reading(
+            probe, self.formula_book(), self._probe_component(probe)
+        )
 
     def choose_wire_crossing(self, start_identifier, end_identifier,
                              crossings):
@@ -1228,6 +1316,7 @@ class MainWindow(QMainWindow):
         self.is_project_modified = True
         self._node_formula_book = None
         self.refresh_selected_node_formula()
+        self.refresh_probe_parameters()
         self.update_window_title()
         pending_status = self.connection_grid_scene.get_pending_status()
 
@@ -1679,12 +1768,14 @@ class MainWindow(QMainWindow):
         self.selected_wire_references = []
         self.probe_collection = ProbeCollection()
         self.selected_probe_reference = None
+        self._probe_parameter_lines = {}
         self.connection_grid_scene.pending_differential_reference = None
         self._node_formula_book = None
         self.connection_grid_scene.set_wire_collection(self.wire_collection)
         self.connection_grid_scene.set_probe_collection(self.probe_collection)
         self.show_probe(None)
         self.refresh_selected_node_formula()
+        self.refresh_probe_parameters()
 
     def toggle_selected_signal_pickoff(self):
         """

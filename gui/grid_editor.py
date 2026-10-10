@@ -280,6 +280,7 @@ class ConnectionGridScene(QGraphicsScene):
         self.junction_items_by_identifier = {}
         self.probe_collection = None
         self.probe_items = []
+        self.probe_readouts = {}
         # Probe mode places a probe on a click. While this reference is
         # set, the next grid click is the minus point of that differential
         # probe instead of a new probe.
@@ -795,9 +796,39 @@ class ConnectionGridScene(QGraphicsScene):
         slot = slots.get(point, 0)
         slots[point] = slot + 1
         probe_item = ProbeItem(probe, role, slot)
+
+        if role == "primary":
+            probe_item.set_readout(
+                self.probe_readouts.get(probe.reference, ())
+            )
+
         probe_item.setPos(grid_point_to_scene_position(*point))
         self.addItem(probe_item)
         self.probe_items.append(probe_item)
+
+    def set_probe_readouts(self, lines_by_reference):
+        """
+        Show a parameter box on each probe that has meter lines.
+
+        A probe with no lines (not ready, or drawn on a plot) keeps its
+        flag and hides the box.
+
+        :param lines_by_reference: Probe reference to ``(label, value)``
+            pairs.
+        :returns: None
+        """
+        self.probe_readouts = {
+            reference: tuple(tuple(line) for line in lines)
+            for reference, lines in lines_by_reference.items()
+        }
+
+        for probe_item in self.probe_items:
+            if probe_item.role != "primary":
+                continue
+
+            probe_item.set_readout(
+                self.probe_readouts.get(probe_item.probe.reference, ())
+            )
 
     def _identifier_point(self, identifier):
         """

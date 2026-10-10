@@ -9,6 +9,8 @@ the second. Current reads the current through one part.
 The numbers come from the s-domain formula. ngspice is not required.
 """
 
+import math
+
 import sympy
 
 from core.connection_grid import ConnectionGrid
@@ -60,6 +62,10 @@ class Probe:
     also stores the second point once it has been chosen. A current probe
     stores a part reference instead of a point.
 
+    ``has_plot`` is false until a scope trace is drawing this probe. A
+    probe with no plot shows a parameter box (voltage, current, frequency,
+    phase). A probe on a plot does not: the trace is the reading.
+
     :param reference: Name such as ``P1``.
     :param method: One of ``PROBE_METHODS``.
     :param color: CSS colour used to draw the flag.
@@ -73,6 +79,7 @@ class Probe:
         self.identifier = identifier
         self.second_identifier = second_identifier
         self.component_reference = component_reference
+        self.has_plot = False
 
 
 class ProbeCollection:
@@ -248,6 +255,22 @@ class ProbeCollection:
 
         if method != "differential":
             probe.second_identifier = None
+
+        return probe
+
+    def set_has_plot(self, reference, has_plot):
+        """
+        Remember whether a scope trace is drawing this probe.
+
+        A probe on a plot has no parameter box.
+
+        :param reference: Probe reference, such as ``P1``.
+        :param has_plot: True when a plot shows this probe.
+        :type has_plot: bool
+        :rtype: Probe
+        """
+        probe = self.get(reference)
+        probe.has_plot = bool(has_plot)
 
         return probe
 
@@ -461,6 +484,315 @@ def describe_reading(probe, formulas, component=None):
             return f"{text}\n{dc_line}"
 
     return text
+
+
+def parameter_lines(probe, formulas, components, component=None):
+    """
+    Return the meter lines for a probe that is not on a plot.
+
+    A voltage probe reports voltage. A current probe reports current, and
+    the voltage across a two-pin part. Frequency is ``DC`` when the
+    reading has settled to a number, or the AC source frequency when the
+    reading is a sine. Phase is the steady-state angle of that sine.
+    Several AC frequencies are listed one by one.
+
+    A probe with ``has_plot`` returns no lines: the plot shows it.
+
+    :param probe: Probe to read.
+    :param formulas: Solved formulas for the loaded circuit.
+    :param components: Placed parts, used for AC amplitude and frequency.
+    :param component: The part under a current probe.
+    :returns: ``(label, value)`` pairs, such as ``("Voltage", "5 V")``.
+    :rtype: list
+    """
+    if probe.has_plot:
+        return []
+
+    if probe.method == "current":
+        if component is None:
+            return []
+
+        current_values, rhythm = _meter_parts(
+            formulas.current_expression(component), components, "Current", "A"
+        )
+        voltage_values = []
+        pins = component.get_pin_identifiers()
+
+        if len(pins) == 2:
+            first = formulas.expression_at(pins[0])
+            second = formulas.expression_at(pins[1])
+
+            if first is not None and second is not None:
+                voltage_values, _ignored = _meter_parts(
+                    sympy.simplify(first - second), components, "Voltage", "V"
+                )
+
+        return current_values + voltage_values + rhythm
+
+    expression = _probe_voltage_expression(probe, formulas)
+
+    if expression is None:
+        return []
+
+    values, rhythm = _meter_parts(expression, components, "Voltage", "V")
+
+    return values + rhythm
+
+
+def _probe_voltage_expression(probe, formulas):
+    """
+    Return the voltage a probe measures, or None when it is not ready.
+
+    :rtype: sympy.Expr or None
+    """
+    if probe.method == "differential":
+        if not probe.identifier or not probe.second_identifier:
+            return None
+
+        left = formulas.expression_at(probe.identifier)
+        right = formulas.expression_at(probe.second_identifier)
+
+        if left is None or right is None:
+            return None
+
+        return sympy.simplify(left - right)
+
+    if not probe.identifier:
+        return None
+
+    return formulas.expression_at(probe.identifier)
+
+
+def _meter_parts(expression, components, label, unit):
+    """
+    Split one reading into value lines and frequency/phase lines.
+
+    :returns: ``(value_lines, rhythm_lines)``.
+    :rtype: tuple
+    """
+    settled = _settle(expression, components)
+
+    if settled is None:
+        return [], []
+
+    dc, tones = settled
+    audible = [
+        (frequency, value)
+        for frequency, value in tones
+        if abs(value) >= 5e-7
+    ]
+    dc_value = 0.0 if abs(dc) < 5e-7 else dc
+    values = []
+
+    if abs(dc) >= 5e-7 or not audible:
+        values.append((label, f"{_format_number(dc_value)} {unit}"))
+
+    if not audible:
+        return values, [("Frequency", "DC")]
+
+    if len(audible) == 1:
+        frequency, value = audible[0]
+
+        return values + [
+            (label, f"{_format_number(abs(value))} {unit} peak"),
+        ], [
+            ("Frequency", _format_hertz(frequency)),
+            ("Phase", _format_phase(value)),
+        ]
+
+    rhythm = []
+
+    for frequency, value in audible:
+        hertz = _format_hertz(frequency)
+        values.append(
+            (label, f"{_format_number(abs(value))} {unit} peak at {hertz}")
+        )
+        rhythm.append(("Phase", f"{_format_phase(value)} at {hertz}"))
+
+    return values, rhythm
+
+
+def _settle(expression, components):
+    """
+    Reduce a solved reading to a DC number and one phasor per frequency.
+
+    AC source symbols are replaced by their offset for the DC part, and
+    by their peak phasor at ``s = j*2*pi*f`` for each sine. Sources at
+    another frequency contribute nothing to that sine.
+
+    :returns: ``(dc, [(frequency, complex), ...])`` or None.
+    :rtype: tuple or None
+    """
+    if expression is None:
+        return None
+
+    expression = sympy.simplify(expression)
+    laplace = sympy.symbols("s")
+    sources = []
+
+    for component in components:
+        if component.kind != "ac_source":
+            continue
+
+        symbol = sympy.Symbol(component.reference)
+
+        if symbol in expression.free_symbols:
+            sources.append((component, symbol))
+
+    source_symbols = {symbol for _component, symbol in sources}
+
+    for symbol in expression.free_symbols:
+        if symbol != laplace and symbol not in source_symbols:
+            return None
+
+    dc_map = {
+        symbol: _exact_parameter(component.parameter_values.get("offset", 0))
+        for component, symbol in sources
+    }
+    dc_number = _as_complex(
+        sympy.simplify(expression.subs(dc_map).subs(laplace, 0))
+    )
+
+    if dc_number is None or abs(dc_number.imag) > 1e-6:
+        return None
+
+    tones = []
+
+    for frequency, members in _group_by_frequency(sources):
+        member_ids = {id(component) for component, _symbol in members}
+        phasor_map = {}
+
+        for component, symbol in sources:
+            if id(component) in member_ids:
+                amplitude = _exact_parameter(component.value)
+                phase = component.parameter_values.get("phase", 0)
+                phasor_map[symbol] = amplitude * sympy.exp(
+                    sympy.I * _exact_parameter(phase) * sympy.pi / 180
+                )
+            else:
+                phasor_map[symbol] = 0
+
+        omega = 2 * sympy.pi * frequency
+        tone = _as_complex(sympy.simplify(
+            expression.subs(phasor_map).subs(laplace, sympy.I * omega)
+        ))
+
+        if tone is None:
+            return None
+
+        tones.append((frequency, tone))
+
+    return dc_number.real, tones
+
+
+def _group_by_frequency(sources):
+    """
+    Group AC sources that share one frequency.
+
+    :returns: ``(frequency, [(component, symbol), ...])`` pairs.
+    :rtype: list
+    """
+    groups = []
+
+    for component, symbol in sources:
+        frequency = float(component.parameter_values["frequency"])
+
+        for group_frequency, members in groups:
+            span = max(abs(frequency), abs(group_frequency), 1.0)
+
+            if abs(frequency - group_frequency) <= 1e-6 * span:
+                members.append((component, symbol))
+                break
+        else:
+            groups.append((frequency, [(component, symbol)]))
+
+    return sorted(groups, key=lambda group: group[0])
+
+
+def _as_complex(expression):
+    """
+    Return a finite complex number, or None.
+
+    :rtype: complex or None
+    """
+    if expression is None or expression.free_symbols:
+        return None
+
+    if expression.has(sympy.zoo, sympy.oo, -sympy.oo, sympy.nan):
+        return None
+
+    number = sympy.N(expression)
+    real = float(sympy.re(number))
+    imag = float(sympy.im(number))
+
+    if not math.isfinite(real) or not math.isfinite(imag):
+        return None
+
+    return complex(real, imag)
+
+
+def _exact_parameter(number):
+    """
+    Turn a part setting into an exact value for the meter.
+
+    :rtype: sympy.Expr
+    """
+    if number == 0:
+        return sympy.Integer(0)
+
+    tolerance = abs(float(number)) * 1e-9
+
+    return sympy.nsimplify(number, rational=True, tolerance=tolerance)
+
+
+def _format_number(number):
+    """
+    Return a short decimal such as ``5`` or ``4.975124``.
+
+    :rtype: str
+    """
+    text = f"{float(number):.6f}".rstrip("0").rstrip(".")
+
+    if text in ("", "-0", "-"):
+        return "0"
+
+    return text
+
+
+def _format_hertz(frequency):
+    """
+    Return a frequency such as ``1 kHz`` or ``60 Hz``.
+
+    :rtype: str
+    """
+    frequency = float(frequency)
+
+    if frequency >= 1e6:
+        return f"{_format_number(frequency / 1e6)} MHz"
+
+    if frequency >= 1e3:
+        return f"{_format_number(frequency / 1e3)} kHz"
+
+    return f"{_format_number(frequency)} Hz"
+
+
+def _format_phase(value):
+    """
+    Return the angle of a phasor, such as ``-80.96 deg``.
+
+    :rtype: str
+    """
+    degrees = math.degrees(math.atan2(value.imag, value.real))
+
+    if abs(degrees) < 0.005:
+        degrees = 0.0
+
+    text = f"{degrees:.2f}".rstrip("0").rstrip(".")
+
+    if text in ("", "-0", "-"):
+        text = "0"
+
+    return f"{text} deg"
 
 
 def _dc_line(expression):
