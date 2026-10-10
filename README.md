@@ -6,9 +6,8 @@ grid of connection points (8 x 8 by default, resizable up to 50 x 50). You
 can select points, mark points as "signal pickoffs" for later analysis
 plots, and save or open the grid as a JSON project file.
 
-Planned next: schematic parts with values (R, C, L, sources, diodes, LEDs,
-transistors), wires, a SPICE netlist, ngspice simulation, probes, and Bode,
-oscilloscope and FFT plots.
+Planned next: a SPICE netlist, ngspice simulation, and Bode, oscilloscope
+and FFT plots. Parts, wires and probes are not saved in the project file yet.
 
 
 Requirements
@@ -68,6 +67,12 @@ Using it
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
   is not a connection. Diodes and transistors have no formula. An
   op-amp uses the ideal rule that its two inputs match.
+- Probe Mode (Component menu, toolbar, or P): click a grid point to
+  place a probe, or click a part to measure its current. The Probe
+  panel sets the method: Direct (no load), 1 Mohm to ground, 10x scope
+  (10 Mohm and 10 pF to ground), Differential (click the other point;
+  the reading is the first point minus the second), or Current. Drag a
+  flag to another point. Delete removes the selected probe.
 - Type a name such as Vcc in that panel and press Apply (or Enter).
   Every point with the same name is one node, so a DC source wired to
   one of them sets the voltage at the others. Vcc and vcc match.

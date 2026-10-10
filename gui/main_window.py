@@ -15,6 +15,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QAction
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QComboBox
 from PyQt5.QtWidgets import QDockWidget
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QFormLayout
@@ -35,6 +36,11 @@ from core.exceptions import ProjectFileError
 from core.project_io import load_project_file
 from core.project_io import save_project_file
 from core.node_formula import build_node_formulas
+from core.probes import PROBE_METHOD_LABELS
+from core.probes import PROBE_METHODS
+from core.probes import ProbeCollection
+from core.probes import describe_reading
+from core.probes import shunt_loads
 from core.wires import WireCollection
 from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
@@ -80,6 +86,8 @@ class MainWindow(QMainWindow):
         self.selected_component_reference = None
         self.wire_collection = WireCollection()
         self.selected_wire_references = []
+        self.probe_collection = ProbeCollection()
+        self.selected_probe_reference = None
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -89,6 +97,7 @@ class MainWindow(QMainWindow):
             self.component_collection
         )
         self.connection_grid_scene.set_wire_collection(self.wire_collection)
+        self.connection_grid_scene.set_probe_collection(self.probe_collection)
         self.connection_grid_view = ConnectionGridView(
             self.connection_grid_scene,
             self
@@ -119,6 +128,7 @@ class MainWindow(QMainWindow):
         self.create_grid_configuration_toolbar()
         self.create_component_dock()
         self.create_selected_node_dock()
+        self.create_probe_dock()
 
         self.zoom_label = QLabel(self)
         self.statusBar().addPermanentWidget(self.zoom_label)
@@ -187,6 +197,17 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.wires_selected.connect(
             self.handle_wire_selection
         )
+        self.connection_grid_scene.probe_added.connect(self.handle_probe_added)
+        self.connection_grid_scene.probe_moved.connect(self.handle_probe_moved)
+        self.connection_grid_scene.probe_refused.connect(
+            self.handle_probe_refused
+        )
+        self.connection_grid_scene.probes_selected.connect(
+            self.handle_probe_selection
+        )
+        self.connection_grid_scene.differential_cancelled.connect(
+            self.handle_differential_cancelled
+        )
         self.connection_grid_view.zoom_changed.connect(
             self.update_zoom_display
         )
@@ -244,13 +265,23 @@ class MainWindow(QMainWindow):
         )
         self.wire_mode_action.toggled.connect(self.set_wire_mode)
 
+        self.probe_mode_action = QAction("Probe Mode", self)
+        self.probe_mode_action.setCheckable(True)
+        self.probe_mode_action.setShortcut(QKeySequence("P"))
+        self.probe_mode_action.setToolTip(
+            "Probe Mode (P): click a grid point for a voltage probe, "
+            "or a part for a current probe"
+        )
+        self.probe_mode_action.toggled.connect(self.set_probe_mode)
+
         # R, Delete and W act only while the grid view has focus, so they
         # never fire from a dock widget (combo box, line edit, button).
         # The menu and toolbar entries still work from anywhere.
         for component_action in (
                 self.rotate_component_action,
                 self.delete_component_action,
-                self.wire_mode_action):
+                self.wire_mode_action,
+                self.probe_mode_action):
             component_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             self.connection_grid_view.addAction(component_action)
 
@@ -302,6 +333,7 @@ class MainWindow(QMainWindow):
         component_menu.addAction(self.delete_component_action)
         component_menu.addSeparator()
         component_menu.addAction(self.wire_mode_action)
+        component_menu.addAction(self.probe_mode_action)
 
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.zoom_in_action)
@@ -326,6 +358,7 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.rotate_component_action)
         main_tool_bar.addAction(self.delete_component_action)
         main_tool_bar.addAction(self.wire_mode_action)
+        main_tool_bar.addAction(self.probe_mode_action)
         main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.zoom_in_action)
         main_tool_bar.addAction(self.zoom_out_action)
@@ -471,6 +504,50 @@ class MainWindow(QMainWindow):
             selected_node_dock
         )
 
+    def create_probe_dock(self):
+        """
+        Create the dock that shows the selected probe and its method.
+
+        :returns: None
+        """
+        probe_widget = QWidget()
+        probe_layout = QFormLayout()
+
+        self.probe_name_label = QLabel("No probe selected")
+        self.probe_method_combo = QComboBox()
+        self.probe_method_combo.setEnabled(False)
+
+        for method in PROBE_METHODS:
+            self.probe_method_combo.addItem(
+                PROBE_METHOD_LABELS[method], method
+            )
+
+        self.probe_method_combo.currentIndexChanged[int].connect(
+            self.apply_probe_method
+        )
+        self.probe_where_label = QLabel("-")
+        self.probe_where_label.setWordWrap(True)
+        self.probe_reading_label = QLabel("-")
+        self.probe_reading_label.setWordWrap(True)
+        self.probe_reading_label.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        self.probe_note_label = QLabel(
+            "Probe Mode (P): click a grid point, or click a part for current."
+        )
+        self.probe_note_label.setWordWrap(True)
+
+        probe_layout.addRow("Probe:", self.probe_name_label)
+        probe_layout.addRow("Method:", self.probe_method_combo)
+        probe_layout.addRow("Where:", self.probe_where_label)
+        probe_layout.addRow("Reading:", self.probe_reading_label)
+        probe_layout.addRow(self.probe_note_label)
+        probe_widget.setLayout(probe_layout)
+
+        probe_dock = QDockWidget("Probe", self)
+        probe_dock.setWidget(probe_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, probe_dock)
+
     def apply_grid_configuration(self, row_count, column_count):
         """
         Resize the connection grid using the selected configuration.
@@ -515,6 +592,14 @@ class MainWindow(QMainWindow):
                 self.connection_grid
             )
         )
+        removed_probe_references = (
+            self.probe_collection.remove_for_components(
+                removed_component_references
+            )
+        )
+        removed_probe_references.extend(
+            self.probe_collection.remove_outside_grid(self.connection_grid)
+        )
 
         # Rebuild the editor after the validated model update succeeds.
         # The rebuild drops the part selection, so restore it afterwards.
@@ -536,7 +621,8 @@ class MainWindow(QMainWindow):
         )
 
         if (removed_pickoff_identifiers or removed_component_references or
-                removed_wire_references or removed_label_identifiers):
+                removed_wire_references or removed_label_identifiers or
+                removed_probe_references):
             removed_descriptions = []
 
             if removed_pickoff_identifiers:
@@ -562,6 +648,11 @@ class MainWindow(QMainWindow):
             if removed_label_identifiers:
                 removed_descriptions.append(
                     f"{len(removed_label_identifiers)} net label(s)"
+                )
+
+            if removed_probe_references:
+                removed_descriptions.append(
+                    f"{len(removed_probe_references)} probe(s)"
                 )
 
             removed_text = " and ".join(removed_descriptions)
@@ -649,16 +740,28 @@ class MainWindow(QMainWindow):
             self.selected_node_formula_label.setText("-")
             return
 
+        self.selected_node_formula_label.setText(
+            self.formula_book().text_at(identifier)
+        )
+
+    def formula_book(self):
+        """
+        Return the solved formulas, including probe loads.
+
+        A 1 Mohm probe and a 10x probe add their parts to ground. Direct,
+        differential and current probes do not.
+
+        :rtype: core.node_formula.NodeFormulas
+        """
         if self._node_formula_book is None:
             self._node_formula_book = build_node_formulas(
                 self.component_collection.get_components(),
                 self.wire_collection,
-                self.connection_grid
+                self.connection_grid,
+                shunt_loads(self.probe_collection.get_probes())
             )
 
-        self.selected_node_formula_label.setText(
-            self._node_formula_book.text_at(identifier)
-        )
+        return self._node_formula_book
 
     def apply_selected_net_label(self):
         """
@@ -750,7 +853,8 @@ class MainWindow(QMainWindow):
         """
         self.delete_component_action.setEnabled(
             self.selected_component_reference is not None or
-            bool(self.selected_wire_references)
+            bool(self.selected_wire_references) or
+            self.selected_probe_reference is not None
         )
 
     def set_wire_mode(self, is_wire_mode):
@@ -766,6 +870,9 @@ class MainWindow(QMainWindow):
             self.wire_mode_action.setChecked(bool(is_wire_mode))
             return
 
+        if is_wire_mode and self.probe_mode_action.isChecked():
+            self.probe_mode_action.setChecked(False)
+
         self.connection_grid_scene.set_wire_mode(is_wire_mode)
         self.connection_grid_view.viewport().setCursor(
             Qt.CrossCursor if is_wire_mode else Qt.ArrowCursor
@@ -780,6 +887,222 @@ class MainWindow(QMainWindow):
             )
         else:
             self.statusBar().showMessage("Wire mode off.", 3000)
+
+    def set_probe_mode(self, is_probe_mode):
+        """
+        Turn Probe mode on or off.
+
+        Probe mode and Wire mode are not on together. A click on a grid
+        point places a Direct probe. A click on a part places a current
+        probe. P or Esc leaves the mode; Esc also drops a half-chosen
+        differential second point.
+
+        :param is_probe_mode: True to place probes by clicking.
+        :type is_probe_mode: bool
+        :returns: None
+        """
+        if self.probe_mode_action.isChecked() != bool(is_probe_mode):
+            self.probe_mode_action.setChecked(bool(is_probe_mode))
+            return
+
+        if is_probe_mode and self.wire_mode_action.isChecked():
+            self.wire_mode_action.setChecked(False)
+
+        self.connection_grid_scene.set_probe_mode(is_probe_mode)
+        self.connection_grid_view.viewport().setCursor(
+            Qt.CrossCursor if is_probe_mode else Qt.ArrowCursor
+        )
+
+        if is_probe_mode:
+            self.statusBar().showMessage(
+                "Probe mode: click a grid point for a voltage probe, or a "
+                "part for a current probe. Choose the method in the Probe "
+                "panel. P leaves Probe mode.",
+                7000
+            )
+        else:
+            self.statusBar().showMessage("Probe mode off.", 3000)
+
+    def handle_probe_added(self, reference):
+        """
+        Report a new probe and show its reading.
+
+        :param reference: Probe reference, such as ``P1``.
+        :type reference: str
+        :returns: None
+        """
+        self.selected_probe_reference = reference
+        self.mark_project_modified(f"Added probe {reference}.")
+        self.show_probe(self.probe_collection.get(reference))
+
+    def handle_probe_moved(self, reference):
+        """
+        Report a probe that moved or gained its second point.
+
+        :param reference: Probe reference.
+        :type reference: str
+        :returns: None
+        """
+        self.selected_probe_reference = reference
+        self.mark_project_modified(f"Updated probe {reference}.")
+        self.show_probe(self.probe_collection.get(reference))
+
+    def handle_probe_refused(self, reason):
+        """
+        Tell the user why a probe was not placed or moved.
+
+        :param reason: Plain-English explanation.
+        :type reason: str
+        :returns: None
+        """
+        self.statusBar().showMessage(reason, 7000)
+
+    def handle_probe_selection(self, references):
+        """
+        Show the first selected probe in the Probe dock.
+
+        :param references: Selected probe references.
+        :type references: list
+        :returns: None
+        """
+        self.selected_probe_reference = references[0] if references else None
+        self.update_delete_action()
+
+        if self.selected_probe_reference is None:
+            self.show_probe(None)
+            return
+
+        self.show_probe(self.probe_collection.get(self.selected_probe_reference))
+
+    def handle_differential_cancelled(self):
+        """
+        Report that the second point of a differential probe was cancelled.
+
+        :returns: None
+        """
+        self.statusBar().showMessage(
+            "Differential probe left on one point. Click the other point "
+            "when you are ready.",
+            5000
+        )
+
+    def show_probe(self, probe):
+        """
+        Fill the Probe dock from one probe, or clear it.
+
+        :param probe: Selected probe, or None.
+        :type probe: core.probes.Probe or None
+        :returns: None
+        """
+        if probe is None:
+            self.probe_name_label.setText("No probe selected")
+            self.probe_method_combo.blockSignals(True)
+            self.probe_method_combo.setCurrentIndex(0)
+            self.probe_method_combo.blockSignals(False)
+            self.probe_method_combo.setEnabled(False)
+            self.probe_where_label.setText("-")
+            self.probe_reading_label.setText("-")
+            return
+
+        self.probe_name_label.setText(probe.reference)
+        self.probe_method_combo.blockSignals(True)
+        method_index = self.probe_method_combo.findData(probe.method)
+        if method_index >= 0:
+            self.probe_method_combo.setCurrentIndex(method_index)
+        self.probe_method_combo.blockSignals(False)
+        self.probe_method_combo.setEnabled(True)
+        self.probe_where_label.setText(self._probe_where_text(probe))
+        self.probe_reading_label.setText(self._probe_reading(probe))
+
+    def apply_probe_method(self, index):
+        """
+        Change the selected probe's method from the combo box.
+
+        Differential with no second point waits for the next grid click.
+
+        :param index: Combo index.
+        :type index: int
+        :returns: None
+        """
+        if self.selected_probe_reference is None or index < 0:
+            return
+
+        method = self.probe_method_combo.itemData(index)
+
+        try:
+            probe = self.probe_collection.set_method(
+                self.selected_probe_reference,
+                method,
+                self.component_collection.get_components()
+            )
+        except ComponentError as error:
+            self.show_probe(self.probe_collection.get(
+                self.selected_probe_reference
+            ))
+            self.show_error_message(
+                "Probe Method Not Changed",
+                str(error),
+                "Choose another method, or click the part you want to measure."
+            )
+            return
+
+        if probe.method == "differential" and probe.second_identifier is None:
+            self.connection_grid_scene.pending_differential_reference = (
+                probe.reference
+            )
+
+            if not self.probe_mode_action.isChecked():
+                self.probe_mode_action.setChecked(True)
+
+            status = (
+                f"{probe.reference} is differential. Click the other point."
+            )
+        else:
+            self.connection_grid_scene.pending_differential_reference = None
+            status = (
+                f"{probe.reference} is "
+                f"{PROBE_METHOD_LABELS[probe.method]}."
+            )
+
+        self.connection_grid_scene.rebuild_probe_items()
+        self.connection_grid_scene.select_probe(probe.reference)
+        self._node_formula_book = None
+        self.mark_project_modified(status)
+        self.show_probe(probe)
+
+    def _probe_where_text(self, probe):
+        """
+        Return the short location line for the Probe dock.
+
+        :rtype: str
+        """
+        if probe.method == "current":
+            return probe.component_reference or "-"
+
+        if probe.method == "differential":
+            second = probe.second_identifier or "click the other point"
+
+            return f"{probe.identifier} minus {second}"
+
+        return probe.identifier or "-"
+
+    def _probe_reading(self, probe):
+        """
+        Return the formula or current shown for one probe.
+
+        :rtype: str
+        """
+        component = None
+
+        if probe.component_reference:
+            try:
+                component = self.component_collection.get_component(
+                    probe.component_reference
+                )
+            except ComponentError:
+                component = None
+
+        return describe_reading(probe, self.formula_book(), component)
 
     def choose_wire_crossing(self, start_identifier, end_identifier,
                              crossings):
@@ -1256,12 +1579,12 @@ class MainWindow(QMainWindow):
 
     def delete_selection(self):
         """
-        Delete every selected part and every selected wire (Delete key).
+        Delete every selected part, probe and wire (Delete key).
 
-        The status reads, for example, "Deleted C1, R1, W1, W2.": parts
-        first, then wires, each naturally sorted. A part's wires stay where
-        they are (they keep their points; under the every-dot rule they
-        simply join whatever is placed there next).
+        The status reads, for example, "Deleted C1, R1, P1, W2.": parts,
+        then probes, then wires, each naturally sorted. Deleting a part
+        also deletes a current probe on that part. A part's wires stay
+        where they are.
 
         :returns: None
         """
@@ -1286,8 +1609,22 @@ class MainWindow(QMainWindow):
             ),
             key=natural_sort_key
         )
+        probe_references = {
+            item.probe.reference
+            for item in scene.probe_items
+            if item.isSelected()
+        }
 
-        if not component_references and not wire_references:
+        if self.selected_probe_reference in self.probe_collection.probes_by_reference:
+            probe_references.add(self.selected_probe_reference)
+
+        probe_references.update(
+            self.probe_collection.remove_for_components(component_references)
+        )
+        probe_references = sorted(probe_references, key=natural_sort_key)
+
+        if (not component_references and not wire_references and
+                not probe_references):
             return
 
         for reference in wire_references:
@@ -1296,14 +1633,22 @@ class MainWindow(QMainWindow):
         for reference in component_references:
             self.component_collection.remove_component(reference)
 
-        deleted_references = component_references + wire_references
+        for reference in list(probe_references):
+            if reference in self.probe_collection.probes_by_reference:
+                self.probe_collection.remove(reference)
+
+        deleted_references = (
+            component_references + probe_references + wire_references
+        )
 
         if component_references:
             self.selected_component_reference = None
             scene.rebuild_component_items()
 
         scene.rebuild_wire_items()
+        scene.rebuild_probe_items()
         self.selected_wire_references = []
+        self.selected_probe_reference = None
         self.update_delete_action()
         self.mark_project_modified(
             f"Deleted {', '.join(deleted_references)}."
@@ -1311,8 +1656,8 @@ class MainWindow(QMainWindow):
 
     def reset_component_collection(self):
         """
-        Start with no parts and no wires (project files do not store them
-        yet).
+        Start with no parts, wires or probes (project files do not store
+        them yet).
 
         :returns: None
         """
@@ -1323,8 +1668,13 @@ class MainWindow(QMainWindow):
         )
         self.wire_collection = WireCollection()
         self.selected_wire_references = []
+        self.probe_collection = ProbeCollection()
+        self.selected_probe_reference = None
+        self.connection_grid_scene.pending_differential_reference = None
         self._node_formula_book = None
         self.connection_grid_scene.set_wire_collection(self.wire_collection)
+        self.connection_grid_scene.set_probe_collection(self.probe_collection)
+        self.show_probe(None)
         self.refresh_selected_node_formula()
 
     def toggle_selected_signal_pickoff(self):
