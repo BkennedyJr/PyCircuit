@@ -69,7 +69,7 @@ named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
 on a plot, save and load of the whole circuit, print, standard
 op-amps (LM358, TL072, NE5532), logic gates and follower / amplifier
 blocks, NMOS and PMOS, switch, potentiometer, transformer, 555 timer
-and voltage regulator.
-Next: see docs/plan-next.txt. First step is the netlist builder.
+and voltage regulator, and a SPICE netlist (File > Export Netlist).
+Next: see docs/plan-next.txt. Next step is the ngspice DC operating point.
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.

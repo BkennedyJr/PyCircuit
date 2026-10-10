@@ -7,7 +7,7 @@ import time
 import pytest
 
 from core.exceptions import CircuitWorkbenchError, ComponentError
-from core.units import SI_PREFIX_EXPONENTS, parse_value
+from core.units import SI_PREFIX_EXPONENTS, format_spice_number, parse_value
 
 
 @pytest.mark.parametrize(
@@ -134,3 +134,34 @@ def test_greek_capital_mu_gets_the_ambiguous_m_advice():
         parse_value("1\u039c")
 
     assert "'meg'" in str(error_info.value)
+
+
+@pytest.mark.parametrize(
+    "number, expected",
+    [
+        (0, "0"),
+        (10, "10"),
+        (4700, "4.7k"),
+        (1000, "1k"),
+        (1e6, "1meg"),
+        (0.001, "1m"),
+        (1e-7, "100n"),
+        (159e-9, "159n"),
+        (10e-6, "10u"),
+        (1e-9, "1n"),
+        (1e9, "1g"),
+        (1e12, "1t"),
+        (-5, "-5"),
+    ],
+)
+def test_format_spice_number_uses_spice_suffixes(number, expected):
+    assert format_spice_number(number) == expected
+    assert "M" not in format_spice_number(number)
+
+
+def test_format_spice_number_rejects_a_bool_and_a_non_finite_value():
+    with pytest.raises(ComponentError):
+        format_spice_number(True)
+
+    with pytest.raises(ComponentError):
+        format_spice_number(float("nan"))

@@ -1,3 +1,8 @@
+Milestone 1 (the netlist, including File > Export Netlist) is done.
+Start at milestone 2. MOSFETs, the switch, the pot, the transformer,
+the 555 and the regulator already have netlist lines. The order of
+the remaining work is docs/plan-next.txt.
+
 PyCircuit: netlist, ngspice run, probes, oscilloscope
 Repo: BkennedyJr/PyCircuit (main at dbd0f22, 1446 tests passing)
 Use: Cursor agent, high effort. Work in small PRs, one per milestone below.
