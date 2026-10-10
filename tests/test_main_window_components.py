@@ -72,14 +72,14 @@ def test_the_left_dock_is_components(window):
     assert titles == ["Components"]
 
 
-def test_component_menu_has_rotate_delete_and_wire_mode(window):
+def test_component_menu_has_rotate_delete_wire_and_probe_mode(window):
     menus = {
         action.text(): action.menu()
         for action in window.menuBar().actions()
     }
     assert "&Component" in menus
     assert [a.text() for a in menus["&Component"].actions()] == [
-        "Rotate Part", "Delete", "", "Wire Mode"
+        "Rotate Part", "Delete", "", "Wire Mode", "Probe Mode"
     ]
 
 
