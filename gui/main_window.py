@@ -972,7 +972,16 @@ class MainWindow(QMainWindow):
             self.show_probe(None)
             return
 
-        self.show_probe(self.probe_collection.get(self.selected_probe_reference))
+        try:
+            probe = self.probe_collection.get(self.selected_probe_reference)
+        except ComponentError:
+            # Delete removes the probe, then the scene drops the flag and
+            # reports the selection change. The probe is already gone.
+            self.selected_probe_reference = None
+            self.show_probe(None)
+            return
+
+        self.show_probe(probe)
 
     def handle_differential_cancelled(self):
         """

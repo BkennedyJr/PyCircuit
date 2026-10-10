@@ -91,11 +91,19 @@ def _exact(number):
     """
     Turn a parsed part value into an exact rational.
 
-    :param number: Value from the part, such as 10000.0 or 1e-6.
+    The slack scales with the value. A fixed 1e-9 would turn 10 pF into
+    0, and a 10x probe would then ignore its capacitor.
+
+    :param number: Value from the part, such as 10000.0 or 1e-11.
     :type number: float
     :rtype: sympy.Expr
     """
-    return sympy.nsimplify(number, rational=True, tolerance=1e-9)
+    if number == 0:
+        return sympy.Integer(0)
+
+    tolerance = abs(float(number)) * 1e-9
+
+    return sympy.nsimplify(number, rational=True, tolerance=tolerance)
 
 
 def _pin_identifier(component, pin_name):
