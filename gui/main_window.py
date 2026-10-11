@@ -55,6 +55,9 @@ from core.probes import shunt_loads
 from core.wires import WireCollection
 from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
+from gui.help_dialog import HelpDialog
+from gui.help_dialog import build_about_box
+from gui.help_dialog import read_help_text
 from gui.grid_configuration_widget import ApplyGridButton
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
@@ -335,6 +338,15 @@ class MainWindow(QMainWindow):
         self.exit_action = QAction("Exit", self)
         self.exit_action.triggered.connect(self.close)
 
+        self.help_action = QAction("Help...", self)
+        self.help_action.setShortcut(QKeySequence.HelpContents)
+        self.help_action.setToolTip("Open the help text")
+        self.help_action.triggered.connect(self.show_help)
+
+        self.about_action = QAction("About Circuit Workbench", self)
+        self.about_action.setToolTip("Show the Circuit Workbench version")
+        self.about_action.triggered.connect(self.show_about)
+
     def create_menu_bar(self):
         """
         Create the programmatic application menu bar.
@@ -367,6 +379,11 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.zoom_in_action)
         view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.fit_grid_action)
+
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.help_action)
+        help_menu.addSeparator()
+        help_menu.addAction(self.about_action)
 
     def create_tool_bar(self):
         """
@@ -2259,6 +2276,41 @@ class MainWindow(QMainWindow):
                 modification_indicator
             )
         )
+
+    def show_help(self):
+        """
+        Open the help text. A missing file is reported in plain words.
+
+        :returns: None
+        """
+        try:
+            help_text = read_help_text()
+        except (OSError, UnicodeError):
+            self.show_error_message(
+                "Help",
+                "The help file could not be opened.",
+                "Restore docs/help.txt next to the program, then "
+                "choose Help again."
+            )
+            return
+
+        HelpDialog(help_text, self).exec_()
+
+    def create_about_box(self):
+        """
+        Build the About box. The caller shows it.
+
+        :rtype: QMessageBox
+        """
+        return build_about_box(self)
+
+    def show_about(self):
+        """
+        Show the application name and version.
+
+        :returns: None
+        """
+        self.create_about_box().exec_()
 
     def show_error_message(self, title, reason, resolution):
         """
