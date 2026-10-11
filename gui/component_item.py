@@ -39,6 +39,7 @@ from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt5.QtGui import (
     QBrush,
     QColor,
+    QFont,
     QPainterPath,
     QPainterPathStroker,
     QPen,
@@ -58,7 +59,11 @@ from core.components import (
 )
 from core.exceptions import ComponentError
 from core.wires import WireNets
-from gui.component_symbols import build_symbol_paths, get_body_path
+from gui.component_symbols import (
+    OPAMP_PIN_NUMBER_POINTS,
+    build_symbol_paths,
+    get_body_path,
+)
 
 BACKGROUND_COLOR = "#1f2933"
 SYMBOL_COLOR = "#d9e2ec"
@@ -66,6 +71,9 @@ SELECTED_COLOR = "#ffd166"
 # A dragged part over a spot where the drop would be refused.
 REFUSED_DROP_COLOR = "#ff6b6b"
 SYMBOL_PEN_WIDTH = 2
+# DIP pin numbers on an op-amp. 11 px stays readable inside the triangle
+# at the 60 px grid without covering a lead.
+PIN_NUMBER_PIXELS = 11
 BOUNDING_MARGIN = 3
 LABEL_GAP = 6
 LABEL_PATCH_PADDING = 2
@@ -428,6 +436,7 @@ class ComponentItem(QGraphicsItem):
         # Not a child (see the module docstring). This item keeps the only
         # Python reference and puts the label in its scene in itemChange().
         self.label_item = ComponentLabelItem()
+        self.pin_number_items = {}
 
         # Item position when the left button went down, and whether the
         # press has become a drag.
@@ -506,6 +515,7 @@ class ComponentItem(QGraphicsItem):
         """
         if is_drop_refused != self.is_drop_refused:
             self.is_drop_refused = is_drop_refused
+            self.update_pin_number_color()
             self.update()
 
     def make_pending(self, is_allowed):
@@ -528,6 +538,7 @@ class ComponentItem(QGraphicsItem):
         self.setFlag(self.ItemIsSelectable, False)
         self.label_item.setVisible(False)
         self.pending_allowed = bool(is_allowed)
+        self.update_pin_number_color()
         self.update_tool_tip()
         self.update()
 
@@ -656,6 +667,7 @@ class ComponentItem(QGraphicsItem):
 
         # prepareGeometryChange() above already schedules the repaint.
         self.refresh_label()
+        self.place_pin_numbers()
         self.update_tool_tip()
 
     def refresh_label(self):
@@ -699,6 +711,76 @@ class ComponentItem(QGraphicsItem):
 
         self.label_offset = top_left - text_rect.topLeft()
         self.place_label()
+
+    def place_pin_numbers(self):
+        """
+        Draw the DIP pin numbers inside an op-amp, upright at every rotation.
+
+        Kinds without pin numbers hide any digits left from a previous part.
+
+        :returns: None
+        """
+        numbers = COMPONENT_DEFINITIONS[self.component.kind].get(
+            "pin_numbers", {}
+        )
+        transform = QTransform().rotate(self.component.rotation)
+
+        for pin_name in list(self.pin_number_items):
+            if pin_name not in numbers:
+                self.pin_number_items[pin_name].setVisible(False)
+
+        for pin_name, number in numbers.items():
+            item = self.pin_number_items.get(pin_name)
+
+            if item is None:
+                item = QGraphicsSimpleTextItem(self)
+                item.setAcceptedMouseButtons(Qt.NoButton)
+                font = QFont(item.font())
+                font.setPixelSize(PIN_NUMBER_PIXELS)
+                font.setBold(True)
+                item.setFont(font)
+                self.pin_number_items[pin_name] = item
+
+            center_x, center_y = OPAMP_PIN_NUMBER_POINTS[pin_name]
+            center = transform.map(QPointF(center_x, center_y))
+            center *= self.grid_spacing
+            item.setText(str(number))
+            text_rect = item.boundingRect()
+            item.setPos(center - text_rect.center())
+            item.setVisible(True)
+
+        self.update_pin_number_color()
+
+    def symbol_color(self):
+        """
+        Return the colour the symbol is drawn in right now.
+
+        :rtype: QColor
+        """
+        if self.pending_allowed is not None:
+            if self.pending_allowed:
+                return QColor(PENDING_ALLOWED_COLOR)
+
+            return QColor(REFUSED_DROP_COLOR)
+
+        if self.is_drop_refused:
+            return QColor(REFUSED_DROP_COLOR)
+
+        if self.isSelected():
+            return QColor(SELECTED_COLOR)
+
+        return QColor(SYMBOL_COLOR)
+
+    def update_pin_number_color(self):
+        """
+        Match the pin-number digits to the symbol colour.
+
+        :returns: None
+        """
+        color = self.symbol_color()
+
+        for item in self.pin_number_items.values():
+            item.setBrush(QBrush(color))
 
     def get_label_steering_pin_offsets(self):
         """
@@ -836,6 +918,8 @@ class ComponentItem(QGraphicsItem):
         elif change == self.ItemSceneHasChanged:
             if value is not None and self.label_item.scene() is not value:
                 value.addItem(self.label_item)
+        elif change == self.ItemSelectedHasChanged:
+            self.update_pin_number_color()
         elif change == self.ItemPositionHasChanged:
             self.place_label()
 
@@ -862,7 +946,9 @@ class ComponentItem(QGraphicsItem):
 
         One line each for the kind, reference, value (or model), every
         setting (hidden ones such as Offset too) and the rotation, then one
-        "pin <name>: <node>" line per pin. Once the scene has given the item
+        "pin <name>: <node>" line per pin. An op-amp's line includes its
+        DIP pin number, for example "pin 2 in-". Once the scene has given
+        the item
         its nets (set_wire_nets), each pin line is followed by an indented
         "net: ..." line naming the other pins and the wires on that net
         (see core.wires.WireNets.describe).
@@ -897,8 +983,15 @@ class ComponentItem(QGraphicsItem):
                      component.get_pin_offsets()]
         pin_identifiers = component.get_pin_identifiers()
 
+        pin_numbers = definition.get("pin_numbers", {})
+
         for pin_name, identifier in zip(pin_names, pin_identifiers):
-            lines.append(f"pin {pin_name}: {identifier}")
+            number = pin_numbers.get(pin_name)
+
+            if number:
+                lines.append(f"pin {number} {pin_name}: {identifier}")
+            else:
+                lines.append(f"pin {pin_name}: {identifier}")
 
             if self.wire_nets is not None:
                 net_text = self.wire_nets.describe(
@@ -1040,17 +1133,8 @@ class ComponentItem(QGraphicsItem):
         if self.is_lit:
             self.paint_glow(painter)
 
-        if self.pending_allowed is not None:
-            color = QColor(
-                PENDING_ALLOWED_COLOR if self.pending_allowed
-                else REFUSED_DROP_COLOR
-            )
-        elif self.is_drop_refused:
-            color = QColor(REFUSED_DROP_COLOR)
-        elif self.isSelected():
-            color = QColor(SELECTED_COLOR)
-        else:
-            color = QColor(SYMBOL_COLOR)
+        color = self.symbol_color()
+        self.update_pin_number_color()
 
         pen = QPen(color, SYMBOL_PEN_WIDTH)
         pen.setCapStyle(Qt.RoundCap)

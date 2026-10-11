@@ -31,7 +31,9 @@ PROJECT FACTS
   label such as Vcc joins every point with that name, ignoring case.
 - Sources: dc_source (battery), ac_source (sine, peak amplitude, frequency,
   offset, phase), current_source. Op-amps: generic OPAMP and LM741
-  (Logipipe, CC BY 4.0, credited in the README).
+  (Logipipe, CC BY 4.0, credited in the README). The generic op-amp and
+  the 741 draw 741 DIP pin numbers; LM358, TL072 and NE5532 draw
+  amplifier A.
 - LEDs have a colour that picks the model; set_lit(True) lights them after a
   simulation.
 

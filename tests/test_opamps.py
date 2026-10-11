@@ -5,18 +5,26 @@ qt_application fixture in tests/conftest.py.
 """
 
 import pytest
-from PyQt5.QtCore import QPointF, QRectF
-from PyQt5.QtGui import QTransform
+from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtGui import QColor, QTransform
+from PyQt5.QtWidgets import QGraphicsScene
 
 from core.components import COMPONENT_DEFINITIONS, Component, ComponentCollection
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
 from core.subcircuit_models import SUBCIRCUIT_MODELS
-from gui.component_item import ComponentItem
+from gui.component_item import (
+    PENDING_ALLOWED_COLOR,
+    PIN_NUMBER_PIXELS,
+    SELECTED_COLOR,
+    SYMBOL_COLOR,
+    ComponentItem,
+)
 from gui.component_symbols import (
     OPAMP_APEX_X,
     OPAMP_HALF_HEIGHT,
     OPAMP_LEFT_X,
+    OPAMP_PIN_NUMBER_POINTS,
     build_symbol_paths,
     get_body_path,
     opamp_edge_y,
@@ -337,3 +345,117 @@ def test_refused_opamp_value_edit_keeps_the_old_value():
         collection.set_component_value("X1", "LM324")
 
     assert collection.get_component("X1").value_text == "OPAMP"
+
+
+SINGLE_PIN_NUMBERS = {
+    "in-": "2", "in+": "3", "V-": "4", "out": "6", "V+": "7",
+}
+DUAL_PIN_NUMBERS = {
+    "out": "1", "in-": "2", "in+": "3", "V-": "4", "V+": "8",
+}
+
+
+@pytest.mark.parametrize("kind, numbers", [
+    ("opamp_generic", SINGLE_PIN_NUMBERS),
+    ("opamp_741", SINGLE_PIN_NUMBERS),
+    ("opamp_lm358", DUAL_PIN_NUMBERS),
+    ("opamp_tl072", DUAL_PIN_NUMBERS),
+    ("opamp_ne5532", DUAL_PIN_NUMBERS),
+])
+def test_opamps_carry_their_dip_pin_numbers(kind, numbers):
+    assert COMPONENT_DEFINITIONS[kind]["pin_numbers"] == numbers
+
+
+def test_the_comparator_has_no_dip_pin_numbers():
+    assert "pin_numbers" not in COMPONENT_DEFINITIONS["comparator"]
+
+
+def pin_number_center(item, pin_name):
+    child = item.pin_number_items[pin_name]
+
+    return child.mapRectToParent(child.boundingRect()).center()
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+@pytest.mark.parametrize("kind", ["opamp_741", "opamp_lm358"])
+def test_pin_numbers_stay_upright_inside_the_triangle(qt, kind, rotation):
+    component = Component(
+        kind, "X1", COMPONENT_DEFINITIONS[kind]["default_value_text"],
+        4, 4, rotation
+    )
+    item = ComponentItem(component, SPACING)
+    numbers = COMPONENT_DEFINITIONS[kind]["pin_numbers"]
+    visible = {
+        name: child for name, child in item.pin_number_items.items()
+        if child.isVisible()
+    }
+
+    assert set(visible) == set(numbers)
+
+    for pin_name, number in numbers.items():
+        child = visible[pin_name]
+        center = pin_number_center(item, pin_name)
+        point = QPointF(*OPAMP_PIN_NUMBER_POINTS[pin_name])
+        expected = QTransform().rotate(rotation).map(point) * SPACING
+        pin_dx, pin_dy = next(
+            (dx, dy) for name, dx, dy in component.get_pin_offsets()
+            if name == pin_name
+        )
+        pin_point = QPointF(pin_dx, pin_dy) * SPACING
+
+        assert child.text() == number
+        assert child.rotation() == 0
+        assert child.font().pixelSize() == PIN_NUMBER_PIXELS
+        assert child.acceptedMouseButtons() == Qt.NoButton
+        assert item.body_path.contains(center)
+        assert (center - expected).manhattanLength() < 1
+        assert center.manhattanLength() < pin_point.manhattanLength()
+
+    for start, end in sign_segments_on_screen(kind, rotation):
+        glyph_center = (start + end) / 2 * SPACING
+
+        for pin_name in numbers:
+            rect = item.pin_number_items[pin_name].mapRectToParent(
+                item.pin_number_items[pin_name].boundingRect()
+            )
+            assert not rect.contains(glyph_center)
+
+
+def test_other_parts_draw_no_pin_numbers(qt):
+    item = ComponentItem(Component("resistor", "R1", "1k", 4, 4), SPACING)
+    comparator = ComponentItem(Component("comparator", "X1", "COMP", 4, 4), SPACING)
+
+    assert item.pin_number_items == {}
+    assert comparator.pin_number_items == {}
+
+
+def test_the_hover_text_includes_the_dip_pin_number(qt):
+    single = ComponentItem(Component("opamp_741", "X1", "LM741", 4, 4), SPACING)
+    dual = ComponentItem(Component("opamp_lm358", "X1", "LM358", 4, 4), SPACING)
+
+    assert "pin 2 in-: NODE_R03_C03" in single.toolTip()
+    assert "pin 3 in+: NODE_R05_C03" in single.toolTip()
+    assert "pin 6 out: NODE_R04_C05" in single.toolTip()
+    assert "pin 7 V+: NODE_R03_C04" in single.toolTip()
+    assert "pin 4 V-: NODE_R05_C04" in single.toolTip()
+    assert "pin 1 out: NODE_R04_C05" in dual.toolTip()
+    assert "pin 8 V+: NODE_R03_C04" in dual.toolTip()
+    assert "pin 4 V-: NODE_R05_C04" in dual.toolTip()
+
+
+def test_pin_numbers_follow_the_symbol_color(qt):
+    item = ComponentItem(Component("opamp_741", "X1", "LM741", 4, 4), SPACING)
+    scene = QGraphicsScene()
+    scene.addItem(item)
+
+    assert item.pin_number_items["out"].brush().color() == QColor(SYMBOL_COLOR)
+
+    item.setSelected(True)
+
+    assert item.pin_number_items["out"].brush().color() == QColor(SELECTED_COLOR)
+
+    item.make_pending(True)
+
+    assert item.pin_number_items["out"].brush().color() == QColor(
+        PENDING_ALLOWED_COLOR
+    )
