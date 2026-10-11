@@ -1,3 +1,6 @@
+# Windows + Spyder: install into Anaconda base with conda-forge.
+# Do not pip install this file into base (that would add a second PyQt).
+# See README, "Install (Windows, Anaconda Prompt)".
 PyQt5>=5.15
 sympy>=1.12
 PySpice>=1.5
