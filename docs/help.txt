@@ -1,0 +1,6 @@
+Circuit Workbench Help
+======================
+
+This help will be filled in later.
+
+The version is under Help > About Circuit Workbench.

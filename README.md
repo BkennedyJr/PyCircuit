@@ -114,6 +114,10 @@ Using it
   opens. File > Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
   loads.
+- Help > Help (F1) opens the help text. That text is docs/help.txt,
+  which will be filled in later. Help > About Circuit Workbench shows
+  the version. That number goes up by one on the last digit each time
+  a change is merged (0.1.0, then 0.1.1).
 
 
 Third-party files
