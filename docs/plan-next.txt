@@ -25,10 +25,10 @@ which of those to do, and what comes after them.
    nets are N001, N002, ... or a name such as Vcc. Open that file in
    LTspice and check it by hand. There is one exporter.
 
-2. DC operating point
-   Run ngspice on that netlist and read the DC voltages and currents.
-   Plain error text when the circuit will not solve (floating node,
-   voltage-source loop, missing ground). No plot yet.
+2. DC operating point (done)
+   sim/runner.py runs that netlist in ngspice and reads the DC voltages
+   and currents. Node names keep their spelling. A missing ground, a
+   floating node, or a voltage-source loop is plain text. No plot yet.
 
 3. DC numbers on the schematic
    Draw those voltages on the nodes and those currents on the parts,
