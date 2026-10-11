@@ -618,8 +618,18 @@ class MainWindow(QMainWindow):
         parameter_layout = QVBoxLayout()
         parameter_layout.addWidget(self.probe_parameter_label)
         self.probe_parameter_box.setLayout(parameter_layout)
+        self.reset_probe_position_button = QPushButton("Reset position")
+        self.reset_probe_position_button.setToolTip(
+            "Put the probe back beside the point it is reading."
+        )
+        self.reset_probe_position_button.setEnabled(False)
+        self.reset_probe_position_button.clicked.connect(
+            self.reset_selected_probe_position
+        )
         self.probe_note_label = QLabel(
-            "Probe Mode (P): click a grid point, or click a part for current."
+            "Probe Mode (P): click a grid point, or click a part for "
+            "current. Drag a probe to move it. The arrow shows the "
+            "point it reads."
         )
         self.probe_note_label.setWordWrap(True)
 
@@ -627,6 +637,7 @@ class MainWindow(QMainWindow):
         probe_layout.addRow("Method:", self.probe_method_combo)
         probe_layout.addRow("Where:", self.probe_where_label)
         probe_layout.addRow("Reading:", self.probe_reading_label)
+        probe_layout.addRow(self.reset_probe_position_button)
         probe_layout.addRow(self.probe_parameter_box)
         probe_layout.addRow(self.probe_note_label)
         probe_widget.setLayout(probe_layout)
@@ -1103,6 +1114,7 @@ class MainWindow(QMainWindow):
             self.probe_where_label.setText("-")
             self.probe_reading_label.setText("-")
             self.probe_parameter_label.setText("-")
+            self.reset_probe_position_button.setEnabled(False)
             return
 
         self.probe_name_label.setText(probe.reference)
@@ -1114,7 +1126,33 @@ class MainWindow(QMainWindow):
         self.probe_method_combo.setEnabled(True)
         self.probe_where_label.setText(self._probe_where_text(probe))
         self.probe_reading_label.setText(self._probe_reading(probe))
+        self.reset_probe_position_button.setEnabled(probe.flag_is_moved())
         self._fill_parameter_box(probe)
+
+    def reset_selected_probe_position(self):
+        """
+        Put the selected probe's picture back beside the point it reads.
+
+        The point it reads does not change.
+
+        :returns: None
+        """
+        reference = self.selected_probe_reference
+
+        if reference is None:
+            return
+
+        try:
+            probe = self.probe_collection.get(reference)
+        except ComponentError:
+            return
+
+        if not probe.flag_is_moved():
+            return
+
+        self.connection_grid_scene.reset_probe_position(reference)
+        self.mark_project_modified(f"Reset probe {reference}.")
+        self.show_probe(probe)
 
     def apply_probe_method(self, index):
         """
