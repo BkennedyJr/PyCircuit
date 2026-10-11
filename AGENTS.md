@@ -26,8 +26,10 @@ PROJECT FACTS
 - Sources: dc_source (battery), ac_source (sine, peak amplitude, frequency,
   offset, phase), current_source. Op-amps: generic OPAMP, LM741
   (Logipipe, CC BY 4.0, credited in the README), plus behavioural
-  LM358, TL072 and NE5532 stand-ins. The generic op-amp and the 741
-  draw 741 DIP pin numbers; the three duals draw amplifier A. Also a
+  LM358, TL072, NE5532, TL081, TL082 and LM324 stand-ins. The generic
+  op-amp, the 741 and the TL081 draw 741 DIP pin numbers. The duals
+  draw amplifier A, and the LM324 draws amplifier A of the quad
+  (pin 4 is V+, pin 11 is V-). Also a
   comparator, NOT/buffer/AND/
   OR/NAND/NOR/XOR gates, a voltage follower, and inverting and
   non-inverting amplifier blocks. Also NMOS and PMOS (no formula), a
@@ -73,7 +75,7 @@ zoom, sources, op-amps, LED colour, tooltips, s-domain voltage at each node,
 named nets (Vcc, Vss: same name, same node), probes (Direct, 1 Mohm,
 10x, differential, current) with a parameter box when the probe is not
 on a plot, save and load of the whole circuit, print, standard
-op-amps (LM358, TL072, NE5532), logic gates and follower / amplifier
+op-amps (LM358, TL072, NE5532, TL081, TL082, LM324), logic gates and follower / amplifier
 blocks, NMOS and PMOS, switch, potentiometer, transformer, 555 timer
 and voltage regulator, a SPICE netlist (File > Export Netlist), and a
 DC operating point from ngspice, with those voltages and currents

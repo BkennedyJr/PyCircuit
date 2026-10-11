@@ -74,6 +74,9 @@ BODY_RECTS = {
     "opamp_lm358": QRectF(-0.6, -0.6, 1.35, 1.2),
     "opamp_tl072": QRectF(-0.6, -0.6, 1.35, 1.2),
     "opamp_ne5532": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_tl081": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_tl082": QRectF(-0.6, -0.6, 1.35, 1.2),
+    "opamp_lm324": QRectF(-0.6, -0.6, 1.35, 1.2),
     "comparator": QRectF(-0.6, -0.6, 1.35, 1.2),
     "gate_and": QRectF(-0.55, -0.75, 1.45, 1.5),
     "gate_or": QRectF(-0.72, -0.75, 1.57, 1.5),
@@ -189,6 +192,9 @@ BODY_POLYGONS = {
     "opamp_lm358": _opamp_triangle,
     "opamp_tl072": _opamp_triangle,
     "opamp_ne5532": _opamp_triangle,
+    "opamp_tl081": _opamp_triangle,
+    "opamp_tl082": _opamp_triangle,
+    "opamp_lm324": _opamp_triangle,
     "comparator": _opamp_triangle,
     "gate_buffer": _buffer_triangle,
     "gate_not": _not_triangle,
@@ -1066,7 +1072,8 @@ def _plain_amp_paths():
 
 _OPAMP_KINDS = (
     "opamp_generic", "opamp_741", "opamp_lm358", "opamp_tl072",
-    "opamp_ne5532", "comparator",
+    "opamp_ne5532", "opamp_tl081", "opamp_tl082", "opamp_lm324",
+    "comparator",
 )
 
 _SYMBOL_BUILDERS = {

@@ -35,7 +35,7 @@ def recorder(signal):
 def test_combo_lists_all_14_kinds_in_definition_order(panel):
     combo = panel.kind_combo_box
 
-    assert combo.count() == len(COMPONENT_DEFINITIONS) == 35
+    assert combo.count() == len(COMPONENT_DEFINITIONS) == 38
     assert [combo.itemData(index) for index in range(combo.count())] == (
         list(COMPONENT_DEFINITIONS)
     )
