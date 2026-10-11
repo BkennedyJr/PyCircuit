@@ -90,22 +90,40 @@ def test_an_and_gate_has_no_formula():
     )
 
 
-def test_lm358_is_an_ideal_opamp_in_the_formula():
+def _follower_of(kind, value):
     grid = ConnectionGrid(8, 8)
     wires = WireCollection()
     wires.add_wire(point(4, 5), point(4, 6), grid)
     wires.add_wire(point(4, 6), point(2, 6), grid)
     wires.add_wire(point(2, 6), point(2, 3), grid)
     wires.add_wire(point(2, 3), point(3, 3), grid)
-    result = build_node_formulas(
+
+    return build_node_formulas(
         [
-            Component("opamp_lm358", "X1", "LM358", 4, 4),
+            Component(kind, "X1", value, 4, 4),
             Component("dc_source", "V1", "1", 5, 3),
             Component("ground", "GND1", "", 6, 3),
         ],
         wires,
         grid,
     )
+
+
+def test_lm358_is_an_ideal_opamp_in_the_formula():
+    result = _follower_of("opamp_lm358", "LM358")
+
+    same(result.expression_at(point(4, 5)), 1)
+    assert "Ideal op-amp" in result.text_at(point(4, 5))
+
+
+@pytest.mark.parametrize("kind, value", [
+    ("opamp_tl081", "TL081"),
+    ("opamp_tl082", "TL082"),
+    ("opamp_lm324", "LM324"),
+])
+def test_new_opamps_copy_one_volt_as_a_follower(kind, value):
+    # Output tied to in-, 1 V on in+. Ideal rule: V(out) = 1.
+    result = _follower_of(kind, value)
 
     same(result.expression_at(point(4, 5)), 1)
     assert "Ideal op-amp" in result.text_at(point(4, 5))
@@ -115,6 +133,19 @@ def test_new_models_have_subcircuit_text():
     lm358 = get_subcircuit_text("lm358")
     assert ".subckt LM358 inp inn vp vn out" in lm358
     assert "EGAIN gain_node 0 inp inn 100k" in lm358
+
+    for name in ("TL081", "TL082"):
+        text = get_subcircuit_text(name)
+        assert f".subckt {name} inp inn vp vn out" in text
+        assert "EGAIN gain_node 0 inp inn 200k" in text
+        assert "RIN inp inn 1T" in text
+        assert "ROUT gain_node out 75" in text
+
+    lm324 = get_subcircuit_text("LM324")
+    assert ".subckt LM324 inp inn vp vn out" in lm324
+    assert "EGAIN gain_node 0 inp inn 100k" in lm324
+    assert "RIN inp inn 1meg" in lm324
+    assert "ROUT gain_node out 50" in lm324
 
     and_gate = get_subcircuit_text("AND2")
     assert ".subckt AND2 a b y vcc gnd" in and_gate

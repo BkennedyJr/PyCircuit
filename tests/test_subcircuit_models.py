@@ -42,7 +42,8 @@ def test_module_does_not_import_qt():
 def test_library_and_defaults():
     assert list(SUBCIRCUIT_MODELS)[:2] == ["OPAMP", "LM741"]
     assert {
-        "LM358", "TL072", "NE5532", "COMP", "NOT", "BUF", "AND2", "OR2",
+        "LM358", "TL072", "NE5532", "TL081", "TL082", "LM324",
+        "COMP", "NOT", "BUF", "AND2", "OR2",
         "NAND2", "NOR2", "XOR2", "FOLLOW", "INVAMP", "NONINV",
         "NE555", "REG",
     } <= set(SUBCIRCUIT_MODELS)
@@ -66,9 +67,9 @@ def test_names_ignore_case(name, expected):
 def test_unknown_name_lists_the_known_models():
     with pytest.raises(
         ComponentError,
-        match=r"^No subcircuit model named 'LM324'\."
+        match=r"^No subcircuit model named 'NOMODEL'\."
     ):
-        get_subcircuit_model_name("LM324")
+        get_subcircuit_model_name("NOMODEL")
 
 
 def test_name_must_be_text():

@@ -82,10 +82,12 @@ Using it
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
   is not a connection. Diodes, transistors and logic gates have no
   formula. An op-amp uses the ideal rule that its two inputs match.
-  The generic op-amp and the 741 show the 741 DIP pin numbers (2 in-,
-  3 in+, 4 V-, 6 out, 7 V+). The LM358, TL072 and NE5532 show
-  amplifier A of the dual DIP (1 out, 2 in-, 3 in+, 4 V-, 8 V+).
-  The part list also has an LM358, a TL072, an NE5532, a comparator,
+  The generic op-amp, the 741 and the TL081 show the 741 DIP pin
+  numbers (2 in-, 3 in+, 4 V-, 6 out, 7 V+). The LM358, TL072,
+  NE5532 and TL082 show amplifier A of the dual DIP (1 out, 2 in-,
+  3 in+, 4 V-, 8 V+). The LM324 shows amplifier A of the quad
+  (1 out, 2 in-, 3 in+, 4 V+, 11 V-). The part list also has an
+  LM358, a TL072, an NE5532, a TL081, a TL082, an LM324, a comparator,
   the standard gates, a voltage follower, and inverting and
   non-inverting amplifiers (the gain is the value). NMOS and PMOS,
   and the 555 timer, have no formula. A switch is open or closed, a
@@ -131,7 +133,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2).
 
 
 Third-party files
