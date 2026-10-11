@@ -41,6 +41,10 @@ HOW TO WORK
 - One small branch and PR per change. Never push to main. Merge only after
   PyCircuit QC passes the PR (Billie allows this) and the full suite passes.
   Never merge failing code. Never force-push.
+- Before that merge, add 1 to the last number in core/version.py
+  (0.1.0 becomes 0.1.1) and change the test that checks that number.
+  About shows the new number. Do this once in that pull request, after
+  the other work is in. The pull request that adds the version is 0.1.0.
 - Run "python -m pytest -q" after every change, and ruff on changed files.
   Report what actually ran and what passed; never claim an unrun test.
 - Every solver or simulator result has a test with a hand-calculated answer.

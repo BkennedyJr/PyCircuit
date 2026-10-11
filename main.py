@@ -12,6 +12,8 @@ import traceback
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMessageBox
 
+from core.version import APP_NAME
+from core.version import APP_VERSION
 from gui.main_window import MainWindow
 
 
@@ -64,6 +66,8 @@ def main():
 
     application.setOrganizationName("CircuitWorkbench")
     application.setApplicationName("CircuitWorkbench")
+    application.setApplicationDisplayName(APP_NAME)
+    application.setApplicationVersion(APP_VERSION)
 
     # Install unexpected-error reporting before constructing the main window.
     install_unhandled_exception_handler()
