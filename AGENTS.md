@@ -26,7 +26,9 @@ PROJECT FACTS
 - Sources: dc_source (battery), ac_source (sine, peak amplitude, frequency,
   offset, phase), current_source. Op-amps: generic OPAMP, LM741
   (Logipipe, CC BY 4.0, credited in the README), plus behavioural
-  LM358, TL072 and NE5532 stand-ins. Also a comparator, NOT/buffer/AND/
+  LM358, TL072 and NE5532 stand-ins. The generic op-amp and the 741
+  draw 741 DIP pin numbers; the three duals draw amplifier A. Also a
+  comparator, NOT/buffer/AND/
   OR/NAND/NOR/XOR gates, a voltage follower, and inverting and
   non-inverting amplifier blocks. Also NMOS and PMOS (no formula), a
   switch (open or closed), a potentiometer (position 0 to 1), an ideal

@@ -97,6 +97,16 @@ OPAMP_HALF_HEIGHT = 1.2
 OPAMP_SIGN_X = -0.38
 OPAMP_SIGN_Y = 0.55
 OPAMP_SIGN_HALF_SIZE = 0.1
+# Centres of the DIP pin-number digits, in pitch units at rotation 0.
+# Each one sits inside the triangle, beside its lead and off the + and -
+# marks. The item keeps the digits upright when the part is rotated.
+OPAMP_PIN_NUMBER_POINTS = {
+    "in-": (-0.46, -0.90),
+    "in+": (-0.46, 0.90),
+    "out": (0.48, -0.10),
+    "V+": (0.20, -0.40),
+    "V-": (0.20, 0.40),
+}
 
 
 def _opamp_triangle():

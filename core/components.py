@@ -80,6 +80,14 @@ _OPAMP_PINS = [
     ("in+", -1, 1), ("in-", -1, -1), ("out", 1, 0),
     ("V+", 0, -1), ("V-", 0, 1),
 ]
+# DIP-8 pin numbers drawn on the symbol. The generic op-amp uses the
+# 741's pins. A dual (LM358, TL072, NE5532) is amplifier A.
+_SINGLE_OPAMP_PIN_NUMBERS = {
+    "in-": "2", "in+": "3", "V-": "4", "out": "6", "V+": "7",
+}
+_DUAL_OPAMP_PIN_NUMBERS = {
+    "out": "1", "in-": "2", "in+": "3", "V-": "4", "V+": "8",
+}
 _GATE_PINS = [
     ("A", -1, -1), ("B", -1, 1), ("Y", 1, 0),
     ("VCC", 0, -1), ("GND", 0, 1),
@@ -318,19 +326,24 @@ COMPONENT_DEFINITIONS = {
         "nonlinear_name": "MOSFET",
     },
     "opamp_generic": _integrated(
-        "Op-amp (generic)", "X", _OPAMP_PINS, "OPAMP", formula="ideal_opamp"
+        "Op-amp (generic)", "X", _OPAMP_PINS, "OPAMP", formula="ideal_opamp",
+        pin_numbers=_SINGLE_OPAMP_PIN_NUMBERS,
     ),
     "opamp_741": _integrated(
-        "Op-amp (741)", "X", _OPAMP_PINS, "LM741", formula="ideal_opamp"
+        "Op-amp (741)", "X", _OPAMP_PINS, "LM741", formula="ideal_opamp",
+        pin_numbers=_SINGLE_OPAMP_PIN_NUMBERS,
     ),
     "opamp_lm358": _integrated(
-        "Op-amp (LM358)", "X", _OPAMP_PINS, "LM358", formula="ideal_opamp"
+        "Op-amp (LM358)", "X", _OPAMP_PINS, "LM358", formula="ideal_opamp",
+        pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
     ),
     "opamp_tl072": _integrated(
-        "Op-amp (TL072)", "X", _OPAMP_PINS, "TL072", formula="ideal_opamp"
+        "Op-amp (TL072)", "X", _OPAMP_PINS, "TL072", formula="ideal_opamp",
+        pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
     ),
     "opamp_ne5532": _integrated(
-        "Op-amp (NE5532)", "X", _OPAMP_PINS, "NE5532", formula="ideal_opamp"
+        "Op-amp (NE5532)", "X", _OPAMP_PINS, "NE5532", formula="ideal_opamp",
+        pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
     ),
     "comparator": _integrated(
         "Comparator", "X", _OPAMP_PINS, "COMP", nonlinear_name="comparator"
