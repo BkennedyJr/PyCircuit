@@ -49,18 +49,25 @@ uses.
     git clone https://github.com/BkennedyJr/PyCircuit.git
     cd PyCircuit
     conda activate base
-    conda install -c conda-forge pyspice
+    python -c "import sys; print(sys.executable)"
+    pip install PySpice
+    conda install -c conda-forge ngspice-lib
 
-The conda name is pyspice. In Python the name is PySpice. That install
-also brings the ngspice library (ngspice.dll). Read the plan conda
+python.exe should be C:\Users\danni\anaconda3\python.exe before those
+installs. conda-forge has no PySpice build for Python 3.11 or newer
+(its newest Windows build is Python 3.10), so "conda install pyspice"
+cannot succeed here. pip install PySpice puts the module in base. In
+Python the name is PySpice.
+
+ngspice-lib is the shared library (ngspice.dll). Read the plan conda
 prints. If it would remove Spyder or replace PyQt, stop and do not
 press y.
 
 Anaconda already has PyQt5. Do not pip install PyQt5 into base, and do
-not run "conda install pyqt" on top of a pip copy of PyQt.
-requirements.txt lists PyQt5, sympy, PySpice and numpy for a plain pip
-install. On this setup, use the conda command above instead of
-"pip install -r requirements.txt".
+not run "conda install pyqt" on top of a pip copy of PyQt. Do not
+"pip install -r requirements.txt" into base: that file also lists
+PyQt5. When conda-forge has a build for this Python, use conda for
+that one package. PySpice is the exception, and it uses pip.
 
 Close Spyder and open it again. In the IPython console:
 
@@ -79,9 +86,9 @@ python.exe, then restart the kernel (Consoles > Restart kernel).
 Installing ngspice
 ------------------
 
-The DC operating point needs the ngspice shared library. The pyspice
-install above provides ngspice.dll. ngspice is not a Python module, so
-"import ngspice" fails, and that is expected.
+The DC operating point needs the ngspice shared library. The
+ngspice-lib install above provides ngspice.dll. ngspice is not a
+Python module, so "import ngspice" fails, and that is expected.
 
 With base active, this file should exist:
 
