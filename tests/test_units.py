@@ -7,7 +7,12 @@ import time
 import pytest
 
 from core.exceptions import CircuitWorkbenchError, ComponentError
-from core.units import SI_PREFIX_EXPONENTS, format_spice_number, parse_value
+from core.units import (
+    SI_PREFIX_EXPONENTS,
+    format_dc_reading,
+    format_spice_number,
+    parse_value,
+)
 
 
 @pytest.mark.parametrize(
@@ -165,3 +170,22 @@ def test_format_spice_number_rejects_a_bool_and_a_non_finite_value():
 
     with pytest.raises(ComponentError):
         format_spice_number(float("nan"))
+
+
+@pytest.mark.parametrize("number, unit, expected", [
+    (10, "V", "10 V"),
+    (5, "V", "5 V"),
+    (0, "V", "0 V"),
+    (0.0005, "A", "500 uA"),
+    (-0.0005, "A", "-500 uA"),
+    (0.001, "A", "1 mA"),
+    (1e6, "V", "1 megV"),
+])
+def test_format_dc_reading_is_the_schematic_text(number, unit, expected):
+    assert format_dc_reading(number, unit) == expected
+    assert "M" not in format_dc_reading(number, unit)
+
+
+def test_format_dc_reading_rejects_a_bad_unit():
+    with pytest.raises(ComponentError, match="V or A"):
+        format_dc_reading(1, "ohm")

@@ -8,8 +8,7 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: the DC voltages and currents drawn on the schematic,
-then the oscilloscope, Bode and FFT.
+Planned next: the oscilloscope, then Bode and FFT.
 
 
 Requirements
@@ -129,11 +128,13 @@ Using it
   opens. File > Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
   loads. The same netlist is what ngspice uses for the DC operating
-  point. Those voltages and currents are not drawn on the grid yet.
+  point. Simulate > DC Operating Point draws those voltages on the
+  nodes and those currents on the parts. The selected point shows the
+  DC voltage next to V(s). Editing the circuit clears the numbers.
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3).
 
 
 Third-party files

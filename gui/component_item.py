@@ -437,6 +437,15 @@ class ComponentItem(QGraphicsItem):
         # Python reference and puts the label in its scene in itemChange().
         self.label_item = ComponentLabelItem()
         self.pin_number_items = {}
+        self._dc_current_text = ""
+        self.dc_current_item = QGraphicsSimpleTextItem(self)
+        self.dc_current_item.setAcceptedMouseButtons(Qt.NoButton)
+        current_font = QFont()
+        current_font.setPointSize(10)
+        current_font.setBold(True)
+        self.dc_current_item.setFont(current_font)
+        self.dc_current_item.setBrush(QColor("#7fdbff"))
+        self.dc_current_item.setVisible(False)
 
         # Item position when the left button went down, and whether the
         # press has become a drag.
@@ -668,6 +677,7 @@ class ComponentItem(QGraphicsItem):
         # prepareGeometryChange() above already schedules the repaint.
         self.refresh_label()
         self.place_pin_numbers()
+        self.place_dc_current()
         self.update_tool_tip()
 
     def refresh_label(self):
@@ -846,6 +856,44 @@ class ComponentItem(QGraphicsItem):
         self.label_side = side
         self.label_offset = top_left - self.label_item.text_rect().topLeft()
         self.place_label()
+        self.place_dc_current()
+
+    def set_dc_current(self, text):
+        """
+        Draw the part's DC current on the side opposite its label.
+
+        An empty string hides it. The text does not take mouse clicks.
+
+        :param text: Reading such as ``500 uA``, or ``""``.
+        :type text: str
+        :returns: None
+        """
+        self._dc_current_text = text
+        self.dc_current_item.setText(text)
+        self.place_dc_current()
+        self.update_tool_tip()
+
+    def place_dc_current(self):
+        """
+        Keep the current reading opposite the part label.
+
+        :returns: None
+        """
+        if not self._dc_current_text:
+            self.dc_current_item.setVisible(False)
+            return
+
+        opposite = {
+            "above": "below",
+            "below": "above",
+            "left": "right",
+            "right": "left",
+        }
+        side = opposite.get(self.label_side, "below")
+        text_rect = self.dc_current_item.boundingRect()
+        top_left = self.get_label_top_left(side, text_rect)
+        self.dc_current_item.setPos(top_left - text_rect.topLeft())
+        self.dc_current_item.setVisible(True)
 
     def get_label_top_left(self, side, text_rect):
         """
@@ -962,6 +1010,9 @@ class ComponentItem(QGraphicsItem):
             f"Kind: {definition['display_name']}",
             f"Reference: {component.reference}",
         ]
+
+        if self._dc_current_text:
+            lines.append(f"DC current: {self._dc_current_text}")
 
         if definition["value_kind"] == "model":
             lines.append(f"Model: {component.value_text}")

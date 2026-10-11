@@ -273,3 +273,49 @@ def format_spice_number(number):
     text = f"{mantissa:.6g}"
 
     return f"{sign}{text}{prefix}"
+
+
+def format_dc_reading(number, unit):
+    """
+    Format one DC voltage or current for the schematic, such as ``5 V``.
+
+    The number is the same text as ``format_spice_number``, with a space
+    before the unit. ``0.0005`` amps is ``500 uA``. Mega stays ``meg``,
+    so a lone ``M`` is never written.
+
+    :param number: Volts or amps.
+    :type number: int or float
+    :param unit: ``"V"`` or ``"A"``.
+    :type unit: str
+    :rtype: str
+    :raises ComponentError: If the number or the unit is not allowed.
+    """
+    if unit not in ("V", "A"):
+        raise ComponentError(
+            f"A DC reading unit must be V or A, not {unit!r}."
+        )
+
+    text = format_spice_number(number)
+
+    if text in ("0", "-0"):
+        return f"0 {unit}"
+
+    sign = ""
+    body = text
+
+    if body.startswith("-"):
+        sign = "-"
+        body = body[1:]
+
+    prefix = ""
+
+    for candidate in ("meg", "t", "g", "k", "m", "u", "n", "p", "f"):
+        if body.endswith(candidate):
+            prefix = candidate
+            body = body[:-len(candidate)]
+            break
+
+    if prefix:
+        return f"{sign}{body} {prefix}{unit}"
+
+    return f"{sign}{body} {unit}"

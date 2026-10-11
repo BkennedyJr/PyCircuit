@@ -78,6 +78,43 @@ def build_netlist(components, wire_collection, connection_grid=None):
     return "\n".join(lines) + "\n"
 
 
+def spice_node_map(components, wire_collection, connection_grid=None):
+    """
+    Map grid points to the SPICE node names ``build_netlist`` uses.
+
+    Ground is ``"0"``. A named net keeps its name. The rest are
+    ``N001``, ``N002``, ... One voltage is drawn at ``draw_at``: the
+    ground pin for node 0, and the top-left point of every other net.
+
+    :param components: Placed parts, or a ComponentCollection.
+    :param wire_collection: Wires of the same circuit.
+    :param connection_grid: Grid whose net labels name nodes.
+    :returns: ``(name_by_point, draw_at)``. ``name_by_point`` maps a
+        point identifier to its node name. ``draw_at`` maps a node name
+        to the point where that voltage is drawn.
+    :rtype: tuple
+    :raises SimulationError: If the wires or the grid are not usable.
+    """
+    parts = _component_list(components)
+    _validate_wires_and_grid(wire_collection, connection_grid)
+    nets = _build_nets(parts, wire_collection, connection_grid)
+    named = _assign_node_names(parts, nets)
+    name_by_point = {}
+    draw_at = {}
+    ground_pin = _first_ground_pin(parts)
+
+    for points, node_name in named.items():
+        for identifier in points:
+            name_by_point[identifier] = node_name
+
+        if node_name == "0" and ground_pin is not None:
+            draw_at[node_name] = ground_pin
+        else:
+            draw_at[node_name] = points[0]
+
+    return name_by_point, draw_at
+
+
 def write_netlist_file(netlist_file_path, netlist_text):
     """
     Write a netlist atomically. The destination is replaced only after
@@ -207,12 +244,12 @@ def _build_nets(parts, wire_collection, connection_grid):
     )
 
 
-def _name_nodes(parts, nets):
+def _assign_node_names(parts, nets):
     """
-    Map each pin's grid point to a SPICE node name.
+    Name each net the way the netlist does.
 
-    Ground is ``0``. A net with one name keeps that name. The rest are
-    N001, N002, ... by the top-left point of the net.
+    :returns: Map of the net's point tuple to its SPICE node name.
+    :rtype: dict
     """
     groups = {}
 
@@ -247,19 +284,51 @@ def _name_nodes(parts, nets):
     for index, points in enumerate(numbered, start=1):
         named[points] = f"N{index:0{width}d}"
 
+    return named
+
+
+def _name_nodes(parts, nets):
+    """
+    Map each pin's grid point to a SPICE node name.
+
+    Ground is ``0``. A net with one name keeps that name. The rest are
+    N001, N002, ... by the top-left point of the net.
+    """
+    named = _assign_node_names(parts, nets)
     node_of = {}
 
     for component in parts:
-        for _pin_name, row_number, column_number in (
+        for pin_name, row_number, column_number in (
                 component.get_pin_positions()):
             identifier = ConnectionGrid.build_connection_point_identifier(
                 row_number, column_number
             )
-            node_of[(component.reference, _pin_name)] = named[
+            node_of[(component.reference, pin_name)] = named[
                 nets.get_points(identifier)
             ]
 
     return node_of
+
+
+def _first_ground_pin(parts):
+    """
+    Return the grid point of the first ground part, or None.
+
+    :rtype: str or None
+    """
+    for component in parts:
+        if component.kind != "ground":
+            continue
+
+        _pin_name, row_number, column_number = (
+            component.get_pin_positions()[0]
+        )
+
+        return ConnectionGrid.build_connection_point_identifier(
+            row_number, column_number
+        )
+
+    return None
 
 
 def _require_ground_and_source(parts):

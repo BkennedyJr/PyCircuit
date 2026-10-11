@@ -172,6 +172,16 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         self.net_label_item.setBrush(QColor("#ffd166"))
         self.net_label_item.setPos(12, -22)
         self.net_label_item.setAcceptedMouseButtons(Qt.NoButton)
+        self._dc_voltage_text = ""
+        self.dc_voltage_item = QGraphicsSimpleTextItem(self)
+        voltage_font = QFont()
+        voltage_font.setPointSize(10)
+        voltage_font.setBold(True)
+        self.dc_voltage_item.setFont(voltage_font)
+        self.dc_voltage_item.setBrush(QColor("#7fdbff"))
+        self.dc_voltage_item.setPos(12, 6)
+        self.dc_voltage_item.setAcceptedMouseButtons(Qt.NoButton)
+        self.dc_voltage_item.setVisible(False)
         self.refresh_from_point()
 
     def refresh_from_point(self):
@@ -190,10 +200,26 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         if connection_point.net_label:
             lines.append(f"Net: {connection_point.net_label}")
 
+        if self._dc_voltage_text:
+            lines.append(f"DC: {self._dc_voltage_text}")
+
         self.setToolTip("\n".join(lines))
         self.net_label_item.setText(connection_point.net_label)
         self.net_label_item.setVisible(bool(connection_point.net_label))
         self.update()
+
+    def set_dc_voltage(self, text):
+        """
+        Draw this node's DC voltage under the dot, or hide it.
+
+        :param text: Reading such as ``5 V``, or ``""``.
+        :type text: str
+        :returns: None
+        """
+        self._dc_voltage_text = text
+        self.dc_voltage_item.setText(text)
+        self.dc_voltage_item.setVisible(bool(text))
+        self.refresh_from_point()
 
     def paint(self, painter, option, widget=None):
         """
@@ -1683,6 +1709,49 @@ class ConnectionGridScene(QGraphicsScene):
             side, top_left, patch_rect = best_placement
             component_item.apply_label_placement(side, top_left)
             placed_label_rects.append(patch_rect)
+
+        for component_item in component_items:
+            component_item.place_dc_current()
+
+    def show_dc_numbers(self, voltage_text_by_identifier, current_text_by_reference):
+        """
+        Draw one DC voltage on each named node and one current on each part.
+
+        :param voltage_text_by_identifier: Point identifier to text such
+            as ``"5 V"``. Only those points are labelled.
+        :type voltage_text_by_identifier: dict
+        :param current_text_by_reference: Part reference to text such as
+            ``"500 uA"``.
+        :type current_text_by_reference: dict
+        :returns: None
+        """
+        self.clear_dc_numbers()
+
+        for identifier, text in voltage_text_by_identifier.items():
+            item = self.connection_point_items_by_identifier.get(identifier)
+
+            if item is not None and text:
+                item.set_dc_voltage(text)
+
+        for reference, text in current_text_by_reference.items():
+            item = self.component_items_by_reference.get(reference)
+
+            if item is not None and text:
+                item.set_dc_current(text)
+
+        self.layout_component_labels()
+
+    def clear_dc_numbers(self):
+        """
+        Remove the drawn DC voltages and currents.
+
+        :returns: None
+        """
+        for item in self.connection_point_items_by_identifier.values():
+            item.set_dc_voltage("")
+
+        for item in self.component_items_by_reference.values():
+            item.set_dc_current("")
 
     def get_grid_rect(self):
         """

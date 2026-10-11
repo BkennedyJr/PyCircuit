@@ -78,7 +78,9 @@ on a plot, save and load of the whole circuit, print, standard
 op-amps (LM358, TL072, NE5532, TL081, TL082, LM324), logic gates and follower / amplifier
 blocks, NMOS and PMOS, switch, potentiometer, transformer, 555 timer
 and voltage regulator, a SPICE netlist (File > Export Netlist), and a
-DC operating point from ngspice.
-Next: see docs/plan-next.txt. Next step is the DC numbers on the schematic.
+DC operating point from ngspice, with those voltages and currents
+drawn on the schematic (Simulate > DC Operating Point).
+Next: see docs/plan-next.txt. Next step is the transient run and the
+oscilloscope.
 First demo: a unity-gain buffer with the AC input and the output shown on the
 scope.
