@@ -19,6 +19,11 @@ The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
 which of those to do, and what comes after them.
 
+Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
+Bouwknegt). Its frequency sweep is step 5 below. Its subcircuits are
+step 12, and the way to build them is docs/plan-subcircuits.txt. Do
+not start either one while an earlier step is unfinished.
+
 1. Netlist builder (done)
    File > Export Netlist writes the circuit as a SPICE netlist
    (core/netlist.py, no Qt) to a .cir file. Ground is node 0. Other
@@ -38,10 +43,16 @@ which of those to do, and what comes after them.
 4. Transient run and the oscilloscope
    Start and Stop on a dock. Drag a probe and the trace follows it.
    The first circuit to get right is a unity-gain buffer, with the
-   input and the output both on the scope.
+   input and the output both on the scope. After a sweep, show rms,
+   average, minimum, maximum and peak to peak for each trace.
 
-5. AC sweep and Bode
-   A frequency sweep, magnitude and phase, in its own dock.
+5. Frequency sweep and Bode
+   A frequency sweep, magnitude and phase, in its own dock. Log or
+   linear frequency. Each probe against the AC source, or one probe
+   divided by another. The cursor shows frequency, magnitude and
+   phase. A polar plot can follow. The V(s) already shown at each
+   node stays. It is not replaced by a list of polynomial
+   coefficients.
 
 6. FFT
    A spectrum of the transient waveform, in its own dock.
@@ -53,6 +64,7 @@ which of those to do, and what comes after them.
 8. Re-run when a value changes
    Change a resistor, a source, a pot position or a switch and the
    DC numbers and the plots update. No extra Run button for that.
+   Keep the previous trace so the change can be compared.
 
 9. Real op-amp limits
    Output swing and gain-bandwidth on the op-amp models, checked
@@ -65,3 +77,13 @@ which of those to do, and what comes after them.
 11. Undo, and copy and paste
     Undo and redo for place, move, wire, value and delete. Copy a
     selected chunk of the circuit and paste it somewhere else.
+
+12. Subcircuits made from our circuits
+    A saved circuit can be opened on its own, and placed as one part
+    in another circuit. Ground is the same ground everywhere. No
+    nesting. The plan is docs/plan-subcircuits.txt.
+
+Leave these Hicap pieces out. They do not fit this bench: thyristor
+and 12-pulse gate control, a drawn arbitrary wave, diodes replaced by
+a two-value resistor, symbols drawn as pixels, and a limit of 99
+parts.
