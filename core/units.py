@@ -3,8 +3,8 @@ Engineering-value parsing for component values.
 
 This module converts user-entered component values such as ``4k7``,
 ``10u``, ``100n``, ``1meg``, or ``2.2m`` into floating-point numbers. It
-contains no PyQt5 imports so the same parser can be used by the GUI, test
-code, and the later SPICE netlist and solver layers.
+contains no PyQt5 imports so the same parser can be used by the GUI, the
+netlist writer, and the later solver.
 """
 
 import math
@@ -215,3 +215,61 @@ def parse_value(value_text):
         value_text,
         "it is not a number with an optional SI prefix."
     )
+
+
+# SPICE suffix for each power of 1000. Mega is "meg", never "M" (SPICE
+# reads a lone M as milli).
+_SPICE_PREFIXES = (
+    (-15, "f"),
+    (-12, "p"),
+    (-9, "n"),
+    (-6, "u"),
+    (-3, "m"),
+    (0, ""),
+    (3, "k"),
+    (6, "meg"),
+    (9, "g"),
+    (12, "t"),
+)
+
+
+def format_spice_number(number):
+    """
+    Format a parsed value the way SPICE expects it.
+
+    4700 becomes ``4.7k``, 1e-7 becomes ``100n``, and 1e6 becomes
+    ``1meg``. A lone ``M`` is never used.
+
+    :param number: Parsed value, such as 4700.0 or 1e-7.
+    :type number: int or float
+    :returns: SPICE number text.
+    :rtype: str
+    :raises ComponentError: If number is not a finite int or float.
+    """
+    if (isinstance(number, bool) or
+            not isinstance(number, (int, float)) or
+            not math.isfinite(number)):
+        raise ComponentError(
+            f"A SPICE number must be a finite number, not {number!r}."
+        )
+
+    if number == 0:
+        return "0"
+
+    sign = "-" if number < 0 else ""
+    magnitude = abs(float(number))
+    # A hair over the exact power of ten keeps 1000 from landing in the
+    # bucket below because of a float such as 999.999999999.
+    exponent = math.floor(math.log10(magnitude * (1 + 1e-12)))
+    prefix_exponent = math.floor(exponent / 3.0) * 3
+    prefix_exponent = max(-15, min(12, prefix_exponent))
+    mantissa = magnitude / (10 ** prefix_exponent)
+
+    if mantissa >= 999.9995 and prefix_exponent < 12:
+        mantissa /= 1000.0
+        prefix_exponent += 3
+
+    prefix = dict(_SPICE_PREFIXES)[prefix_exponent]
+    text = f"{mantissa:.6g}"
+
+    return f"{sign}{text}{prefix}"

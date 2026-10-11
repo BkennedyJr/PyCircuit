@@ -40,6 +40,9 @@ from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
 from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
+from core.exceptions import SimulationError
+from core.netlist import build_netlist
+from core.netlist import write_netlist_file
 from core.project_io import load_project_file
 from core.project_io import save_project_file
 from core.node_formula import build_node_formulas
@@ -59,6 +62,8 @@ from gui.grid_editor import ConnectionGridView
 
 
 PROJECT_FILE_FILTER = "Circuit Workbench Project (*.json);;All Files (*)"
+NETLIST_FILE_FILTER = "SPICE Netlist (*.cir);;All Files (*)"
+_NETLIST_SUFFIXES = (".cir", ".net", ".sp")
 
 
 
@@ -241,6 +246,12 @@ class MainWindow(QMainWindow):
             self.save_project_as
         )
 
+        self.export_netlist_action = QAction("Export Netlist...", self)
+        self.export_netlist_action.setToolTip(
+            "Write a SPICE netlist you can open in LTspice"
+        )
+        self.export_netlist_action.triggered.connect(self.export_netlist)
+
         self.print_action = QAction("Print...", self)
         self.print_action.setShortcut(QKeySequence.Print)
         self.print_action.setToolTip("Print the circuit")
@@ -336,6 +347,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.save_project_action)
         file_menu.addAction(self.save_project_as_action)
+        file_menu.addAction(self.export_netlist_action)
         file_menu.addSeparator()
         file_menu.addAction(self.print_action)
         file_menu.addSeparator()
@@ -2050,6 +2062,62 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(
             f"Saved project '{project_file_path.name}'.",
+            5000
+        )
+
+        return True
+
+    def export_netlist(self):
+        """
+        Ask for a path and write the SPICE netlist of the open circuit.
+
+        :returns: True when a file is written; otherwise False.
+        :rtype: bool
+        """
+        selected = QFileDialog.getSaveFileName(
+            self,
+            "Export SPICE Netlist",
+            "untitled_circuit.cir",
+            NETLIST_FILE_FILTER
+        )
+
+        if not selected[0]:
+            return False
+
+        netlist_file_path = Path(selected[0])
+
+        if netlist_file_path.suffix.lower() not in _NETLIST_SUFFIXES:
+            netlist_file_path = netlist_file_path.with_suffix(".cir")
+
+        return self.export_netlist_to_path(netlist_file_path)
+
+    def export_netlist_to_path(self, netlist_file_path):
+        """
+        Write the open circuit's netlist to a path. No dialog.
+
+        :param netlist_file_path: Destination, for example ``divider.cir``.
+        :type netlist_file_path: pathlib.Path
+        :returns: True when the file is written; otherwise False.
+        :rtype: bool
+        """
+        try:
+            netlist_text = build_netlist(
+                self.component_collection,
+                self.wire_collection,
+                self.connection_grid
+            )
+            write_netlist_file(netlist_file_path, netlist_text)
+
+        except SimulationError as error:
+            self.show_error_message(
+                "Netlist Not Written",
+                str(error),
+                "Fix the circuit, then export the netlist again."
+            )
+            return False
+
+        self.statusBar().showMessage(
+            f"Wrote netlist '{Path(netlist_file_path).name}'.",
             5000
         )
 
