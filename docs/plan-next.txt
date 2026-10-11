@@ -11,9 +11,9 @@ Keep the exact V(s) next to whatever the simulator prints. That number
 and that formula are the reason to use this bench. Do not add a PCB
 layout tool.
 
-The behavioural op-amps (LM358, TL072, NE5532) are flat-gain stand-ins
-on purpose. Real output swing and gain-bandwidth wait until a simulator
-can show them.
+The behavioural op-amps (LM358, TL072, NE5532, TL081, TL082 and LM324)
+are flat-gain stand-ins on purpose. Real output swing and
+gain-bandwidth wait until a simulator can show them.
 
 The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says

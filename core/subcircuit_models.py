@@ -21,10 +21,12 @@ core/spice_library/README.txt). The file is kept unchanged and wrapped in
 a subcircuit named LM741 with the standard port order. It needs both
 supplies: V+ and V- must be connected.
 
-LM358, TL072 and NE5532 are behavioural stand-ins written for PyCircuit
-(gain, input resistance and output resistance in the neighbourhood of the
-real parts). They are not transistor-level manufacturer models, and they
-need both supplies.
+LM358, TL072, NE5532, TL081, TL082 and LM324 are behavioural stand-ins
+written for PyCircuit (gain, input resistance and output resistance in
+the neighbourhood of the real parts). They are not transistor-level
+manufacturer models, and they need both supplies. TL081 and TL082 use
+the same numbers as the TL072. The LM324 uses the same numbers as the
+LM358.
 
 Logic gates and the comparator are behavioural too: the output sits on
 one rail or the other. Gates use ports A, B, Y, VCC and GND (a NOT gate
@@ -126,6 +128,18 @@ _SUBCIRCUIT_TEXT = {
     "NE5532": _behavioral_opamp(
         "NE5532", "100k", "300k", "10",
         "Audio stand-in (gain 100k, Rin 300k, Rout 10)."
+    ),
+    "TL081": _behavioral_opamp(
+        "TL081", "200k", "1T", "75",
+        "JFET-input stand-in (gain 200k, Rin 1T, Rout 75)."
+    ),
+    "TL082": _behavioral_opamp(
+        "TL082", "200k", "1T", "75",
+        "JFET-input stand-in (gain 200k, Rin 1T, Rout 75)."
+    ),
+    "LM324": _behavioral_opamp(
+        "LM324", "100k", "1meg", "50",
+        "General-purpose stand-in (gain 100k, Rin 1meg, Rout 50)."
     ),
     "COMP": """\
 * COMP: comparator. Output is V+ when in+ is above in-, otherwise V-.
@@ -287,6 +301,15 @@ SUBCIRCUIT_MODELS = {
     "NE5532": _opamp_model(
         "NE5532 stand-in: gain 100k, Rin 300k, Rout 10"
     ),
+    "TL081": _opamp_model(
+        "TL081 stand-in: gain 200k, Rin 1T, Rout 75"
+    ),
+    "TL082": _opamp_model(
+        "TL082 stand-in: gain 200k, Rin 1T, Rout 75"
+    ),
+    "LM324": _opamp_model(
+        "LM324 stand-in: gain 100k, Rin 1meg, Rout 50"
+    ),
     "COMP": _opamp_model("Comparator: output swings to the nearer rail"),
     "NOT": _gate_model("NOT gate", _INVERTER_PORTS),
     "BUF": _gate_model("Non-inverting buffer gate", _INVERTER_PORTS),
@@ -347,6 +370,9 @@ DEFAULT_SUBCIRCUIT_BY_KIND = {
     "opamp_lm358": "LM358",
     "opamp_tl072": "TL072",
     "opamp_ne5532": "NE5532",
+    "opamp_tl081": "TL081",
+    "opamp_tl082": "TL082",
+    "opamp_lm324": "LM324",
     "comparator": "COMP",
     "gate_not": "NOT",
     "gate_buffer": "BUF",

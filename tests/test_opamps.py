@@ -32,7 +32,8 @@ from gui.component_symbols import (
 
 OPAMP_KINDS = [
     "opamp_generic", "opamp_741", "opamp_lm358", "opamp_tl072",
-    "opamp_ne5532", "comparator",
+    "opamp_ne5532", "opamp_tl081", "opamp_tl082", "opamp_lm324",
+    "comparator",
 ]
 SPACING = 60
 GRID_DOT_RADIUS_IN_PITCH = 8.0 / 60.0
@@ -52,6 +53,9 @@ def grid():
     ("opamp_lm358", "Op-amp (LM358)", "LM358"),
     ("opamp_tl072", "Op-amp (TL072)", "TL072"),
     ("opamp_ne5532", "Op-amp (NE5532)", "NE5532"),
+    ("opamp_tl081", "Op-amp (TL081)", "TL081"),
+    ("opamp_tl082", "Op-amp (TL082)", "TL082"),
+    ("opamp_lm324", "Op-amp (LM324)", "LM324"),
     ("comparator", "Comparator", "COMP"),
 ])
 def test_opamp_definitions(kind, display_name, default):
@@ -303,10 +307,10 @@ def test_click_area_is_the_triangle(qt, kind):
 
 def test_opamp_value_must_be_a_known_model():
     with pytest.raises(ComponentError) as error:
-        Component("opamp_generic", "X1", "LM324", 4, 4)
+        Component("opamp_generic", "X1", "NOMODEL", 4, 4)
 
     assert str(error.value) == (
-        "No subcircuit model named 'LM324'. Known models: "
+        "No subcircuit model named 'NOMODEL'. Known models: "
         + ", ".join(SUBCIRCUIT_MODELS)
         + "."
     )
@@ -342,7 +346,7 @@ def test_refused_opamp_value_edit_keeps_the_old_value():
     collection.add_component("opamp_generic", 4, 4, "", ConnectionGrid(8, 8))
 
     with pytest.raises(ComponentError):
-        collection.set_component_value("X1", "LM324")
+        collection.set_component_value("X1", "NOMODEL")
 
     assert collection.get_component("X1").value_text == "OPAMP"
 
@@ -361,6 +365,11 @@ DUAL_PIN_NUMBERS = {
     ("opamp_lm358", DUAL_PIN_NUMBERS),
     ("opamp_tl072", DUAL_PIN_NUMBERS),
     ("opamp_ne5532", DUAL_PIN_NUMBERS),
+    ("opamp_tl081", SINGLE_PIN_NUMBERS),
+    ("opamp_tl082", DUAL_PIN_NUMBERS),
+    ("opamp_lm324", {
+        "out": "1", "in-": "2", "in+": "3", "V+": "4", "V-": "11",
+    }),
 ])
 def test_opamps_carry_their_dip_pin_numbers(kind, numbers):
     assert COMPONENT_DEFINITIONS[kind]["pin_numbers"] == numbers
@@ -377,7 +386,7 @@ def pin_number_center(item, pin_name):
 
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
-@pytest.mark.parametrize("kind", ["opamp_741", "opamp_lm358"])
+@pytest.mark.parametrize("kind", ["opamp_741", "opamp_lm358", "opamp_lm324"])
 def test_pin_numbers_stay_upright_inside_the_triangle(qt, kind, rotation):
     component = Component(
         kind, "X1", COMPONENT_DEFINITIONS[kind]["default_value_text"],
@@ -441,6 +450,12 @@ def test_the_hover_text_includes_the_dip_pin_number(qt):
     assert "pin 1 out: NODE_R04_C05" in dual.toolTip()
     assert "pin 8 V+: NODE_R03_C04" in dual.toolTip()
     assert "pin 4 V-: NODE_R05_C04" in dual.toolTip()
+
+    quad = ComponentItem(Component("opamp_lm324", "X1", "LM324", 4, 4), SPACING)
+
+    assert "pin 1 out: NODE_R04_C05" in quad.toolTip()
+    assert "pin 4 V+: NODE_R03_C04" in quad.toolTip()
+    assert "pin 11 V-: NODE_R05_C04" in quad.toolTip()
 
 
 def test_pin_numbers_follow_the_symbol_color(qt):
