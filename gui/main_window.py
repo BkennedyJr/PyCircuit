@@ -11,6 +11,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QRectF
 from PyQt5.QtCore import QStandardPaths
+from PyQt5.QtCore import QThread
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
@@ -42,6 +43,7 @@ from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
 from core.exceptions import SimulationError
 from core.netlist import build_netlist
+from core.netlist import spice_node_map
 from core.netlist import write_netlist_file
 from core.project_io import load_project_file
 from core.project_io import save_project_file
@@ -52,9 +54,11 @@ from core.probes import ProbeCollection
 from core.probes import describe_reading
 from core.probes import parameter_lines
 from core.probes import shunt_loads
+from core.units import format_dc_reading
 from core.wires import WireCollection
 from core.wires import describe_crossings
 from gui.component_panel_widget import ComponentPanelWidget
+from gui.dc_numbers import DcOperatingPointRunner
 from gui.help_dialog import HelpDialog
 from gui.help_dialog import build_about_box
 from gui.help_dialog import read_help_text
@@ -105,6 +109,12 @@ class MainWindow(QMainWindow):
         self.probe_collection = ProbeCollection()
         self.selected_probe_reference = None
         self._probe_parameter_lines = {}
+        self._dc_thread = None
+        self._dc_runner = None
+        self._dc_run_id = 0
+        self._dc_active_run_id = 0
+        self._dc_name_by_point = {}
+        self._dc_volts_by_node = {}
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -255,6 +265,14 @@ class MainWindow(QMainWindow):
         )
         self.export_netlist_action.triggered.connect(self.export_netlist)
 
+        self.dc_operating_point_action = QAction("DC Operating Point", self)
+        self.dc_operating_point_action.setToolTip(
+            "Run ngspice and draw the DC voltages and currents"
+        )
+        self.dc_operating_point_action.triggered.connect(
+            self.run_dc_operating_point
+        )
+
         self.print_action = QAction("Print...", self)
         self.print_action.setShortcut(QKeySequence.Print)
         self.print_action.setToolTip("Print the circuit")
@@ -375,6 +393,9 @@ class MainWindow(QMainWindow):
         component_menu.addAction(self.wire_mode_action)
         component_menu.addAction(self.probe_mode_action)
 
+        simulate_menu = self.menuBar().addMenu("&Simulate")
+        simulate_menu.addAction(self.dc_operating_point_action)
+
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.zoom_in_action)
         view_menu.addAction(self.zoom_out_action)
@@ -405,6 +426,7 @@ class MainWindow(QMainWindow):
         main_tool_bar.addAction(self.delete_component_action)
         main_tool_bar.addAction(self.wire_mode_action)
         main_tool_bar.addAction(self.probe_mode_action)
+        main_tool_bar.addAction(self.dc_operating_point_action)
         main_tool_bar.addSeparator()
         main_tool_bar.addAction(self.zoom_in_action)
         main_tool_bar.addAction(self.zoom_out_action)
@@ -504,6 +526,11 @@ class MainWindow(QMainWindow):
         self.selected_node_formula_label.setTextInteractionFlags(
             Qt.TextSelectableByMouse
         )
+        self.selected_node_dc_label = QLabel("-")
+        self.selected_node_dc_label.setWordWrap(True)
+        self.selected_node_dc_label.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
         self._node_formula_book = None
 
         self.toggle_pickoff_button = QPushButton(
@@ -534,6 +561,10 @@ class MainWindow(QMainWindow):
         selected_node_layout.addRow(
             "Formula:",
             self.selected_node_formula_label
+        )
+        selected_node_layout.addRow(
+            "DC:",
+            self.selected_node_dc_label
         )
         selected_node_layout.addRow(self.toggle_pickoff_button)
 
@@ -666,6 +697,7 @@ class MainWindow(QMainWindow):
         self.select_component_by_reference(selected_component_reference)
         self.selected_connection_point_identifier = None
         self._node_formula_book = None
+        self.clear_dc_numbers()
         self.refresh_selected_node_formula()
         self.is_project_modified = True
 
@@ -746,6 +778,7 @@ class MainWindow(QMainWindow):
             self.selected_node_column_label.setText("-")
             self.selected_node_pickoff_label.setText("-")
             self.selected_node_formula_label.setText("-")
+            self.selected_node_dc_label.setText("-")
             self.net_label_line_edit.clear()
             self.net_label_line_edit.setEnabled(False)
             self.apply_net_label_button.setEnabled(False)
@@ -794,11 +827,13 @@ class MainWindow(QMainWindow):
 
         if identifier is None:
             self.selected_node_formula_label.setText("-")
+            self.selected_node_dc_label.setText("-")
             return
 
         self.selected_node_formula_label.setText(
             self.formula_book().text_at(identifier)
         )
+        self.selected_node_dc_label.setText(self.dc_text_at(identifier))
 
     def formula_book(self):
         """
@@ -1357,6 +1392,7 @@ class MainWindow(QMainWindow):
         """
         self.is_project_modified = True
         self._node_formula_book = None
+        self.clear_dc_numbers()
         self.refresh_selected_node_formula()
         self.refresh_probe_parameters()
         self.update_window_title()
@@ -1812,6 +1848,7 @@ class MainWindow(QMainWindow):
         self._probe_parameter_lines = {}
         self.connection_grid_scene.pending_differential_reference = None
         self._node_formula_book = None
+        self.clear_dc_numbers()
         self.connection_grid_scene.set_wire_collection(self.wire_collection)
         self.connection_grid_scene.set_probe_collection(self.probe_collection)
         self.show_probe(None)
@@ -1983,6 +2020,7 @@ class MainWindow(QMainWindow):
         self.selected_probe_reference = None
         self._probe_parameter_lines = {}
         self._node_formula_book = None
+        self.clear_dc_numbers()
         self.connection_grid_scene.component_collection = (
             self.component_collection
         )
@@ -2237,6 +2275,179 @@ class MainWindow(QMainWindow):
 
         return False
 
+    def dc_text_at(self, identifier):
+        """
+        Return the drawn DC voltage at one grid point, or "-".
+
+        The same number is shown for every point on that node. A point
+        with no formula still gets this number when the last run had one.
+
+        :param identifier: Connection-point identifier, or None.
+        :type identifier: str or None
+        :rtype: str
+        """
+        if identifier is None:
+            return "-"
+
+        node_name = self._dc_name_by_point.get(identifier)
+
+        if node_name is None:
+            return "-"
+
+        volts = self._dc_volts_by_node.get(node_name)
+
+        if volts is None:
+            return "-"
+
+        return format_dc_reading(volts, "V")
+
+    def clear_dc_numbers(self):
+        """
+        Drop the DC voltages and currents. An in-flight run is ignored.
+
+        :returns: None
+        """
+        self._dc_run_id += 1
+        self._dc_name_by_point = {}
+        self._dc_volts_by_node = {}
+        self.connection_grid_scene.clear_dc_numbers()
+        self.selected_node_dc_label.setText("-")
+
+    def show_dc_operating_point(self, operating_point):
+        """
+        Draw one operating point on the current circuit.
+
+        Voltages use the same node names as the netlist. Currents are
+        drawn on the parts. The selected point's DC line updates too.
+
+        :param operating_point: Result from ``run_op``.
+        :type operating_point: sim.runner.OperatingPoint
+        :returns: None
+        """
+        name_by_point, draw_at = spice_node_map(
+            self.component_collection.get_components(),
+            self.wire_collection,
+            self.connection_grid
+        )
+        self._dc_name_by_point = name_by_point
+        self._dc_volts_by_node = dict(operating_point.voltages)
+        voltage_text = {}
+
+        for node_name, identifier in draw_at.items():
+            volts = operating_point.voltages.get(node_name)
+
+            if volts is None:
+                continue
+
+            voltage_text[identifier] = format_dc_reading(volts, "V")
+
+        current_text = {
+            reference: format_dc_reading(amps, "A")
+            for reference, amps in operating_point.currents.items()
+        }
+        self.connection_grid_scene.show_dc_numbers(
+            voltage_text, current_text
+        )
+        self.refresh_selected_node_formula()
+        self.statusBar().showMessage("DC operating point is drawn.", 5000)
+
+    def run_dc_operating_point(self):
+        """
+        Build the netlist, then run it in a background thread.
+
+        Probe loads are not included. That is the same netlist File >
+        Export Netlist writes. Editing the circuit clears the numbers.
+
+        :returns: None
+        """
+        if self._dc_thread is not None:
+            return
+
+        try:
+            netlist = build_netlist(
+                self.component_collection.get_components(),
+                self.wire_collection,
+                self.connection_grid
+            )
+        except SimulationError as error:
+            self.show_error_message(
+                "DC Operating Point",
+                str(error),
+                "Fix the circuit, then run DC Operating Point again."
+            )
+            return
+
+        self._dc_run_id += 1
+        run_id = self._dc_run_id
+        thread = QThread(self)
+        runner = DcOperatingPointRunner(netlist)
+        runner.moveToThread(thread)
+        thread.started.connect(runner.run)
+        runner.succeeded.connect(self._on_dc_succeeded)
+        runner.failed.connect(self._on_dc_failed)
+        runner.succeeded.connect(thread.quit)
+        runner.failed.connect(thread.quit)
+        thread.finished.connect(self._on_dc_thread_finished)
+        self._dc_thread = thread
+        self._dc_runner = runner
+        self._dc_active_run_id = run_id
+        self.dc_operating_point_action.setEnabled(False)
+        self.statusBar().showMessage("Running the DC operating point...")
+        thread.start()
+
+    def _on_dc_succeeded(self, result):
+        """
+        Draw a finished operating point when the circuit has not changed.
+
+        :param result: Operating point from the background run.
+        :returns: None
+        """
+        if self._dc_active_run_id != self._dc_run_id:
+            return
+
+        self.show_dc_operating_point(result)
+
+    def _on_dc_failed(self, reason):
+        """
+        Show why the background run failed, if that run is still current.
+
+        :param reason: Plain-English message.
+        :type reason: str
+        :returns: None
+        """
+        if self._dc_active_run_id != self._dc_run_id:
+            return
+
+        self.show_error_message(
+            "DC Operating Point",
+            reason,
+            "Fix the circuit, then run DC Operating Point again."
+        )
+
+    def _on_dc_thread_finished(self):
+        """
+        Allow another DC run once the background thread has stopped.
+
+        :returns: None
+        """
+        self._dc_thread = None
+        self._dc_runner = None
+        self.dc_operating_point_action.setEnabled(True)
+
+    def _stop_dc_thread(self):
+        """
+        Wait for a background DC run to stop.
+
+        :returns: None
+        """
+        thread = self._dc_thread
+
+        if thread is None:
+            return
+
+        thread.quit()
+        thread.wait(3000)
+
     def closeEvent(self, close_event):
         """
         Provide a graceful shutdown path for unsaved work.
@@ -2245,6 +2456,9 @@ class MainWindow(QMainWindow):
         :type close_event: QCloseEvent
         :returns: None
         """
+        self._dc_run_id += 1
+        self._stop_dc_thread()
+
         if not self.is_project_modified:
             close_event.accept()
             return

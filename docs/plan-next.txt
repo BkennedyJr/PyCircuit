@@ -30,10 +30,12 @@ which of those to do, and what comes after them.
    and currents. Node names keep their spelling. A missing ground, a
    floating node, or a voltage-source loop is plain text. No plot yet.
 
-3. DC numbers on the schematic
-   Draw those voltages on the nodes and those currents on the parts,
-   next to the existing V(s). A node that has no formula still shows
-   the simulated number when ngspice has one.
+3. DC numbers on the schematic (done)
+   Simulate > DC Operating Point draws the ngspice voltages on the
+   nodes and the currents on the parts. The selected point shows that
+   voltage next to V(s). A node with no formula still shows the number.
+   The run is a background thread. Editing the circuit clears the
+   numbers. No plot yet.
 
 4. Transient run and the oscilloscope
    Start and Stop on a dock. Drag a probe and the trace follows it.
