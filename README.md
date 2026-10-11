@@ -8,8 +8,8 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: an ngspice DC operating point, then those voltages and
-currents on the schematic, then the oscilloscope, Bode and FFT.
+Planned next: the DC voltages and currents drawn on the schematic,
+then the oscilloscope, Bode and FFT.
 
 
 Requirements
@@ -50,6 +50,19 @@ Install (Windows, Anaconda Prompt)
 Install PyQt5 with pip only (from requirements.txt). Do not also run
 "conda install pyqt" in the same environment, because the two copies of Qt
 can conflict.
+
+
+Installing ngspice
+------------------
+
+The DC operating point uses ngspice. In the Anaconda Prompt, with the
+pycircuit environment active:
+
+    conda install -c conda-forge ngspice
+
+That install provides ngspice and the shared library (ngspice.dll).
+PySpice and numpy are already in requirements.txt, so the pip install
+above is what brings them in. Do not conda install pyqt.
 
 
 Run
@@ -113,7 +126,8 @@ Using it
   probes as a .json file. An older file that only has the grid still
   opens. File > Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
-  loads.
+  loads. The same netlist is what ngspice uses for the DC operating
+  point. Those voltages and currents are not drawn on the grid yet.
 
 
 Third-party files
