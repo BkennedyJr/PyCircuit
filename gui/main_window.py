@@ -39,6 +39,7 @@ from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QTabWidget
 from PyQt5.QtWidgets import QToolBar
+from PyQt5.QtWidgets import QToolButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QWidget
 
@@ -545,6 +546,7 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self.main_tool_bar = QToolBar("Toolbar", self)
+        self.main_tool_bar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         # Rows and columns sit on this same bar.
         self.grid_tool_bar = self.main_tool_bar
         self.addToolBar(Qt.TopToolBarArea, self.main_tool_bar)
@@ -574,12 +576,27 @@ class MainWindow(QMainWindow):
             started = True
 
             for action in chosen:
-                self.main_tool_bar.addAction(action)
+                self._add_toolbar_command(action)
 
         if started:
             self.main_tool_bar.addSeparator()
 
         self.main_tool_bar.addWidget(self.grid_configuration_widget)
+
+    def _add_toolbar_command(self, action):
+        """
+        Put one command on the toolbar without taking its shortcut.
+
+        Delete, R, W and P belong to the grid. A button on this bar
+        must not make them fire while rows or Apply has focus.
+
+        :param action: Menu command to show.
+        :type action: QAction
+        :returns: None
+        """
+        button = QToolButton(self.main_tool_bar)
+        button.setDefaultAction(action)
+        self.main_tool_bar.addWidget(button)
 
     def set_toolbar_command(self, name, shown):
         """

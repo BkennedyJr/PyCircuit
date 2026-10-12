@@ -7,7 +7,7 @@ View > Toolbar turns the others on or off. Zoom stays in the View menu.
 """
 
 from PyQt5.QtCore import QSettings
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QToolButton
 
 from gui.main_window import MainWindow
 
@@ -18,12 +18,24 @@ def close_window(window):
     window.deleteLater()
 
 
+def command_actions(window):
+    actions = []
+    bar = window.main_tool_bar
+
+    for action in bar.actions():
+        if action.isSeparator():
+            continue
+
+        widget = bar.widgetForAction(action)
+
+        if isinstance(widget, QToolButton) and widget.defaultAction():
+            actions.append(widget.defaultAction())
+
+    return actions
+
+
 def command_texts(window):
-    return [
-        action.text()
-        for action in window.main_tool_bar.actions()
-        if action.text() and not action.isSeparator()
-    ]
+    return [action.text() for action in command_actions(window)]
 
 
 def toolbar_menu(window):
@@ -72,7 +84,7 @@ def test_the_toolbar_starts_short_and_zoom_stays_in_the_menu(qt_application):
             if action.text() == "&File"
         )
         assert window.save_project_action in file_menu.actions()
-        assert window.zoom_in_action not in window.main_tool_bar.actions()
+        assert window.zoom_in_action not in command_actions(window)
     finally:
         close_window(window)
 
@@ -95,7 +107,7 @@ def test_a_toolbar_command_can_be_turned_off_and_another_on(qt_application):
             if action.text() == "&File"
         )
         assert window.save_project_action in file_menu.actions()
-        assert window.new_project_action in window.main_tool_bar.actions()
+        assert window.new_project_action in command_actions(window)
     finally:
         close_window(window)
 
@@ -149,7 +161,7 @@ def test_the_toolbar_choice_comes_back_next_time(qt_application, monkeypatch):
         assert "Wire Mode" not in texts
         assert "Delete" in texts
         assert "Save Project" not in texts
-        assert restored.zoom_in_action not in restored.main_tool_bar.actions()
+        assert restored.zoom_in_action not in command_actions(restored)
         close_window(restored)
     finally:
         settings.clear()
