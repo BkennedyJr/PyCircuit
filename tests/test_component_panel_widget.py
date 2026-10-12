@@ -15,8 +15,10 @@ from core.ic_library import (
     family_for_kind,
     is_library_kind,
     kinds_in_family,
+    part_kinds,
 )
 from gui.component_panel_widget import (
+    IC_TYPE,
     NO_PART_SELECTED_TEXT,
     ComponentPanelWidget,
     describe_component,
@@ -29,8 +31,11 @@ def panel(qt_application):
 
 
 def select_kind(panel, kind):
-    """Pick a part from the Type list, or an IC from the library."""
+    """Pick a part from the Type list, or an IC once Type is IC."""
     if is_library_kind(kind):
+        panel.kind_combo_box.setCurrentIndex(
+            panel.kind_combo_box.findData(IC_TYPE)
+        )
         family_id, _label = family_for_kind(kind)
         panel.ic_family_combo.setCurrentIndex(
             panel.ic_family_combo.findData(family_id)
@@ -43,8 +48,7 @@ def select_kind(panel, kind):
             panel.kind_combo_box.findData(kind)
         )
 
-    # setCurrentIndex does not notify when the row was already current,
-    # which is how a second pick of the same list switches Place back.
+    # setCurrentIndex does not notify when the row was already current.
     if panel.get_selected_kind() != kind:
         if is_library_kind(kind):
             panel.handle_device_change()
@@ -60,27 +64,63 @@ def recorder(signal):
 
 # Plan tests.
 def test_type_list_keeps_parts_and_the_library_groups_ics(panel):
-    from core.ic_library import part_kinds
-
     combo = panel.kind_combo_box
 
     assert [combo.itemData(index) for index in range(combo.count())] == (
-        part_kinds()
+        part_kinds() + [IC_TYPE]
     )
     assert [combo.itemText(index) for index in range(combo.count())] == [
         COMPONENT_DEFINITIONS[kind]["display_name"] for kind in part_kinds()
-    ]
+    ] + ["IC"]
     assert [panel.ic_family_combo.itemText(index)
             for index in range(panel.ic_family_combo.count())] == [
         label for _family_id, label, _kinds in IC_FAMILIES
     ]
     assert panel.place_source_label.text() == "Placing from parts: Resistor"
+    assert not panel.ic_library_group.isEnabled()
+    assert not panel.ic_family_combo.isEnabled()
+    assert not panel.ic_device_combo.isEnabled()
     assert "opamp_741" not in [
         combo.itemData(index) for index in range(combo.count())
     ]
 
 
+def test_library_turns_on_only_when_type_is_ic(panel):
+    assert panel.get_selected_kind() == "resistor"
+    assert not panel.ic_library_group.isEnabled()
+
+    panel.kind_combo_box.setCurrentIndex(
+        panel.kind_combo_box.findData(IC_TYPE)
+    )
+
+    assert panel.ic_library_group.isEnabled()
+    assert panel.ic_family_combo.isEnabled()
+    assert panel.ic_device_combo.isEnabled()
+    assert panel.get_selected_kind() == "opamp_generic"
+    assert panel.value_line_edit.text() == "OPAMP"
+    assert panel.place_source_label.text() == (
+        "Placing from IC library: Op-amp (generic)"
+    )
+
+    select_kind(panel, "capacitor")
+    assert panel.get_selected_kind() == "capacitor"
+    assert not panel.ic_library_group.isEnabled()
+
+    panel.ic_family_combo.setCurrentIndex(
+        panel.ic_family_combo.findData("logic")
+    )
+    panel.ic_device_combo.setCurrentIndex(0)
+
+    assert panel.get_selected_kind() == "capacitor"
+    assert panel.place_source_label.text() == "Placing from parts: Capacitor"
+    assert not panel.ic_library_group.isEnabled()
+
+
 def test_each_family_offers_only_its_own_devices(panel):
+    panel.kind_combo_box.setCurrentIndex(
+        panel.kind_combo_box.findData(IC_TYPE)
+    )
+
     for family_id, _label, kinds in IC_FAMILIES:
         panel.ic_family_combo.setCurrentIndex(
             panel.ic_family_combo.findData(family_id)
@@ -101,7 +141,7 @@ def test_each_family_offers_only_its_own_devices(panel):
         )
 
 
-def test_the_last_list_you_pick_is_what_place_uses(panel):
+def test_place_follows_the_type_then_the_device(panel):
     calls = recorder(panel.place_requested)
 
     select_kind(panel, "opamp_lm324")
@@ -123,29 +163,40 @@ def test_the_last_list_you_pick_is_what_place_uses(panel):
     ]
 
 
-def test_repicking_the_same_family_keeps_the_device(panel):
+def test_returning_to_ic_keeps_the_device(panel):
     select_kind(panel, "gate_xor")
     select_kind(panel, "inductor")
-    panel.ic_family_combo.activated.emit(
-        panel.ic_family_combo.currentIndex()
+    assert panel.get_selected_kind() == "inductor"
+    assert not panel.ic_library_group.isEnabled()
+
+    panel.kind_combo_box.setCurrentIndex(
+        panel.kind_combo_box.findData(IC_TYPE)
     )
 
     assert panel.get_selected_kind() == "gate_xor"
     assert panel.value_line_edit.text() == "XOR2"
+    assert panel.ic_library_group.isEnabled()
 
 
-def test_picking_the_current_part_again_leaves_the_library(panel):
+def test_picking_a_part_leaves_the_library(panel):
     select_kind(panel, "opamp_741")
-    panel.kind_combo_box.activated.emit(panel.kind_combo_box.currentIndex())
+    select_kind(panel, "resistor")
 
     assert panel.get_selected_kind() == "resistor"
     assert panel.value_line_edit.text() == "1k"
+    assert not panel.ic_library_group.isEnabled()
+    assert panel.place_source_label.text() == "Placing from parts: Resistor"
 
 
-def test_picking_the_current_ic_again_leaves_the_parts_list(panel):
+def test_returning_to_ic_after_a_part_uses_the_device_left_behind(panel):
     select_kind(panel, "gate_xor")
     select_kind(panel, "capacitor")
-    panel.ic_device_combo.activated.emit(panel.ic_device_combo.currentIndex())
+    assert panel.get_selected_kind() == "capacitor"
+    assert not panel.ic_library_group.isEnabled()
+
+    panel.kind_combo_box.setCurrentIndex(
+        panel.kind_combo_box.findData(IC_TYPE)
+    )
 
     assert panel.get_selected_kind() == "gate_xor"
     assert panel.value_line_edit.text() == "XOR2"

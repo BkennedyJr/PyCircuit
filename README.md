@@ -110,10 +110,9 @@ Using it
 --------
 
 - The Type list is resistors, sources, and the other discrete parts,
-  plus the follower and the amplifier blocks. Packaged ICs are in the
-  IC library next to that list, grouped as op-amps, comparators,
-  logic, timers, and regulators. Place uses whichever of those two
-  lists you picked last.
+  plus the follower and the amplifier blocks, and IC. The IC library
+  (op-amps, comparators, logic, timers, and regulators) turns on only
+  when Type is IC, and Place uses the device shown there.
 - Click a grid point to select it. The right-hand panel shows its
   identifier (for example NODE_R03_C05), row and column, and the
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
