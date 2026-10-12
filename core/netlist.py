@@ -32,6 +32,7 @@ from core.subcircuit_models import (
     SUBCIRCUIT_MODELS,
     get_subcircuit_model_name,
     get_subcircuit_text,
+    limited_subcircuit_name,
 )
 from core.units import format_spice_number
 from core.wires import WireCollection, WireNets
@@ -710,18 +711,48 @@ def _regulator_lines(component, node_of):
     ]
 
 
-def _subcircuit_lines(component, node_of):
-    definition = COMPONENT_DEFINITIONS[component.kind]
-    model_name = component.value_text
+def _part_subcircuit_name(component):
+    """
+    Return the subcircuit this part writes, flat or limited.
 
-    if definition["prefix"] != "X":
-        model_name = DEFAULT_SUBCIRCUIT_BY_KIND[component.kind]
+    The value stays LM358. Limits "limited" selects LM358LIM for the
+    six stand-ins that have that text. Anything else stays on its
+    usual model.
+
+    :param component: Placed part.
+    :type component: Component
+    :rtype: str
+    :raises SimulationError: If the model name is not in the library,
+        or Limits is limited on a part that has no limited text.
+    """
+    definition = COMPONENT_DEFINITIONS[component.kind]
+
+    if definition["prefix"] == "X":
+        raw_name = component.value_text
+    else:
+        raw_name = DEFAULT_SUBCIRCUIT_BY_KIND[component.kind]
 
     try:
-        model_name = get_subcircuit_model_name(model_name)
+        model_name = get_subcircuit_model_name(raw_name)
     except ComponentError as error:
         raise SimulationError(str(error)) from None
 
+    if component.parameter_texts.get("limits") != "limited":
+        return model_name
+
+    limited = limited_subcircuit_name(model_name)
+
+    if limited is None:
+        raise SimulationError(
+            f"{component.reference} has no limited model. Limits applies "
+            "to the LM358, LM324, TL072, TL081, TL082 and NE5532."
+        )
+
+    return limited
+
+
+def _subcircuit_lines(component, node_of):
+    model_name = _part_subcircuit_name(component)
     ports = SUBCIRCUIT_MODELS[model_name]["ports"]
     nodes = [
         _pin_node(node_of, component, pin_name) for pin_name in ports
@@ -758,10 +789,7 @@ def _model_text(device_model_names, parts):
             if definition["prefix"] not in ("X", "A"):
                 continue
 
-            if definition["prefix"] == "X":
-                model_name = get_subcircuit_model_name(component.value_text)
-            else:
-                model_name = DEFAULT_SUBCIRCUIT_BY_KIND[kind]
+            model_name = _part_subcircuit_name(component)
 
             if model_name not in subcircuit_names:
                 subcircuit_names.append(model_name)

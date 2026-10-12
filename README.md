@@ -125,7 +125,16 @@ Using it
   (1 out, 2 in-, 3 in+, 4 V+, 11 V-). The part list also has an
   LM358, a TL072, an NE5532, a TL081, a TL082, an LM324, a comparator,
   the standard gates, a voltage follower, and inverting and
-  non-inverting amplifiers (the gain is the value). NMOS and PMOS,
+  non-inverting amplifiers (the gain is the value). Those six op-amps
+  have a Limits choice. Flat is the old stand-in: gain only, so the
+  output can swing past the rails. Limited holds the output between
+  the rails and rolls the gain off with one pole. The LM358 and LM324
+  are gain 100,000 and 1 MHz; the output can sit on the negative rail
+  and stops 1.5 V below the positive rail. The TL072, TL081 and TL082
+  are gain 200,000 and 3 MHz, 1.5 V inside both rails. The NE5532 is
+  gain 100,000 and 10 MHz, 2 V inside both rails. A new part, and an
+  old file that has no choice saved, stays Flat. V(s) stays the ideal
+  rule next to the simulator number. NMOS and PMOS,
   and the 555 timer, have no formula. A switch is open or closed, a
   potentiometer splits its resistance by a position from 0 to 1, a
   transformer uses its turns ratio, and a voltage regulator holds

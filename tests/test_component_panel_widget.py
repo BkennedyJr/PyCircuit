@@ -397,13 +397,14 @@ def selected_frequency_row_hidden(panel):
 
 def test_frequency_and_color_are_the_panel_settings(panel):
     assert list(panel.parameter_line_edits) == [
-        "frequency", "color", "state", "position",
+        "frequency", "color", "limits", "state", "position",
     ]
     assert list(panel.selected_parameter_line_edits) == [
-        "frequency", "color", "state", "position",
+        "frequency", "color", "limits", "state", "position",
     ]
     assert panel.parameter_labels["frequency"].text() == "Frequency (Hz):"
     assert panel.parameter_labels["color"].text() == "Color:"
+    assert panel.parameter_labels["limits"].text() == "Limits:"
 
 
 @pytest.mark.parametrize("kind", list(COMPONENT_DEFINITIONS))
@@ -444,6 +445,37 @@ def test_placing_an_ac_source_sends_the_frequency(panel):
         ("ac_source", "2", {"frequency": "50"}),
         ("ac_source", "2", {"frequency": "50"}),
     ]
+
+
+_LIMITED_KINDS = (
+    "opamp_lm358", "opamp_lm324", "opamp_tl072",
+    "opamp_tl081", "opamp_tl082", "opamp_ne5532",
+)
+
+
+@pytest.mark.parametrize("kind", list(COMPONENT_DEFINITIONS))
+def test_limits_row_shows_only_for_the_six_opamps(panel, kind):
+    select_kind(panel, kind)
+
+    shown = not panel.parameter_labels["limits"].isHidden()
+    assert shown is (kind in _LIMITED_KINDS)
+
+    if kind in _LIMITED_KINDS:
+        combo = panel.parameter_line_edits["limits"]
+        assert [combo.itemData(index) for index in range(combo.count())] == [
+            "flat", "limited",
+        ]
+        assert combo.currentData() == "flat"
+
+
+def test_placing_a_limited_lm358_sends_that_choice(panel):
+    calls = recorder(panel.place_requested)
+    select_kind(panel, "opamp_lm358")
+    panel.parameter_line_edits["limits"].setCurrentIndex(1)
+
+    panel.place_button.click()
+
+    assert calls == [("opamp_lm358", "LM358", {"limits": "limited"})]
 
 
 def test_placing_a_dc_source_sends_no_settings(panel):

@@ -128,6 +128,21 @@ _POT_COVERED = [(1, 0), (2, 0), (3, 0), (2, 1)]
 _TRANSFORMER_COVERED = [(1, 1), (0, 1), (2, 1), (1, 0), (1, 2)]
 _SUPPLY_PIN_NAMES = ("V+", "V-", "VCC", "GND")
 SWITCH_STATES = ("open", "closed")
+# Flat keeps the old stand-in. Limited adds output swing and one
+# gain-bandwidth pole. The part value stays LM358 either way.
+OPAMP_LIMITS = ("flat", "limited")
+_OPAMP_LIMIT_PARAMETERS = (
+    {
+        "name": "limits",
+        "display_name": "Limits",
+        "unit": "",
+        "value_kind": "choice",
+        "choices": OPAMP_LIMITS,
+        "default_value_text": "flat",
+        "shown_in_panel": True,
+        "shown_in_label": False,
+    },
+)
 
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -345,26 +360,32 @@ COMPONENT_DEFINITIONS = {
     "opamp_lm358": _integrated(
         "Op-amp (LM358)", "X", _OPAMP_PINS, "LM358", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
+        parameters=_OPAMP_LIMIT_PARAMETERS,
     ),
     "opamp_tl072": _integrated(
         "Op-amp (TL072)", "X", _OPAMP_PINS, "TL072", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
+        parameters=_OPAMP_LIMIT_PARAMETERS,
     ),
     "opamp_ne5532": _integrated(
         "Op-amp (NE5532)", "X", _OPAMP_PINS, "NE5532", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
+        parameters=_OPAMP_LIMIT_PARAMETERS,
     ),
     "opamp_tl081": _integrated(
         "Op-amp (TL081)", "X", _OPAMP_PINS, "TL081", formula="ideal_opamp",
         pin_numbers=_SINGLE_OPAMP_PIN_NUMBERS,
+        parameters=_OPAMP_LIMIT_PARAMETERS,
     ),
     "opamp_tl082": _integrated(
         "Op-amp (TL082)", "X", _OPAMP_PINS, "TL082", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
+        parameters=_OPAMP_LIMIT_PARAMETERS,
     ),
     "opamp_lm324": _integrated(
         "Op-amp (LM324)", "X", _OPAMP_PINS, "LM324", formula="ideal_opamp",
         pin_numbers=_LM324_PIN_NUMBERS,
+        parameters=_OPAMP_LIMIT_PARAMETERS,
     ),
     "comparator": _integrated(
         "Comparator", "X", _OPAMP_PINS, "COMP", nonlinear_name="comparator"
@@ -764,11 +785,20 @@ def validate_value_text(kind, value_text):
             expected_name = DEFAULT_SUBCIRCUIT_BY_KIND[kind]
 
             if clean_text != expected_name:
-                other_kind = next(
-                    other for other, name in DEFAULT_SUBCIRCUIT_BY_KIND.items()
+                matches = [
+                    other for other, name in
+                    DEFAULT_SUBCIRCUIT_BY_KIND.items()
                     if name == clean_text
-                )
-                other_display_name = COMPONENT_DEFINITIONS[other_kind][
+                ]
+
+                if not matches:
+                    raise ComponentError(
+                        f"{display_name} uses model {expected_name}. "
+                        "Output swing and gain-bandwidth are the Limits "
+                        "setting, flat or limited."
+                    )
+
+                other_display_name = COMPONENT_DEFINITIONS[matches[0]][
                     "display_name"
                 ]
                 raise ComponentError(
