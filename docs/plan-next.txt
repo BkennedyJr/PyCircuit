@@ -65,9 +65,11 @@ which of those to do, and what comes after them.
    B minus A. On Bode the value between two frequencies follows the
    log axis. V(s) stays next to the DC number.
 
-8. Re-run when a value changes
+8. Re-run when a value changes (done)
    Change a resistor, a source, a pot position or a switch and the
    DC numbers and the plots update. No extra Run button for that.
+   Moving or deleting a part still clears them. A second edit while
+   a run is going replaces that run.
 
 9. Real op-amp limits
    Output swing and gain-bandwidth on the op-amp models, checked

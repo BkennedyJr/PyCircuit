@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         self._dc_active_run_id = 0
         self._dc_name_by_point = {}
         self._dc_volts_by_node = {}
+        self._dc_rerun = False
         self._tran_thread = None
         self._tran_runner = None
         self._tran_run_id = 0
@@ -140,6 +141,7 @@ class MainWindow(QMainWindow):
         self._tran_stop_requested = False
         self._tran_result = None
         self._tran_name_by_point = {}
+        self._tran_rerun = False
         self._ac_thread = None
         self._ac_runner = None
         self._ac_run_id = 0
@@ -149,6 +151,7 @@ class MainWindow(QMainWindow):
         self._ac_result = None
         self._ac_name_by_point = {}
         self._ac_reference_peak = None
+        self._ac_rerun = False
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -1658,25 +1661,33 @@ class MainWindow(QMainWindow):
         except ComponentError:
             return None
 
-    def mark_project_modified(self, status_message, keep_scope=False):
+    def mark_project_modified(self, status_message, keep_scope=False,
+                              refresh_results=False):
         """
         Flag unsaved changes, refresh the title, and report what changed.
 
         Moving a probe keeps the last oscilloscope run so the trace can
-        follow that point. Editing the circuit drops it.
+        follow that point. Moving or deleting a part drops the DC
+        numbers and the plots. A new value runs them again instead.
 
         :param status_message: Status-bar text.
         :type status_message: str
         :param keep_scope: True to leave the last transient on the scope.
         :type keep_scope: bool
+        :param refresh_results: True to run DC, the oscilloscope, and
+            Bode again when they are already showing a result.
+        :type refresh_results: bool
         :returns: None
         """
         self.is_project_modified = True
         self._node_formula_book = None
-        self.clear_dc_numbers()
 
-        if not keep_scope:
-            self.clear_scope_run()
+        if not refresh_results:
+            self.clear_dc_numbers()
+
+            if not keep_scope:
+                self.clear_scope_run()
+
         self.refresh_selected_node_formula()
         self.refresh_probe_parameters()
         self.update_window_title()
@@ -1686,9 +1697,11 @@ class MainWindow(QMainWindow):
             # A part still waits to be placed: keep its "Placing ..." text
             # (with the up-to-date fits / can't-go-here wording) in view.
             self.statusBar().showMessage(f"{status_message} {pending_status}")
-            return
+        else:
+            self.statusBar().showMessage(status_message, 5000)
 
-        self.statusBar().showMessage(status_message, 5000)
+        if refresh_results:
+            self.refresh_shown_results()
 
     def start_pending_placement(self, kind, value_text, parameter_texts=None):
         """
@@ -2045,7 +2058,7 @@ class MainWindow(QMainWindow):
         else:
             status = f"Set {component.reference} to {shown}."
 
-        self.mark_project_modified(status)
+        self.mark_project_modified(status, refresh_results=value_changed)
 
     def handle_component_moved(self, reference):
         """
@@ -2667,6 +2680,7 @@ class MainWindow(QMainWindow):
 
         :returns: None
         """
+        self._dc_rerun = False
         self._dc_run_id += 1
         self._dc_name_by_point = {}
         self._dc_volts_by_node = {}
@@ -2711,12 +2725,91 @@ class MainWindow(QMainWindow):
         self.refresh_selected_node_formula()
         self.statusBar().showMessage("DC operating point is drawn.", 5000)
 
+    def refresh_shown_results(self):
+        """
+        Run again each analysis that is already on screen.
+
+        A resistor, a source, a pot position, or a switch does this.
+        Nothing starts when that analysis has not been run. A run that
+        is still going is dropped and replaced by this one.
+
+        :returns: None
+        """
+        if self._dc_volts_by_node or self._dc_thread is not None:
+            self._request_dc_refresh()
+
+        if self._tran_result is not None or self._tran_thread is not None:
+            self._request_tran_refresh()
+
+        if self._ac_result is not None or self._ac_thread is not None:
+            self._request_ac_refresh()
+
+    def _request_dc_refresh(self):
+        """
+        Start a DC operating point, or queue one if a run is busy.
+
+        :returns: None
+        """
+        if self._dc_thread is not None:
+            self._dc_rerun = True
+            self._dc_run_id += 1
+            return
+
+        self.run_dc_operating_point()
+
+        if self._dc_thread is None:
+            self.clear_dc_numbers()
+
+    def _request_tran_refresh(self):
+        """
+        Start a transient, or queue one if a run is busy.
+
+        The spectrum is drawn from that same transient.
+
+        :returns: None
+        """
+        if self._tran_thread is not None:
+            self._tran_rerun = True
+            self._tran_run_id += 1
+
+            if self._tran_cancel is not None:
+                self._tran_cancel.set()
+
+            return
+
+        self.run_transient()
+
+        if self._tran_thread is None and self._tran_result is not None:
+            self.clear_transient_result()
+
+    def _request_ac_refresh(self):
+        """
+        Start a frequency sweep, or queue one if a run is busy.
+
+        :returns: None
+        """
+        if self._ac_thread is not None:
+            self._ac_rerun = True
+            self._ac_run_id += 1
+
+            if self._ac_cancel is not None:
+                self._ac_cancel.set()
+
+            return
+
+        self.run_frequency_sweep()
+
+        if self._ac_thread is None and self._ac_result is not None:
+            self.clear_bode_run()
+
     def run_dc_operating_point(self):
         """
         Build the netlist, then run it in a background thread.
 
         Probe loads are not included. That is the same netlist File >
-        Export Netlist writes. Editing the circuit clears the numbers.
+        Export Netlist writes. Moving or deleting a part clears the
+        numbers. A new value runs this again when the numbers are
+        already drawn.
 
         :returns: None
         """
@@ -2778,6 +2871,9 @@ class MainWindow(QMainWindow):
         if self._dc_active_run_id != self._dc_run_id:
             return
 
+        if self._dc_volts_by_node:
+            self.clear_dc_numbers()
+
         self.show_error_message(
             "DC Operating Point",
             reason,
@@ -2790,9 +2886,14 @@ class MainWindow(QMainWindow):
 
         :returns: None
         """
+        rerun = self._dc_rerun
         self._dc_thread = None
         self._dc_runner = None
+        self._dc_rerun = False
         self.dc_operating_point_action.setEnabled(True)
+
+        if rerun:
+            self._request_dc_refresh()
 
     def _stop_dc_thread(self):
         """
@@ -2818,12 +2919,22 @@ class MainWindow(QMainWindow):
 
     def clear_scope_run(self):
         """
-        Drop the last transient. An in-flight run is ignored.
+        Drop the last transient, the spectrum, and the Bode plot.
 
-        LEDs go dark. Probe checkboxes stay.
+        An in-flight run is ignored. LEDs go dark. Probe checkboxes stay.
 
         :returns: None
         """
+        self.clear_transient_result()
+        self.clear_bode_run()
+
+    def clear_transient_result(self):
+        """
+        Drop the oscilloscope run and the spectrum. Bode stays.
+
+        :returns: None
+        """
+        self._tran_rerun = False
         self._tran_run_id += 1
 
         if self._tran_cancel is not None:
@@ -2838,7 +2949,6 @@ class MainWindow(QMainWindow):
             self.component_collection.get_components()
         )
         self.refresh_scope_channels()
-        self.clear_bode_run()
         self.clear_fft_run()
 
     def refresh_bode_channels(self):
@@ -2857,6 +2967,7 @@ class MainWindow(QMainWindow):
 
         :returns: None
         """
+        self._ac_rerun = False
         self._ac_run_id += 1
 
         if self._ac_cancel is not None:
@@ -3057,6 +3168,7 @@ class MainWindow(QMainWindow):
         if self._ac_thread is None:
             return
 
+        self._ac_rerun = False
         self._ac_stop_requested = True
         self._ac_run_id += 1
 
@@ -3094,6 +3206,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Stopped.", 5000)
             return
 
+        if self._ac_result is not None:
+            self.clear_bode_run()
+
         self.show_error_message(
             "Bode",
             reason,
@@ -3107,11 +3222,17 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         stopped = self._ac_stop_requested
+        rerun = self._ac_rerun
         self._ac_thread = None
         self._ac_runner = None
         self._ac_cancel = None
         self._ac_stop_requested = False
+        self._ac_rerun = False
         self.bode_dock.set_running(False)
+
+        if rerun:
+            self._request_ac_refresh()
+            return
 
         if stopped:
             self.statusBar().showMessage("Stopped.", 5000)
@@ -3294,6 +3415,7 @@ class MainWindow(QMainWindow):
         if self._tran_thread is None:
             return
 
+        self._tran_rerun = False
         self._tran_stop_requested = True
         self._tran_run_id += 1
 
@@ -3335,6 +3457,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Stopped.", 5000)
             return
 
+        if self._tran_result is not None:
+            self.clear_transient_result()
+
         self.show_error_message(
             "Oscilloscope",
             reason,
@@ -3348,11 +3473,17 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         stopped = self._tran_stop_requested
+        rerun = self._tran_rerun
         self._tran_thread = None
         self._tran_runner = None
         self._tran_cancel = None
         self._tran_stop_requested = False
+        self._tran_rerun = False
         self.oscilloscope_dock.set_running(False)
+
+        if rerun:
+            self._request_tran_refresh()
+            return
 
         if stopped:
             self.statusBar().showMessage("Stopped.", 5000)
