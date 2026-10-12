@@ -307,6 +307,7 @@ class ConnectionGridScene(QGraphicsScene):
         self.probe_collection = None
         self.probe_items = []
         self.probe_readouts = {}
+        self._lit_led_references = set()
         # Probe mode places a probe on a click. While this reference is
         # set, the next grid click is the minus point of that differential
         # probe instead of a new probe.
@@ -491,11 +492,39 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.apply_led_lights()
         self.update_wire_nets()
         self.rebuild_junction_items()
         self.update_scene_extent()
         # A part added, removed or moved can free or block the ghost's spot.
         self.update_pending_item(report=False)
+
+    def set_led_lights(self, lit_references):
+        """
+        Remember which LEDs are lit and draw them that way.
+
+        A later rebuild keeps the same LEDs lit.
+
+        :param lit_references: LED references whose current is above 1 mA.
+        :type lit_references: iterable
+        :returns: None
+        """
+        self._lit_led_references = set(lit_references)
+        self.apply_led_lights()
+
+    def apply_led_lights(self):
+        """
+        Light the remembered LEDs. Other LEDs go dark.
+
+        :returns: None
+        """
+        lit = self._lit_led_references
+
+        for reference, item in self.component_items_by_reference.items():
+            if item.component.kind != "led":
+                continue
+
+            item.set_lit(reference in lit)
 
     def refresh_component(self, reference):
         """

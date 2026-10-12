@@ -51,13 +51,16 @@ uses.
     conda activate base
     python -c "import sys; print(sys.executable)"
     pip install PySpice
+    pip install pyqtgraph
     conda install -c conda-forge ngspice-lib
 
 python.exe should be C:\Users\danni\anaconda3\python.exe before those
 installs. conda-forge has no PySpice build for Python 3.11 or newer
 (its newest Windows build is Python 3.10), so "conda install pyspice"
 cannot succeed here. pip install PySpice puts the module in base. In
-Python the name is PySpice.
+Python the name is PySpice. pyqtgraph draws the oscilloscope. Install
+it with pip. Do not conda install pyqtgraph: that package also
+installs PyQt.
 
 ngspice-lib is the shared library (ngspice.dll). Read the plan conda
 prints. If it would remove Spyder or replace PyQt, stop and do not
@@ -170,6 +173,13 @@ Using it
   point. Simulate > DC Operating Point draws those voltages on the
   nodes and those currents on the parts. The selected point shows the
   DC voltage next to V(s). Editing the circuit clears the numbers.
+- View > Oscilloscope opens the scope dock (it can float). Start runs
+  a transient and draws each checked probe. Stop drops that run. The
+  run is five periods of the slowest sine, or 10 ms. Time per division
+  and volts per division set the grid; leave volts blank for Auto.
+  Moving a probe redraws it from the last run when that point was in
+  the run. An LED lights when its current is above 1 mA. The exact
+  V(s) stays next to the DC number.
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time

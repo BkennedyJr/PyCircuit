@@ -37,10 +37,13 @@ which of those to do, and what comes after them.
    The run is a background thread. Editing the circuit clears the
    numbers. No plot yet.
 
-4. Transient run and the oscilloscope
-   Start and Stop on a dock. Drag a probe and the trace follows it.
-   The first circuit to get right is a unity-gain buffer, with the
-   input and the output both on the scope.
+4. Transient run and the oscilloscope (done)
+   View > Oscilloscope. Start and Stop on that dock. A checked probe
+   is a trace. Drag a probe and the trace follows it when that point
+   was in the last run. The first circuit that is right is a unity-gain
+   buffer, with the input and the output both on the scope. An LED
+   lights when its current is above 1 mA. V(s) stays next to the DC
+   number.
 
 5. AC sweep and Bode
    A frequency sweep, magnitude and phase, in its own dock.

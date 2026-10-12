@@ -78,6 +78,69 @@ def build_netlist(components, wire_collection, connection_grid=None):
     return "\n".join(lines) + "\n"
 
 
+def append_shunt_loads(netlist, loads, name_by_point):
+    """
+    Add probe loads from a node to ground, just before ``.end``.
+
+    ``loads`` is the tuple from ``core.probes.shunt_loads``. A load on
+    ground is left out. Direct, differential and current probes add
+    nothing, so they do not appear here.
+
+    :param netlist: Text from ``build_netlist``.
+    :type netlist: str
+    :param loads: ``(identifier, "resistor" or "capacitor", value)``.
+    :param name_by_point: Grid point to SPICE node name.
+    :rtype: str
+    :raises SimulationError: If the netlist has no ``.end`` line, or a
+        load is not a resistor or a capacitor.
+    """
+    if not isinstance(netlist, str) or not netlist.strip():
+        raise SimulationError(
+            "The netlist text is empty, so the probe loads were not added."
+        )
+
+    lines = [line for line in netlist.splitlines() if line.strip()]
+
+    if not lines or lines[-1].strip().lower() != ".end":
+        raise SimulationError(
+            "The netlist has no .end line, so the probe loads were not added."
+        )
+
+    body = lines[:-1]
+    added = []
+    resistor_count = 0
+    capacitor_count = 0
+
+    for identifier, kind, value in loads:
+        node = name_by_point.get(identifier)
+
+        if not node or node == "0":
+            continue
+
+        if kind == "resistor":
+            resistor_count += 1
+            reference = f"Rprobe{resistor_count}"
+        elif kind == "capacitor":
+            capacitor_count += 1
+            reference = f"Cprobe{capacitor_count}"
+        else:
+            raise SimulationError(
+                "A probe load must be a resistor or a capacitor."
+            )
+
+        added.append(
+            f"{reference} {node} 0 {format_spice_number(value)}"
+        )
+
+    if added:
+        body.append("")
+        body.extend(added)
+
+    body.append(".end")
+
+    return "\n".join(body) + "\n"
+
+
 def spice_node_map(components, wire_collection, connection_grid=None):
     """
     Map grid points to the SPICE node names ``build_netlist`` uses.

@@ -415,7 +415,7 @@ def test_view_menu_has_the_zoom_actions(window):
     )
 
     assert [action.text() for action in view_menu.actions()] == [
-        "Zoom In", "Zoom Out", "Zoom to Fit"
+        "Zoom In", "Zoom Out", "Zoom to Fit", "", "Oscilloscope"
     ]
 
 
