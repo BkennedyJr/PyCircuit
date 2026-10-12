@@ -22,11 +22,22 @@ a subcircuit named LM741 with the standard port order. It needs both
 supplies: V+ and V- must be connected.
 
 LM358, TL072, NE5532, TL081, TL082 and LM324 are behavioural stand-ins
-written for PyCircuit (gain, input resistance and output resistance in
-the neighbourhood of the real parts). They are not transistor-level
-manufacturer models, and they need both supplies. TL081 and TL082 use
-the same numbers as the TL072. The LM324 uses the same numbers as the
-LM358.
+written for PyCircuit. Each has two texts. The flat one is gain, input
+resistance and output resistance only, so the output can swing past
+the rails. The limited one (that name plus LIM, for example LM358LIM)
+keeps the same gain and resistances, adds one pole, and holds the
+output between the rails. The part's value stays LM358. The Limits
+setting picks which text the netlist writes. The numbers below are
+typical values chosen for the model, not every line of a data sheet.
+
+LM358 and LM324: gain 100k, gain-bandwidth 1 MHz, 1.5 V below V+,
+and the output can sit on V-. TL072, TL081 and TL082: gain 200k,
+gain-bandwidth 3 MHz, 1.5 V inside both rails. NE5532: gain 100k,
+gain-bandwidth 10 MHz, 2 V inside both rails.
+
+They are not transistor-level manufacturer models, and they need both
+supplies. TL081 and TL082 use the same numbers as the TL072. The
+LM324 uses the same numbers as the LM358.
 
 Logic gates and the comparator are behavioural too: the output sits on
 one rail or the other. Gates use ports A, B, Y, VCC and GND (a NOT gate
@@ -36,9 +47,11 @@ amplifier. INVAMP and NONINV take a gain parameter.
 """
 
 import hashlib
+import math
 from pathlib import Path
 
 from core.exceptions import ComponentError
+from core.units import format_spice_number
 
 SUBCIRCUIT_PORT_ORDER = ("in+", "in-", "V+", "V-", "out")
 SUPPLY_PINS = ("V+", "V-")
@@ -92,6 +105,61 @@ def _behavioral_opamp(name, gain, rin, rout, blurb):
         f"ROUT gain_node out {rout}\n"
         f".ends {name}\n"
     )
+
+
+def _limited_opamp(name, gain, rin, rout, gbw_hertz, high, low, blurb):
+    """
+    One pole and an output clamp in front of the series output resistor.
+
+    The pole sits at gain-bandwidth / gain, so the open-loop gain is 1
+    at ``gbw_hertz``. The clamp holds the unloaded output between
+    V- + ``low`` and V+ - ``high``.
+
+    :rtype: str
+    """
+    limited = f"{name}LIM"
+    capacitor = format_spice_number(1.0 / (2.0 * math.pi * gbw_hertz))
+    high_text = format_spice_number(high)
+    low_text = format_spice_number(low)
+    gbw_text = format_spice_number(gbw_hertz)
+
+    return (
+        f"* {limited}: {blurb} Not a vendor netlist.\n"
+        f"* Ports: in+ in- V+ V- out. DC gain {gain}. Gain is 1 at "
+        f"{gbw_text} Hz.\n"
+        f"* Output is held between V- + {low_text} V and "
+        f"V+ - {high_text} V, then Rout.\n"
+        f".subckt {limited} inp inn vp vn out\n"
+        f"RIN inp inn {rin}\n"
+        f"GFILT 0 filt inp inn 1\n"
+        f"RPOLE filt 0 {gain}\n"
+        f"CPOLE filt 0 {capacitor}\n"
+        f"BCLAMP pre 0 V = min(max(V(filt), V(vn)+{low_text}), "
+        f"V(vp)-{high_text})\n"
+        f"ROUT pre out {rout}\n"
+        f".ends {limited}\n"
+    )
+
+
+# Flat name, gain, Rin, Rout, gain-bandwidth in hertz, headroom below
+# V+, headroom above V-. The part value stays the flat name.
+_LIMITED_OPAMPS = (
+    ("LM358", "100k", "1meg", "50", 1e6, 1.5, 0.0,
+     "LM358 limits (1 MHz, 1.5 V below V+, can sit on V-)."),
+    ("LM324", "100k", "1meg", "50", 1e6, 1.5, 0.0,
+     "LM324 limits, same numbers as the LM358."),
+    ("TL072", "200k", "1T", "75", 3e6, 1.5, 1.5,
+     "TL072 limits (3 MHz, 1.5 V inside both rails)."),
+    ("TL081", "200k", "1T", "75", 3e6, 1.5, 1.5,
+     "TL081 limits, same numbers as the TL072."),
+    ("TL082", "200k", "1T", "75", 3e6, 1.5, 1.5,
+     "TL082 limits, same numbers as the TL072."),
+    ("NE5532", "100k", "300k", "10", 10e6, 2.0, 2.0,
+     "NE5532 limits (10 MHz, 2 V inside both rails)."),
+)
+_LIMITED_BY_FLAT = {
+    name: f"{name}LIM" for name, *_rest in _LIMITED_OPAMPS
+}
 
 
 def _logic_gate(name, ports, expression, blurb):
@@ -235,6 +303,12 @@ RIN inp gnd 1T
 """,
 }
 
+for _name, _gain, _rin, _rout, _gbw, _high, _low, _blurb in _LIMITED_OPAMPS:
+    _SUBCIRCUIT_TEXT[f"{_name}LIM"] = _limited_opamp(
+        _name, _gain, _rin, _rout, _gbw, _high, _low, _blurb
+    )
+
+
 def _opamp_model(description):
     """
     A five-pin op-amp that needs both supplies.
@@ -310,6 +384,11 @@ SUBCIRCUIT_MODELS = {
     "LM324": _opamp_model(
         "LM324 stand-in: gain 100k, Rin 1meg, Rout 50"
     ),
+    **{
+        f"{name}LIM": _opamp_model(blurb)
+        for name, _gain, _rin, _rout, _gbw, _high, _low, blurb
+        in _LIMITED_OPAMPS
+    },
     "COMP": _opamp_model("Comparator: output swings to the nearer rail"),
     "NOT": _gate_model("NOT gate", _INVERTER_PORTS),
     "BUF": _gate_model("Non-inverting buffer gate", _INVERTER_PORTS),
@@ -387,6 +466,24 @@ DEFAULT_SUBCIRCUIT_BY_KIND = {
     "timer_555": "NE555",
     "voltage_regulator": "REG",
 }
+
+
+def limited_subcircuit_name(flat_name):
+    """
+    Return the limited stand-in for one flat op-amp model, or None.
+
+    The flat names are LM358, LM324, TL072, TL081, TL082 and NE5532.
+    The limited name adds LIM, for example LM358LIM. Any other name,
+    including the generic op-amp and the LM741, has no limited text.
+
+    :param flat_name: Canonical model name, such as "LM358".
+    :type flat_name: str
+    :rtype: str or None
+    """
+    if not isinstance(flat_name, str):
+        return None
+
+    return _LIMITED_BY_FLAT.get(flat_name)
 
 
 def get_subcircuit_model_name(name):

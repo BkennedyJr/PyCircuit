@@ -12,8 +12,9 @@ and that formula are the reason to use this bench. Do not add a PCB
 layout tool.
 
 The behavioural op-amps (LM358, TL072, NE5532, TL081, TL082 and LM324)
-are flat-gain stand-ins on purpose. Real output swing and
-gain-bandwidth wait until a simulator can show them.
+can be a flat-gain stand-in or a limited one (output swing and one
+gain-bandwidth pole). The ideal V(s) rule stays next to the simulator
+number.
 
 The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
@@ -83,9 +84,13 @@ which of those to do, and what comes after them.
    Zoom In, Zoom Out, and Zoom to Fit, with shortcuts and Ctrl plus
    the wheel.
 
-10. Real op-amp limits
-    Output swing and gain-bandwidth on the op-amp models, checked
-    against the simulator. The flat-gain stand-ins stay available.
+10. Real op-amp limits (done)
+    The LM358, LM324, TL072, TL081, TL082 and NE5532 have a Limits
+    choice. Flat is the old stand-in. Limited holds the output
+    between the rails and rolls the gain off at one pole. A new part,
+    and an old file that has no choice saved, stays Flat. The generic
+    op-amp, the 741 and the amplifier blocks stay as they were.
+    V(s) stays the ideal rule.
 
 11. Example circuits
     A small menu: a divider, an RC, a unity-gain buffer, and one gate.

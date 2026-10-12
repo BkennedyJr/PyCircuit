@@ -546,10 +546,16 @@ def test_bad_rotation_raises_in_constructor_and_setter():
 # PR B: DC and AC sources -------------------------------------------------
 
 
-def test_only_the_ac_source_and_the_led_have_settings():
+def test_which_kinds_have_settings():
     expected = {
         "ac_source": ["frequency", "offset", "phase"],
         "led": ["color"],
+        "opamp_lm358": ["limits"],
+        "opamp_tl072": ["limits"],
+        "opamp_ne5532": ["limits"],
+        "opamp_tl081": ["limits"],
+        "opamp_tl082": ["limits"],
+        "opamp_lm324": ["limits"],
         "switch": ["state"],
         "potentiometer": ["position"],
     }
