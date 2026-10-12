@@ -8,7 +8,7 @@ import pytest
 from PyQt5.QtCore import QEvent, QLineF, QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QImage, QKeySequence, QPainter
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication, QGraphicsItem, QToolBar
+from PyQt5.QtWidgets import QApplication, QGraphicsItem, QToolBar, QToolButton
 
 from core.components import ComponentCollection
 from core.connection_grid import ConnectionGrid
@@ -449,11 +449,11 @@ def test_wire_mode_action_in_menu_and_toolbar(window):
         if menu_action.text() == "&Component"
     )
     assert action in component_menu.actions()
-    tool_bar_actions = [
-        tool_action for tool_bar in window.findChildren(QToolBar)
-        for tool_action in tool_bar.actions()
+    tool_buttons = [
+        button for tool_bar in window.findChildren(QToolBar)
+        for button in tool_bar.findChildren(QToolButton)
     ]
-    assert action in tool_bar_actions
+    assert action in [button.defaultAction() for button in tool_buttons]
 
 
 def test_toggling_wire_mode(window):
