@@ -1,0 +1,102 @@
+All-features circuit
+====================
+
+This is one sheet that uses every part, so you can try the whole bench
+on a circuit that is already known.
+
+Open it from the Anaconda Prompt, after the usual update:
+
+    conda activate base
+    cd C:\Users\danni\OneDrive\Documents\Python Scripts\PyCircuit
+    git pull
+    python main.py
+
+Then File > Open and choose:
+
+    examples\all-features.json
+
+The sheet is large. View > Zoom to Fit shows all of it.
+
+Supplies
+--------
+
+BATT is +12 V. Its plus node is named Vcc.
+NEG is the -12 V rail. Its minus node is named Vee. Plus of NEG is ground.
+The ground symbol is named Vss. Every Vss point is ground.
+V10 is a separate 10 V source for the dividers only.
+IN is the one AC source: 1 V peak, 1 kHz, no offset.
+
+V(s)
+----
+
+This sheet has a diode, an LED, transistors, MOSFETs, a comparator,
+logic gates and a 555, so there is no single s-domain formula. The DC
+numbers from Simulate > DC Operating Point still show. A sheet with
+only the resistors, capacitors and sources would show V(s).
+
+DC operating point
+------------------
+
+Simulate > DC Operating Point. These are the checks:
+
+- The three 10k / 10k dividers on V10 read 5 V in the middle.
+- The wire that hops the vertical ground wire reads 6 V. Without that
+  bridge the same point would be ground.
+- The potentiometer is at position 0.5, so the wiper is about 6 V.
+  The 10 megohm resistor on the wiper pulls it down by a hair.
+- The transformer is 2 turns. The primary is 12 V, so the secondary
+  is 24 V.
+- The 1 mA source into 1 kilohm is 1 V.
+- The closed switch reads 12 V on the load. The open switch reads
+  about 0 V.
+- The regulator is set to 5 V, and its 1 kilohm load is at 5 V.
+- The 555 control pin is about 8 V (two thirds of 12 V, pulled a
+  little by the 1 megohm resistor).
+- NOT, buffer, AND, OR, NOR and XOR outputs are 12 V. NAND is 0 V.
+  The comparator output is 12 V.
+- The LED current is about 9.5 mA, so a scope run lights the LED.
+
+Probes
+------
+
+P1  IN, the AC source. Direct.
+P2  the low-pass output (1 kilohm and 159 nF). Direct.
+P3  the generic op-amp follower output. Direct.
+P4  the voltage-follower block. Direct.
+P5  the non-inverting amplifier, gain 2. Direct.
+P6  the inverting amplifier, gain 2. Direct.
+P7  the plain divider, 5 V. Direct.
+P8  the second divider. 1 Mohm to ground.
+P9  the third divider. 10x scope probe.
+P10 differential, the top of the plain divider minus the middle.
+    That is 10 V minus 5 V.
+P11 current in the top resistor of the plain divider, 0.5 mA.
+P12 current in the LED's resistor.
+
+The 1 Mohm probe and the 10x probe do not change the DC operating
+point. They load the circuit when the oscilloscope or Bode runs.
+On its own divider, 1 Mohm reads 4.975 V and the 10x probe reads
+4.9975 V.
+
+Oscilloscope
+------------
+
+View > Oscilloscope, then Start. Uncheck P7 through P12 if the flat
+lines crowd the sine. P1 is 1 V at 1 kHz. P2 is the low-pass, about
+0.7 V at that frequency and -45 degrees. P3 and P4 copy P1. P5 is
+twice P1. P6 is twice P1, upside down. The LED lights.
+
+Bode
+----
+
+View > Bode, then Start. From 100 Hz to 10 kHz is enough. Leave P1
+through P6 checked.
+
+- P1 is 0 dB.
+- P2 is about -3 dB and -45 degrees at 1 kHz.
+- P3 and P4 are about 0 dB.
+- P5 is about +6 dB.
+- P6 is about +6 dB, phase 180 degrees.
+
+P7 through P12 are DC points. Uncheck them so the plot stays on the
+sine.
