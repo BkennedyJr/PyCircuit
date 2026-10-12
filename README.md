@@ -173,6 +173,11 @@ Using it
   point. Simulate > DC Operating Point draws those voltages on the
   nodes and those currents on the parts. The selected point shows the
   DC voltage next to V(s). Editing the circuit clears the numbers.
+- Drag a panel by its title bar. Drop it on an edge to dock it, drop
+  it on another panel to put them in tabs, or float it. View shows a
+  closed panel again. The scope starts under the circuit, so it does
+  not cover the part buttons. That arrangement is remembered the next
+  time the program opens.
 - View > Oscilloscope opens the scope dock (it can float). Start runs
   a transient and draws each checked probe. Stop drops that run. The
   run is five periods of the slowest sine, or 10 ms. Time per division
@@ -183,7 +188,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7).
 
 
 Third-party files
