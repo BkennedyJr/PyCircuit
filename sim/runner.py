@@ -315,10 +315,11 @@ def amplitude_spectrum(time_seconds, values):
     duration = times[-1] - times[0]
     count = len(times) - 1
     step = duration / count
-    waveform = [
-        sample_at(times, samples, times[0] + index * step)
-        for index in range(count)
-    ]
+    # Evenly spaced samples. numpy walks the record once. Looking up
+    # each sample from the start of the record freezes the window when
+    # a long run has tens of thousands of points and several probes.
+    query = [times[0] + index * step for index in range(count)]
+    waveform = numpy.interp(query, times, samples)
     coefficients = numpy.fft.rfft(waveform)
     frequencies = []
     peaks = []
