@@ -6,6 +6,7 @@ qt_application fixture in tests/conftest.py.
 import pytest
 from PyQt5.QtCore import Qt
 from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import QApplication, QScrollArea
 
 from core.components import COMPONENT_DEFINITIONS, Component
 from core.exceptions import ComponentError
@@ -403,6 +404,42 @@ def test_placing_a_dc_source_sends_no_settings(panel):
     panel.place_button.click()
 
     assert calls == [("dc_source", "5", {})]
+
+
+def test_dropdown_names_stay_fully_visible(panel):
+    """Family and Device used to clip inside the IC Library group."""
+    samples = (
+        (panel.kind_combo_box, "AC voltage source"),
+        (panel.kind_combo_box, "Non-inverting amplifier"),
+        (panel.ic_family_combo, "Op-amps"),
+        (panel.ic_device_combo, "Op-amp (generic)"),
+    )
+
+    for combo, sample in samples:
+        text_width = combo.fontMetrics().horizontalAdvance(sample)
+        assert combo.minimumWidth() >= text_width + 20
+        assert combo.minimumHeight() >= combo.fontMetrics().height()
+
+
+def test_a_short_panel_scrolls_instead_of_squashing_the_lists(qt_application):
+    panel = ComponentPanelWidget()
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setWidget(panel)
+    scroll.resize(90, 140)
+    scroll.show()
+    QApplication.processEvents()
+
+    assert panel.ic_family_combo.width() >= panel.ic_family_combo.minimumWidth()
+    assert panel.ic_device_combo.width() >= panel.ic_device_combo.minimumWidth()
+    assert (
+        panel.ic_family_combo.height()
+        >= panel.ic_family_combo.minimumHeight()
+    )
+    assert scroll.horizontalScrollBar().maximum() > 0
+    assert scroll.verticalScrollBar().maximum() > 0
+    scroll.close()
+    scroll.deleteLater()
 
 
 def test_selected_ac_source_shows_and_sends_its_frequency(panel):

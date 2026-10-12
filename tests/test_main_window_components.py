@@ -7,7 +7,7 @@ Error dialogs are replaced with a recorder, so no modal box opens.
 import pytest
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QKeyEvent, QKeySequence
-from PyQt5.QtWidgets import QDockWidget, QPushButton
+from PyQt5.QtWidgets import QDockWidget, QPushButton, QScrollArea
 
 from core.components import ComponentCollection
 from gui.component_panel_widget import NO_PART_SELECTED_TEXT
@@ -57,7 +57,9 @@ def item(window, reference):
 
 def test_components_dock_is_on_the_left(window):
     assert window.component_dock.windowTitle() == "Components"
-    assert window.component_dock.widget() is panel(window)
+    scroll = window.component_dock.widget()
+    assert isinstance(scroll, QScrollArea)
+    assert scroll.widget() is panel(window)
     assert window.dockWidgetArea(window.component_dock) == (
         Qt.LeftDockWidgetArea
     )

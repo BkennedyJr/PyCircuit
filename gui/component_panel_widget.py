@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -184,6 +185,27 @@ def describe_component(component):
     )
 
 
+def keep_combo_names_visible(combo, texts):
+    """
+    Keep every name in a dropdown fully visible.
+
+    The IC library sits in a group box, so its lists are narrower than
+    the Type list. Without a floor they clip, and a short dock can also
+    squash the line so a "p" loses its tail.
+
+    :param combo: Dropdown to size.
+    :type combo: QComboBox
+    :param texts: Names that must fit, including ones filled in later.
+    :type texts: list
+    :returns: None
+    """
+    combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+    metrics = combo.fontMetrics()
+    widest = max(metrics.horizontalAdvance(text) for text in texts)
+    combo.setMinimumWidth(max(combo.sizeHint().width(), widest + 36))
+    combo.setMinimumHeight(combo.sizeHint().height())
+
+
 class ComponentPanelWidget(QWidget):
     """
     User controls for placing and editing parts.
@@ -295,15 +317,18 @@ class ComponentPanelWidget(QWidget):
         self.selected_component_label.setWordWrap(True)
 
         type_form = QFormLayout()
+        type_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         type_form.addRow("Type:", self.kind_combo_box)
 
         library_form = QFormLayout()
+        library_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         library_form.addRow("Family:", self.ic_family_combo)
         library_form.addRow("Device:", self.ic_device_combo)
         library_group = QGroupBox("IC Library")
         library_group.setLayout(library_form)
 
         new_part_form = QFormLayout()
+        new_part_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         new_part_form.addRow(self.value_label, self.value_line_edit)
 
         for name, line_edit in self.parameter_line_edits.items():
@@ -320,6 +345,9 @@ class ComponentPanelWidget(QWidget):
         new_part_group.setLayout(new_part_layout)
 
         selected_part_form = QFormLayout()
+        selected_part_form.setFieldGrowthPolicy(
+            QFormLayout.AllNonFixedFieldsGrow
+        )
         selected_part_form.addRow("Name:", self.selected_name_line_edit)
         selected_part_form.addRow(
             self.selected_value_label,
@@ -358,6 +386,28 @@ class ComponentPanelWidget(QWidget):
         main_layout.addStretch(1)
 
         self.setLayout(main_layout)
+        # Stay at the size the names need. A short dock scrolls instead
+        # of squashing the lists.
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        keep_combo_names_visible(
+            self.kind_combo_box,
+            [
+                COMPONENT_DEFINITIONS[kind]["display_name"]
+                for kind in part_kinds()
+            ],
+        )
+        keep_combo_names_visible(
+            self.ic_family_combo,
+            [label for _family_id, label, _kinds in IC_FAMILIES],
+        )
+        keep_combo_names_visible(
+            self.ic_device_combo,
+            [
+                COMPONENT_DEFINITIONS[kind]["display_name"]
+                for _family_id, _label, kinds in IC_FAMILIES
+                for kind in kinds
+            ],
+        )
 
     def connect_widget_signals(self):
         """

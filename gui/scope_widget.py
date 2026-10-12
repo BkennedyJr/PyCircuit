@@ -6,7 +6,7 @@ volts-per-division box means Auto.
 """
 
 import pyqtgraph as pg
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, QSize, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDockWidget,
@@ -18,6 +18,22 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+
+class ScopePlot(pg.PlotWidget):
+    """
+    Trace area that leaves room for the circuit.
+
+    PlotWidget asks for 600 by 450, so the scope would fill the window
+    and the grid would be a thin strip. The dock can still be dragged
+    taller.
+    """
+
+    def sizeHint(self):
+        return QSize(480, 160)
+
+    def minimumSizeHint(self):
+        return QSize(240, 120)
 
 from core.exceptions import ComponentError
 from core.units import format_spice_number, parse_value
@@ -88,13 +104,13 @@ class OscilloscopeDock(QDockWidget):
         self.note_label = QLabel("Press Start.")
         self.note_label.setWordWrap(True)
 
-        self.plot = pg.PlotWidget()
+        self.plot = ScopePlot()
         self.plot.setBackground("#1b1e23")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setLabel("bottom", "Time", units="s")
         self.plot.setLabel("left", "Signal")
         self.plot.addLegend()
-        self.plot.setMinimumHeight(220)
+        self.plot.setMinimumHeight(120)
 
         layout.addLayout(form)
         layout.addLayout(buttons)

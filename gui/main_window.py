@@ -5,12 +5,14 @@ This module coordinates GUI actions with the platform-independent core
 connection-grid model and project-file services.
 """
 
+import os
 import re
 import threading
 from datetime import datetime
 from pathlib import Path
 
 from PyQt5.QtCore import QRectF
+from PyQt5.QtCore import QSettings
 from PyQt5.QtCore import QStandardPaths
 from PyQt5.QtCore import QThread
 from PyQt5.QtCore import QTimer
@@ -33,6 +35,7 @@ from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QToolBar
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QWidget
@@ -166,12 +169,13 @@ class MainWindow(QMainWindow):
 
         self.create_actions()
         self.create_oscilloscope_dock()
-        self.create_menu_bar()
         self.create_tool_bar()
         self.create_grid_configuration_toolbar()
         self.create_component_dock()
         self.create_selected_node_dock()
         self.create_probe_dock()
+        self.configure_docks()
+        self.create_menu_bar()
 
         self.zoom_label = QLabel(self)
         self.statusBar().addPermanentWidget(self.zoom_label)
@@ -417,6 +421,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.fit_grid_action)
         view_menu.addSeparator()
+        view_menu.addAction(self.component_dock.toggleViewAction())
+        view_menu.addAction(self.selected_node_dock.toggleViewAction())
+        view_menu.addAction(self.probe_dock.toggleViewAction())
         view_menu.addAction(self.oscilloscope_dock.toggleViewAction())
 
         help_menu = self.menuBar().addMenu("&Help")
@@ -430,25 +437,25 @@ class MainWindow(QMainWindow):
 
         :returns: None
         """
-        main_tool_bar = QToolBar("Main Toolbar", self)
-        self.addToolBar(main_tool_bar)
+        self.main_tool_bar = QToolBar("Main Toolbar", self)
+        self.addToolBar(self.main_tool_bar)
 
-        main_tool_bar.addAction(self.new_project_action)
-        main_tool_bar.addAction(self.open_project_action)
-        main_tool_bar.addAction(self.save_project_action)
-        main_tool_bar.addAction(self.print_action)
-        main_tool_bar.addSeparator()
-        main_tool_bar.addAction(self.toggle_pickoff_action)
-        main_tool_bar.addSeparator()
-        main_tool_bar.addAction(self.rotate_component_action)
-        main_tool_bar.addAction(self.delete_component_action)
-        main_tool_bar.addAction(self.wire_mode_action)
-        main_tool_bar.addAction(self.probe_mode_action)
-        main_tool_bar.addAction(self.dc_operating_point_action)
-        main_tool_bar.addSeparator()
-        main_tool_bar.addAction(self.zoom_in_action)
-        main_tool_bar.addAction(self.zoom_out_action)
-        main_tool_bar.addAction(self.fit_grid_action)
+        self.main_tool_bar.addAction(self.new_project_action)
+        self.main_tool_bar.addAction(self.open_project_action)
+        self.main_tool_bar.addAction(self.save_project_action)
+        self.main_tool_bar.addAction(self.print_action)
+        self.main_tool_bar.addSeparator()
+        self.main_tool_bar.addAction(self.toggle_pickoff_action)
+        self.main_tool_bar.addSeparator()
+        self.main_tool_bar.addAction(self.rotate_component_action)
+        self.main_tool_bar.addAction(self.delete_component_action)
+        self.main_tool_bar.addAction(self.wire_mode_action)
+        self.main_tool_bar.addAction(self.probe_mode_action)
+        self.main_tool_bar.addAction(self.dc_operating_point_action)
+        self.main_tool_bar.addSeparator()
+        self.main_tool_bar.addAction(self.zoom_in_action)
+        self.main_tool_bar.addAction(self.zoom_out_action)
+        self.main_tool_bar.addAction(self.fit_grid_action)
 
     def create_grid_configuration_toolbar(self):
         """
@@ -494,8 +501,14 @@ class MainWindow(QMainWindow):
             self.delete_selected_component
         )
 
+        # A short or narrow dock scrolls. The part names stay whole.
+        self.component_scroll = QScrollArea()
+        self.component_scroll.setWidgetResizable(True)
+        self.component_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.component_scroll.setWidget(self.component_panel_widget)
+
         self.component_dock = QDockWidget("Components", self)
-        self.component_dock.setWidget(self.component_panel_widget)
+        self.component_dock.setWidget(self.component_scroll)
 
         self.addDockWidget(
             Qt.LeftDockWidgetArea,
@@ -588,15 +601,15 @@ class MainWindow(QMainWindow):
 
         selected_node_widget.setLayout(selected_node_layout)
 
-        selected_node_dock = QDockWidget(
+        self.selected_node_dock = QDockWidget(
             "Selected Connection Point",
             self
         )
-        selected_node_dock.setWidget(selected_node_widget)
+        self.selected_node_dock.setWidget(selected_node_widget)
 
         self.addDockWidget(
             Qt.RightDockWidgetArea,
-            selected_node_dock
+            self.selected_node_dock
         )
 
     def create_probe_dock(self):
@@ -660,16 +673,16 @@ class MainWindow(QMainWindow):
         probe_layout.addRow(self.probe_note_label)
         probe_widget.setLayout(probe_layout)
 
-        probe_dock = QDockWidget("Probe", self)
-        probe_dock.setWidget(probe_widget)
-        self.addDockWidget(Qt.RightDockWidgetArea, probe_dock)
+        self.probe_dock = QDockWidget("Probe", self)
+        self.probe_dock.setWidget(probe_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.probe_dock)
 
     def create_oscilloscope_dock(self):
         """
         Create the oscilloscope dock along the bottom of the window.
 
-        View > Oscilloscope shows or hides it. The dock's own button
-        floats it.
+        View > Oscilloscope shows or hides it. Drag the title bar to
+        move it. It starts under the circuit, not over the part buttons.
 
         :returns: None
         """
@@ -681,6 +694,99 @@ class MainWindow(QMainWindow):
         self.oscilloscope_dock.refresh_automatic_times(
             self.component_collection.get_components()
         )
+
+    def configure_docks(self):
+        """
+        Make every panel drag, float, and dock.
+
+        The bottom corners belong to the side panels, so the
+        oscilloscope stays under the circuit and does not cover the
+        part buttons. The right-hand panels start as tabs. The last
+        arrangement comes back the next time the program opens, except
+        while tests run.
+
+        :returns: None
+        """
+        dock_features = (
+            QDockWidget.DockWidgetMovable
+            | QDockWidget.DockWidgetFloatable
+            | QDockWidget.DockWidgetClosable
+        )
+        named_docks = (
+            (self.component_dock, "components"),
+            (self.selected_node_dock, "selected_connection_point"),
+            (self.probe_dock, "probe"),
+            (self.oscilloscope_dock, "oscilloscope"),
+        )
+
+        for dock, object_name in named_docks:
+            dock.setObjectName(object_name)
+            dock.setFeatures(dock_features)
+
+        self.setDockOptions(
+            QMainWindow.AnimatedDocks
+            | QMainWindow.AllowNestedDocks
+            | QMainWindow.AllowTabbedDocks
+            | QMainWindow.GroupedDragging
+        )
+        # Side panels own the corners. A bottom dock would otherwise
+        # paint over the bottom of the Components panel.
+        self.setCorner(Qt.TopLeftCorner, Qt.LeftDockWidgetArea)
+        self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
+        self.setCorner(Qt.TopRightCorner, Qt.RightDockWidgetArea)
+        self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
+        self.tabifyDockWidget(self.selected_node_dock, self.probe_dock)
+        self.selected_node_dock.raise_()
+
+        self.main_tool_bar.setObjectName("main_toolbar")
+        self.grid_tool_bar.setObjectName("grid_toolbar")
+        self.main_tool_bar.setMovable(True)
+        self.main_tool_bar.setFloatable(True)
+        self.grid_tool_bar.setMovable(True)
+        self.grid_tool_bar.setFloatable(True)
+        # A short scope under the circuit. A saved arrangement replaces
+        # this, and the user can drag the edge taller.
+        self.resizeDocks(
+            [self.oscilloscope_dock],
+            [260],
+            Qt.Vertical,
+        )
+        self.restore_window_arrangement()
+
+    def save_window_arrangement(self):
+        """
+        Remember where the panels and toolbars are.
+
+        Tests skip this so they always see the default layout, and so
+        a test run does not change the arrangement on a real machine.
+
+        :returns: None
+        """
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
+
+        settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
+        settings.setValue("geometry", self.saveGeometry())
+        settings.setValue("state", self.saveState())
+
+    def restore_window_arrangement(self):
+        """
+        Put the panels and toolbars back where they were last time.
+
+        :returns: None
+        """
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
+
+        settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
+        geometry = settings.value("geometry")
+        state = settings.value("state")
+
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
+        if state is not None:
+            self.restoreState(state)
 
     def apply_grid_configuration(self, row_count, column_count):
         """
@@ -2898,10 +3004,12 @@ class MainWindow(QMainWindow):
         self._stop_tran_thread()
 
         if not self.is_project_modified:
+            self.save_window_arrangement()
             close_event.accept()
             return
 
         if self.confirm_project_replacement():
+            self.save_window_arrangement()
             close_event.accept()
         else:
             close_event.ignore()
