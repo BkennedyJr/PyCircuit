@@ -6,6 +6,7 @@ connection-grid model and project-file services.
 """
 
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from core.exceptions import ComponentError
 from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
 from core.exceptions import SimulationError
+from core.netlist import append_shunt_loads
 from core.netlist import build_netlist
 from core.netlist import spice_node_map
 from core.netlist import write_netlist_file
@@ -66,6 +68,11 @@ from gui.grid_configuration_widget import ApplyGridButton
 from gui.grid_configuration_widget import GridConfigurationWidget
 from gui.grid_editor import ConnectionGridScene
 from gui.grid_editor import ConnectionGridView
+from gui.scope_widget import OscilloscopeDock
+from gui.scope_widget import TransientRunner
+from sim.runner import lit_led_references
+from sim.runner import probe_series
+from sim.runner import transient_step
 
 
 PROJECT_FILE_FILTER = "Circuit Workbench Project (*.json);;All Files (*)"
@@ -115,6 +122,14 @@ class MainWindow(QMainWindow):
         self._dc_active_run_id = 0
         self._dc_name_by_point = {}
         self._dc_volts_by_node = {}
+        self._tran_thread = None
+        self._tran_runner = None
+        self._tran_run_id = 0
+        self._tran_active_run_id = 0
+        self._tran_cancel = None
+        self._tran_stop_requested = False
+        self._tran_result = None
+        self._tran_name_by_point = {}
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -150,6 +165,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.connection_grid_view)
 
         self.create_actions()
+        self.create_oscilloscope_dock()
         self.create_menu_bar()
         self.create_tool_bar()
         self.create_grid_configuration_toolbar()
@@ -400,6 +416,8 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.zoom_in_action)
         view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.fit_grid_action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.oscilloscope_dock.toggleViewAction())
 
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self.help_action)
@@ -646,6 +664,24 @@ class MainWindow(QMainWindow):
         probe_dock.setWidget(probe_widget)
         self.addDockWidget(Qt.RightDockWidgetArea, probe_dock)
 
+    def create_oscilloscope_dock(self):
+        """
+        Create the oscilloscope dock along the bottom of the window.
+
+        View > Oscilloscope shows or hides it. The dock's own button
+        floats it.
+
+        :returns: None
+        """
+        self.oscilloscope_dock = OscilloscopeDock(self)
+        self.oscilloscope_dock.start_requested.connect(self.run_transient)
+        self.oscilloscope_dock.stop_requested.connect(self.stop_transient)
+        self.oscilloscope_dock.channels_changed.connect(self.replot_transient)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.oscilloscope_dock)
+        self.oscilloscope_dock.refresh_automatic_times(
+            self.component_collection.get_components()
+        )
+
     def apply_grid_configuration(self, row_count, column_count):
         """
         Resize the connection grid using the selected configuration.
@@ -709,6 +745,7 @@ class MainWindow(QMainWindow):
         self.selected_connection_point_identifier = None
         self._node_formula_book = None
         self.clear_dc_numbers()
+        self.clear_scope_run()
         self.refresh_selected_node_formula()
         self.is_project_modified = True
 
@@ -1034,8 +1071,12 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self.selected_probe_reference = reference
-        self.mark_project_modified(f"Added probe {reference}.")
+        self.mark_project_modified(
+            f"Added probe {reference}.", keep_scope=True
+        )
         self.show_probe(self.probe_collection.get(reference))
+        self.refresh_scope_channels()
+        self.replot_transient()
 
     def handle_probe_moved(self, reference):
         """
@@ -1046,8 +1087,12 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self.selected_probe_reference = reference
-        self.mark_project_modified(f"Updated probe {reference}.")
+        self.mark_project_modified(
+            f"Updated probe {reference}.", keep_scope=True
+        )
         self.show_probe(self.probe_collection.get(reference))
+        self.refresh_scope_channels()
+        self.replot_transient()
 
     def handle_probe_refused(self, reason):
         """
@@ -1207,8 +1252,10 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.rebuild_probe_items()
         self.connection_grid_scene.select_probe(probe.reference)
         self._node_formula_book = None
-        self.mark_project_modified(status)
+        self.mark_project_modified(status, keep_scope=True)
         self.show_probe(probe)
+        self.refresh_scope_channels()
+        self.replot_transient()
 
     def _probe_where_text(self, probe):
         """
@@ -1420,17 +1467,25 @@ class MainWindow(QMainWindow):
         except ComponentError:
             return None
 
-    def mark_project_modified(self, status_message):
+    def mark_project_modified(self, status_message, keep_scope=False):
         """
         Flag unsaved changes, refresh the title, and report what changed.
 
+        Moving a probe keeps the last oscilloscope run so the trace can
+        follow that point. Editing the circuit drops it.
+
         :param status_message: Status-bar text.
         :type status_message: str
+        :param keep_scope: True to leave the last transient on the scope.
+        :type keep_scope: bool
         :returns: None
         """
         self.is_project_modified = True
         self._node_formula_book = None
         self.clear_dc_numbers()
+
+        if not keep_scope:
+            self.clear_scope_run()
         self.refresh_selected_node_formula()
         self.refresh_probe_parameters()
         self.update_window_title()
@@ -1928,8 +1983,15 @@ class MainWindow(QMainWindow):
         self.selected_probe_reference = None
         self.update_delete_action()
         self.mark_project_modified(
-            f"Deleted {', '.join(deleted_references)}."
+            f"Deleted {', '.join(deleted_references)}.",
+            keep_scope=not (component_references or wire_references),
         )
+
+        if component_references or wire_references:
+            self.clear_scope_run()
+        else:
+            self.refresh_scope_channels()
+            self.replot_transient()
 
     def reset_component_collection(self):
         """
@@ -1950,6 +2012,7 @@ class MainWindow(QMainWindow):
         self.connection_grid_scene.pending_differential_reference = None
         self._node_formula_book = None
         self.clear_dc_numbers()
+        self.clear_scope_run()
         self.connection_grid_scene.set_wire_collection(self.wire_collection)
         self.connection_grid_scene.set_probe_collection(self.probe_collection)
         self.show_probe(None)
@@ -2122,6 +2185,7 @@ class MainWindow(QMainWindow):
         self._probe_parameter_lines = {}
         self._node_formula_book = None
         self.clear_dc_numbers()
+        self.clear_scope_run()
         self.connection_grid_scene.component_collection = (
             self.component_collection
         )
@@ -2549,6 +2613,277 @@ class MainWindow(QMainWindow):
         thread.quit()
         thread.wait(3000)
 
+    def refresh_scope_channels(self):
+        """
+        Rebuild the oscilloscope's probe checkboxes.
+
+        :returns: None
+        """
+        self.oscilloscope_dock.set_channels(self.probe_collection.get_probes())
+
+    def clear_scope_run(self):
+        """
+        Drop the last transient. An in-flight run is ignored.
+
+        LEDs go dark. Probe checkboxes stay.
+
+        :returns: None
+        """
+        self._tran_run_id += 1
+
+        if self._tran_cancel is not None:
+            self._tran_cancel.set()
+
+        self._tran_result = None
+        self._tran_name_by_point = {}
+        self.oscilloscope_dock.clear_traces()
+        self.connection_grid_scene.set_led_lights(set())
+        self._set_probe_plots(set())
+        self.oscilloscope_dock.refresh_automatic_times(
+            self.component_collection.get_components()
+        )
+        self.refresh_scope_channels()
+
+    def replot_transient(self):
+        """
+        Draw the checked probes from the last run.
+
+        A probe whose node is not in that run is left off the plot, and
+        the status bar asks for Start.
+
+        :returns: None
+        """
+        result = self._tran_result
+
+        if result is None:
+            return
+
+        enabled = set(self.oscilloscope_dock.enabled_references())
+        traces = []
+        missing = []
+        plotted = set()
+
+        for probe in self.probe_collection.get_probes():
+            series = None
+
+            if probe.reference in enabled:
+                series = probe_series(
+                    probe, result, self._tran_name_by_point
+                )
+
+            if probe.reference in enabled and series is None:
+                missing.append(probe.reference)
+
+            if series is None:
+                continue
+
+            plotted.add(probe.reference)
+            name = probe.reference
+
+            if probe.method == "current":
+                name = f"{probe.reference} (A)"
+
+            traces.append((name, probe.color, series[0], series[1]))
+
+        self._set_probe_plots(plotted)
+
+        try:
+            time_per_division = (
+                self.oscilloscope_dock.time_per_division_seconds()
+            )
+            volts_per_division = self.oscilloscope_dock.volts_per_division()
+        except ComponentError as error:
+            self.show_error_message(
+                "Oscilloscope",
+                str(error),
+                "Use a number such as 1m, or leave volts per division blank."
+            )
+            return
+
+        self.oscilloscope_dock.show_traces(
+            traces, time_per_division, volts_per_division
+        )
+
+        if missing:
+            names = ", ".join(missing)
+            self.statusBar().showMessage(
+                f"Press Start again. {names} is not in the last run.",
+                7000,
+            )
+
+    def _set_probe_plots(self, references):
+        """
+        Mark which probes have a trace, and redraw their flags.
+
+        :param references: Probe names currently drawn.
+        :type references: set
+        :returns: None
+        """
+        for probe in self.probe_collection.get_probes():
+            self.probe_collection.set_has_plot(
+                probe.reference, probe.reference in references
+            )
+
+        self.connection_grid_scene.rebuild_probe_items()
+
+        if self.selected_probe_reference is None:
+            return
+
+        try:
+            probe = self.probe_collection.get(self.selected_probe_reference)
+        except ComponentError:
+            return
+
+        self.show_probe(probe)
+
+    def run_transient(self):
+        """
+        Build the netlist, including probe loads, and run it in the
+        background.
+
+        :returns: None
+        """
+        if self._tran_thread is not None:
+            return
+
+        self.oscilloscope_dock.refresh_automatic_times(
+            self.component_collection.get_components()
+        )
+
+        try:
+            stop = self.oscilloscope_dock.run_time_seconds()
+            step = transient_step(stop)
+            parts = self.component_collection.get_components()
+            netlist = build_netlist(
+                parts, self.wire_collection, self.connection_grid
+            )
+            name_by_point, _draw_at = spice_node_map(
+                parts, self.wire_collection, self.connection_grid
+            )
+            netlist = append_shunt_loads(
+                netlist,
+                shunt_loads(self.probe_collection.get_probes()),
+                name_by_point,
+            )
+        except (SimulationError, ComponentError) as error:
+            self.show_error_message(
+                "Oscilloscope",
+                str(error),
+                "Fix the circuit or the time settings, then press Start "
+                "again."
+            )
+            return
+
+        self._tran_run_id += 1
+        run_id = self._tran_run_id
+        cancel = threading.Event()
+        thread = QThread(self)
+        runner = TransientRunner(netlist, step, stop, cancel)
+        runner.moveToThread(thread)
+        thread.started.connect(runner.run)
+        runner.succeeded.connect(self._on_tran_succeeded)
+        runner.failed.connect(self._on_tran_failed)
+        runner.succeeded.connect(thread.quit)
+        runner.failed.connect(thread.quit)
+        thread.finished.connect(self._on_tran_thread_finished)
+        self._tran_thread = thread
+        self._tran_runner = runner
+        self._tran_cancel = cancel
+        self._tran_stop_requested = False
+        self._tran_active_run_id = run_id
+        self._tran_name_by_point = name_by_point
+        self.oscilloscope_dock.set_running(True)
+        self.statusBar().showMessage("Running the transient...")
+        thread.start()
+
+    def stop_transient(self):
+        """
+        Ask the running transient to drop its result.
+
+        :returns: None
+        """
+        if self._tran_thread is None:
+            return
+
+        self._tran_stop_requested = True
+        self._tran_run_id += 1
+
+        if self._tran_cancel is not None:
+            self._tran_cancel.set()
+
+        self.statusBar().showMessage("Stopping the oscilloscope...")
+
+    def _on_tran_succeeded(self, result):
+        """
+        Draw a finished transient when the circuit has not changed.
+
+        :param result: Transient from the background run.
+        :returns: None
+        """
+        if self._tran_active_run_id != self._tran_run_id:
+            return
+
+        self._tran_result = result
+        self.replot_transient()
+        self.connection_grid_scene.set_led_lights(lit_led_references(
+            self.component_collection.get_components(), result
+        ))
+        self.statusBar().showMessage("Oscilloscope updated.", 5000)
+
+    def _on_tran_failed(self, reason):
+        """
+        Show why the transient failed, if that run is still current.
+
+        :param reason: Plain-English message.
+        :type reason: str
+        :returns: None
+        """
+        if self._tran_active_run_id != self._tran_run_id:
+            return
+
+        if reason == "Stopped.":
+            self.statusBar().showMessage("Stopped.", 5000)
+            return
+
+        self.show_error_message(
+            "Oscilloscope",
+            reason,
+            "Fix the circuit, then press Start again."
+        )
+
+    def _on_tran_thread_finished(self):
+        """
+        Allow another transient once the background thread has stopped.
+
+        :returns: None
+        """
+        stopped = self._tran_stop_requested
+        self._tran_thread = None
+        self._tran_runner = None
+        self._tran_cancel = None
+        self._tran_stop_requested = False
+        self.oscilloscope_dock.set_running(False)
+
+        if stopped:
+            self.statusBar().showMessage("Stopped.", 5000)
+
+    def _stop_tran_thread(self):
+        """
+        Wait for a background transient to stop.
+
+        :returns: None
+        """
+        if self._tran_cancel is not None:
+            self._tran_cancel.set()
+
+        thread = self._tran_thread
+
+        if thread is None:
+            return
+
+        thread.quit()
+        thread.wait(3000)
+
     def closeEvent(self, close_event):
         """
         Provide a graceful shutdown path for unsaved work.
@@ -2558,7 +2893,9 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self._dc_run_id += 1
+        self._tran_run_id += 1
         self._stop_dc_thread()
+        self._stop_tran_thread()
 
         if not self.is_project_modified:
             close_event.accept()
