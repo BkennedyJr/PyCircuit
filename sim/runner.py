@@ -1020,15 +1020,41 @@ def _library_path():
 
 
 def _spellings(netlist):
+    """
+    Map a lowercase name to the spellings used at the top of the netlist.
+
+    Names inside a ``.subckt`` are the model's own ports. A gate can say
+    ``vcc`` there while the 555 says ``VCC``. That must not clash with a
+    rail the user named ``Vcc``.
+    """
     found = {}
+    depth = 0
+
     for line in netlist.splitlines():
         stripped = line.strip()
+
         if not stripped or stripped.startswith("*"):
             continue
+
+        lowered = stripped.lower()
+
+        if lowered.startswith(".subckt"):
+            depth += 1
+            continue
+
+        if lowered.startswith(".ends"):
+            depth = max(0, depth - 1)
+            continue
+
+        if depth:
+            continue
+
         for token in stripped.replace("(", " ").replace(")", " ").split():
             if not _ELEMENT_NAME.match(token):
                 continue
+
             found.setdefault(token.lower(), set()).add(token)
+
     found.setdefault("0", set()).add("0")
     return found
 

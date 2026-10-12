@@ -167,7 +167,9 @@ Using it
   window.
 - File > Save Project / Open Project stores the grid, parts, wires and
   probes as a .json file. An older file that only has the grid still
-  opens. File > Print (Ctrl+P) prints the circuit on one page. File >
+  opens. examples/all-features.json is one sheet with every part.
+  examples/all-features.txt says what each number should be. File >
+  Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
   loads. The same netlist is what ngspice uses for the DC operating
   point. Simulate > DC Operating Point draws those voltages on the
@@ -200,7 +202,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11).
 
 
 Third-party files

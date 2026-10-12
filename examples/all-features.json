@@ -1,0 +1,1162 @@
+{
+  "components": [
+    {
+      "column": 22,
+      "kind": "follower",
+      "parameters": {},
+      "reference": "A1",
+      "rotation": 0,
+      "row": 8,
+      "value": ""
+    },
+    {
+      "column": 22,
+      "kind": "noninverting_amp",
+      "parameters": {},
+      "reference": "A2",
+      "rotation": 0,
+      "row": 14,
+      "value": "2"
+    },
+    {
+      "column": 22,
+      "kind": "inverting_amp",
+      "parameters": {},
+      "reference": "A3",
+      "rotation": 0,
+      "row": 20,
+      "value": "2"
+    },
+    {
+      "column": 4,
+      "kind": "dc_source",
+      "parameters": {},
+      "reference": "BATT",
+      "rotation": 0,
+      "row": 2,
+      "value": "12"
+    },
+    {
+      "column": 5,
+      "kind": "capacitor",
+      "parameters": {},
+      "reference": "C1",
+      "rotation": 0,
+      "row": 10,
+      "value": "159n"
+    },
+    {
+      "column": 8,
+      "kind": "capacitor_polarized",
+      "parameters": {},
+      "reference": "C2",
+      "rotation": 0,
+      "row": 24,
+      "value": "10u"
+    },
+    {
+      "column": 13,
+      "kind": "diode",
+      "parameters": {},
+      "reference": "D1",
+      "rotation": 0,
+      "row": 24,
+      "value": "1N4148"
+    },
+    {
+      "column": 17,
+      "kind": "led",
+      "parameters": {
+        "color": "red"
+      },
+      "reference": "D2",
+      "rotation": 0,
+      "row": 24,
+      "value": "LED_RED"
+    },
+    {
+      "column": 2,
+      "kind": "ground",
+      "parameters": {},
+      "reference": "GND1",
+      "rotation": 0,
+      "row": 2,
+      "value": ""
+    },
+    {
+      "column": 2,
+      "kind": "current_source",
+      "parameters": {},
+      "reference": "I1",
+      "rotation": 0,
+      "row": 20,
+      "value": "1m"
+    },
+    {
+      "column": 2,
+      "kind": "inductor",
+      "parameters": {},
+      "reference": "L1",
+      "rotation": 0,
+      "row": 24,
+      "value": "10m"
+    },
+    {
+      "column": 16,
+      "kind": "nmos",
+      "parameters": {},
+      "reference": "M1",
+      "rotation": 0,
+      "row": 28,
+      "value": "2N7000"
+    },
+    {
+      "column": 22,
+      "kind": "pmos",
+      "parameters": {},
+      "reference": "M2",
+      "rotation": 0,
+      "row": 28,
+      "value": "BS250"
+    },
+    {
+      "column": 6,
+      "kind": "dc_source",
+      "parameters": {},
+      "reference": "NEG",
+      "rotation": 0,
+      "row": 2,
+      "value": "12"
+    },
+    {
+      "column": 4,
+      "kind": "npn",
+      "parameters": {},
+      "reference": "Q1",
+      "rotation": 0,
+      "row": 28,
+      "value": "2N3904"
+    },
+    {
+      "column": 10,
+      "kind": "pnp",
+      "parameters": {},
+      "reference": "Q2",
+      "rotation": 0,
+      "row": 28,
+      "value": "2N3906"
+    },
+    {
+      "column": 4,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R1",
+      "rotation": 0,
+      "row": 4,
+      "value": "10k"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R2",
+      "rotation": 0,
+      "row": 4,
+      "value": "10k"
+    },
+    {
+      "column": 4,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R3",
+      "rotation": 0,
+      "row": 6,
+      "value": "10k"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R4",
+      "rotation": 0,
+      "row": 6,
+      "value": "10k"
+    },
+    {
+      "column": 4,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R5",
+      "rotation": 0,
+      "row": 8,
+      "value": "10k"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R6",
+      "rotation": 0,
+      "row": 8,
+      "value": "10k"
+    },
+    {
+      "column": 4,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R7",
+      "rotation": 0,
+      "row": 10,
+      "value": "1k"
+    },
+    {
+      "column": 3,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R8",
+      "rotation": 0,
+      "row": 16,
+      "value": "10k"
+    },
+    {
+      "column": 8,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R9",
+      "rotation": 0,
+      "row": 16,
+      "value": "10k"
+    },
+    {
+      "column": 13,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R10",
+      "rotation": 0,
+      "row": 17,
+      "value": "10meg"
+    },
+    {
+      "column": 20,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R11",
+      "rotation": 0,
+      "row": 16,
+      "value": "10k"
+    },
+    {
+      "column": 2,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R12",
+      "rotation": 0,
+      "row": 20,
+      "value": "1k"
+    },
+    {
+      "column": 7,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R13",
+      "rotation": 0,
+      "row": 20,
+      "value": "1k"
+    },
+    {
+      "column": 13,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R14",
+      "rotation": 0,
+      "row": 20,
+      "value": "1k"
+    },
+    {
+      "column": 19,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R15",
+      "rotation": 0,
+      "row": 20,
+      "value": "1k"
+    },
+    {
+      "column": 3,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R16",
+      "rotation": 0,
+      "row": 24,
+      "value": "1k"
+    },
+    {
+      "column": 6,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R17",
+      "rotation": 0,
+      "row": 24,
+      "value": "10k"
+    },
+    {
+      "column": 12,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R18",
+      "rotation": 0,
+      "row": 24,
+      "value": "10k"
+    },
+    {
+      "column": 16,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R19",
+      "rotation": 0,
+      "row": 24,
+      "value": "1k"
+    },
+    {
+      "column": 2,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R20",
+      "rotation": 0,
+      "row": 28,
+      "value": "100k"
+    },
+    {
+      "column": 4,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R21",
+      "rotation": 0,
+      "row": 27,
+      "value": "1k"
+    },
+    {
+      "column": 8,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R22",
+      "rotation": 0,
+      "row": 28,
+      "value": "100k"
+    },
+    {
+      "column": 11,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R23",
+      "rotation": 0,
+      "row": 29,
+      "value": "1k"
+    },
+    {
+      "column": 16,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R24",
+      "rotation": 0,
+      "row": 27,
+      "value": "1k"
+    },
+    {
+      "column": 23,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R25",
+      "rotation": 0,
+      "row": 29,
+      "value": "1k"
+    },
+    {
+      "column": 2,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R26",
+      "rotation": 0,
+      "row": 35,
+      "value": "1meg"
+    },
+    {
+      "column": 2,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R27",
+      "rotation": 0,
+      "row": 37,
+      "value": "1meg"
+    },
+    {
+      "column": 2,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R28",
+      "rotation": 0,
+      "row": 38,
+      "value": "1meg"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R29",
+      "rotation": 0,
+      "row": 35,
+      "value": "1meg"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R30",
+      "rotation": 0,
+      "row": 37,
+      "value": "1meg"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R31",
+      "rotation": 0,
+      "row": 38,
+      "value": "1meg"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R32",
+      "rotation": 0,
+      "row": 8,
+      "value": "10k"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R33",
+      "rotation": 0,
+      "row": 12,
+      "value": "10k"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R34",
+      "rotation": 0,
+      "row": 16,
+      "value": "10k"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R35",
+      "rotation": 0,
+      "row": 20,
+      "value": "10k"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R36",
+      "rotation": 0,
+      "row": 24,
+      "value": "10k"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R37",
+      "rotation": 0,
+      "row": 28,
+      "value": "10k"
+    },
+    {
+      "column": 29,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R38",
+      "rotation": 0,
+      "row": 32,
+      "value": "10k"
+    },
+    {
+      "column": 23,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R39",
+      "rotation": 0,
+      "row": 8,
+      "value": "10k"
+    },
+    {
+      "column": 23,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R40",
+      "rotation": 0,
+      "row": 14,
+      "value": "10k"
+    },
+    {
+      "column": 23,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R41",
+      "rotation": 0,
+      "row": 20,
+      "value": "10k"
+    },
+    {
+      "column": 40,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R42",
+      "rotation": 0,
+      "row": 26,
+      "value": "10k"
+    },
+    {
+      "column": 12,
+      "kind": "potentiometer",
+      "parameters": {
+        "position": "0.5"
+      },
+      "reference": "RV1",
+      "rotation": 0,
+      "row": 16,
+      "value": "10k"
+    },
+    {
+      "column": 6,
+      "kind": "switch",
+      "parameters": {
+        "state": "closed"
+      },
+      "reference": "S1",
+      "rotation": 0,
+      "row": 20,
+      "value": ""
+    },
+    {
+      "column": 12,
+      "kind": "switch",
+      "parameters": {
+        "state": "open"
+      },
+      "reference": "S2",
+      "rotation": 0,
+      "row": 20,
+      "value": ""
+    },
+    {
+      "column": 18,
+      "kind": "transformer",
+      "parameters": {},
+      "reference": "T1",
+      "rotation": 0,
+      "row": 16,
+      "value": "2"
+    },
+    {
+      "column": 18,
+      "kind": "voltage_regulator",
+      "parameters": {},
+      "reference": "U1",
+      "rotation": 0,
+      "row": 20,
+      "value": "5"
+    },
+    {
+      "column": 2,
+      "kind": "dc_source",
+      "parameters": {},
+      "reference": "V1",
+      "rotation": 0,
+      "row": 4,
+      "value": "10"
+    },
+    {
+      "column": 2,
+      "kind": "ac_source",
+      "parameters": {
+        "frequency": "1k",
+        "offset": "0",
+        "phase": "0"
+      },
+      "reference": "V2",
+      "rotation": 0,
+      "row": 10,
+      "value": "1"
+    },
+    {
+      "column": 4,
+      "kind": "timer_555",
+      "parameters": {},
+      "reference": "X1",
+      "rotation": 0,
+      "row": 36,
+      "value": "NE555"
+    },
+    {
+      "column": 28,
+      "kind": "gate_not",
+      "parameters": {},
+      "reference": "X2",
+      "rotation": 0,
+      "row": 8,
+      "value": "NOT"
+    },
+    {
+      "column": 28,
+      "kind": "gate_buffer",
+      "parameters": {},
+      "reference": "X3",
+      "rotation": 0,
+      "row": 12,
+      "value": "BUF"
+    },
+    {
+      "column": 28,
+      "kind": "gate_and",
+      "parameters": {},
+      "reference": "X4",
+      "rotation": 0,
+      "row": 16,
+      "value": "AND2"
+    },
+    {
+      "column": 28,
+      "kind": "gate_or",
+      "parameters": {},
+      "reference": "X5",
+      "rotation": 0,
+      "row": 20,
+      "value": "OR2"
+    },
+    {
+      "column": 28,
+      "kind": "gate_nand",
+      "parameters": {},
+      "reference": "X6",
+      "rotation": 0,
+      "row": 24,
+      "value": "NAND2"
+    },
+    {
+      "column": 28,
+      "kind": "gate_nor",
+      "parameters": {},
+      "reference": "X7",
+      "rotation": 0,
+      "row": 28,
+      "value": "NOR2"
+    },
+    {
+      "column": 28,
+      "kind": "gate_xor",
+      "parameters": {},
+      "reference": "X8",
+      "rotation": 0,
+      "row": 32,
+      "value": "XOR2"
+    },
+    {
+      "column": 34,
+      "kind": "opamp_generic",
+      "parameters": {},
+      "reference": "X9",
+      "rotation": 0,
+      "row": 8,
+      "value": "OPAMP"
+    },
+    {
+      "column": 34,
+      "kind": "opamp_741",
+      "parameters": {},
+      "reference": "X10",
+      "rotation": 0,
+      "row": 14,
+      "value": "LM741"
+    },
+    {
+      "column": 34,
+      "kind": "opamp_lm358",
+      "parameters": {},
+      "reference": "X11",
+      "rotation": 0,
+      "row": 20,
+      "value": "LM358"
+    },
+    {
+      "column": 34,
+      "kind": "opamp_tl072",
+      "parameters": {},
+      "reference": "X12",
+      "rotation": 0,
+      "row": 26,
+      "value": "TL072"
+    },
+    {
+      "column": 34,
+      "kind": "opamp_ne5532",
+      "parameters": {},
+      "reference": "X13",
+      "rotation": 0,
+      "row": 32,
+      "value": "NE5532"
+    },
+    {
+      "column": 39,
+      "kind": "opamp_tl081",
+      "parameters": {},
+      "reference": "X14",
+      "rotation": 0,
+      "row": 8,
+      "value": "TL081"
+    },
+    {
+      "column": 39,
+      "kind": "opamp_tl082",
+      "parameters": {},
+      "reference": "X15",
+      "rotation": 0,
+      "row": 14,
+      "value": "TL082"
+    },
+    {
+      "column": 39,
+      "kind": "opamp_lm324",
+      "parameters": {},
+      "reference": "X16",
+      "rotation": 0,
+      "row": 20,
+      "value": "LM324"
+    },
+    {
+      "column": 39,
+      "kind": "comparator",
+      "parameters": {},
+      "reference": "X17",
+      "rotation": 0,
+      "row": 26,
+      "value": "COMP"
+    }
+  ],
+  "connection_grid": {
+    "column_count": 42,
+    "net_labels": {
+      "NODE_R02_C02": "Vss",
+      "NODE_R02_C04": "Vcc",
+      "NODE_R02_C06": "Vss",
+      "NODE_R03_C04": "Vss",
+      "NODE_R03_C06": "Vee",
+      "NODE_R04_C02": "V10",
+      "NODE_R04_C04": "V10",
+      "NODE_R04_C06": "Vss",
+      "NODE_R05_C02": "Vss",
+      "NODE_R06_C04": "V10",
+      "NODE_R06_C06": "Vss",
+      "NODE_R07_C22": "Vcc",
+      "NODE_R07_C28": "Vcc",
+      "NODE_R07_C34": "Vcc",
+      "NODE_R07_C39": "Vcc",
+      "NODE_R08_C04": "V10",
+      "NODE_R08_C06": "Vss",
+      "NODE_R08_C21": "IN",
+      "NODE_R08_C24": "Vss",
+      "NODE_R08_C27": "Vss",
+      "NODE_R08_C30": "Vss",
+      "NODE_R09_C22": "Vee",
+      "NODE_R09_C28": "Vss",
+      "NODE_R09_C33": "IN",
+      "NODE_R09_C34": "Vee",
+      "NODE_R09_C38": "IN",
+      "NODE_R09_C39": "Vee",
+      "NODE_R10_C02": "IN",
+      "NODE_R10_C04": "IN",
+      "NODE_R10_C06": "Vss",
+      "NODE_R11_C02": "Vss",
+      "NODE_R11_C28": "Vcc",
+      "NODE_R12_C27": "Vcc",
+      "NODE_R12_C30": "Vss",
+      "NODE_R13_C22": "Vcc",
+      "NODE_R13_C28": "Vss",
+      "NODE_R13_C34": "Vcc",
+      "NODE_R13_C39": "Vcc",
+      "NODE_R14_C06": "Vss",
+      "NODE_R14_C21": "IN",
+      "NODE_R14_C24": "Vss",
+      "NODE_R15_C22": "Vee",
+      "NODE_R15_C27": "Vcc",
+      "NODE_R15_C28": "Vcc",
+      "NODE_R15_C33": "IN",
+      "NODE_R15_C34": "Vee",
+      "NODE_R15_C38": "IN",
+      "NODE_R15_C39": "Vee",
+      "NODE_R16_C03": "Vcc",
+      "NODE_R16_C09": "Vss",
+      "NODE_R16_C12": "Vcc",
+      "NODE_R16_C14": "Vss",
+      "NODE_R16_C18": "Vcc",
+      "NODE_R16_C21": "Vss",
+      "NODE_R16_C30": "Vss",
+      "NODE_R17_C14": "Vss",
+      "NODE_R17_C18": "Vss",
+      "NODE_R17_C19": "Vss",
+      "NODE_R17_C27": "Vcc",
+      "NODE_R17_C28": "Vss",
+      "NODE_R19_C22": "Vcc",
+      "NODE_R19_C27": "Vcc",
+      "NODE_R19_C28": "Vcc",
+      "NODE_R19_C34": "Vcc",
+      "NODE_R19_C39": "Vcc",
+      "NODE_R20_C03": "Vss",
+      "NODE_R20_C06": "Vcc",
+      "NODE_R20_C08": "Vss",
+      "NODE_R20_C12": "Vcc",
+      "NODE_R20_C14": "Vss",
+      "NODE_R20_C17": "Vcc",
+      "NODE_R20_C20": "Vss",
+      "NODE_R20_C21": "IN",
+      "NODE_R20_C24": "Vss",
+      "NODE_R20_C30": "Vss",
+      "NODE_R21_C02": "Vss",
+      "NODE_R21_C18": "Vss",
+      "NODE_R21_C22": "Vee",
+      "NODE_R21_C27": "Vss",
+      "NODE_R21_C28": "Vss",
+      "NODE_R21_C33": "IN",
+      "NODE_R21_C34": "Vee",
+      "NODE_R21_C38": "IN",
+      "NODE_R21_C39": "Vee",
+      "NODE_R23_C27": "Vcc",
+      "NODE_R23_C28": "Vcc",
+      "NODE_R24_C02": "Vcc",
+      "NODE_R24_C04": "Vss",
+      "NODE_R24_C06": "Vcc",
+      "NODE_R24_C09": "Vss",
+      "NODE_R24_C12": "Vcc",
+      "NODE_R24_C14": "Vss",
+      "NODE_R24_C16": "Vcc",
+      "NODE_R24_C18": "Vss",
+      "NODE_R24_C30": "Vss",
+      "NODE_R25_C27": "Vcc",
+      "NODE_R25_C28": "Vss",
+      "NODE_R25_C34": "Vcc",
+      "NODE_R25_C38": "Vss",
+      "NODE_R25_C39": "Vcc",
+      "NODE_R26_C41": "Vss",
+      "NODE_R27_C05": "Vcc",
+      "NODE_R27_C10": "Vcc",
+      "NODE_R27_C17": "Vcc",
+      "NODE_R27_C22": "Vcc",
+      "NODE_R27_C27": "Vss",
+      "NODE_R27_C28": "Vcc",
+      "NODE_R27_C33": "IN",
+      "NODE_R27_C34": "Vee",
+      "NODE_R27_C38": "Vcc",
+      "NODE_R27_C39": "Vee",
+      "NODE_R28_C02": "Vcc",
+      "NODE_R28_C08": "Vss",
+      "NODE_R28_C15": "Vcc",
+      "NODE_R28_C21": "Vss",
+      "NODE_R28_C30": "Vss",
+      "NODE_R29_C04": "Vss",
+      "NODE_R29_C12": "Vss",
+      "NODE_R29_C16": "Vss",
+      "NODE_R29_C24": "Vss",
+      "NODE_R29_C27": "Vss",
+      "NODE_R29_C28": "Vss",
+      "NODE_R31_C27": "Vcc",
+      "NODE_R31_C28": "Vcc",
+      "NODE_R31_C34": "Vcc",
+      "NODE_R32_C30": "Vss",
+      "NODE_R33_C27": "Vss",
+      "NODE_R33_C28": "Vss",
+      "NODE_R33_C33": "IN",
+      "NODE_R33_C34": "Vee",
+      "NODE_R34_C03": "Vss",
+      "NODE_R34_C05": "Vcc",
+      "NODE_R35_C02": "Vss",
+      "NODE_R35_C06": "Vss",
+      "NODE_R37_C02": "Vss",
+      "NODE_R37_C06": "Vss",
+      "NODE_R38_C02": "Vss",
+      "NODE_R38_C06": "Vss"
+    },
+    "row_count": 48,
+    "signal_pickoff_identifiers": [
+      "NODE_R10_C05"
+    ]
+  },
+  "format": "circuit_workbench_project",
+  "format_version": 2,
+  "probes": [
+    {
+      "color": "#ff6b6b",
+      "method": "direct",
+      "point": "NODE_R10_C02",
+      "reference": "P1"
+    },
+    {
+      "color": "#4ecdc4",
+      "method": "direct",
+      "point": "NODE_R10_C05",
+      "reference": "P2"
+    },
+    {
+      "color": "#ffd93d",
+      "method": "direct",
+      "point": "NODE_R08_C35",
+      "reference": "P3"
+    },
+    {
+      "color": "#c084fc",
+      "method": "direct",
+      "point": "NODE_R08_C23",
+      "reference": "P4"
+    },
+    {
+      "color": "#74c0fc",
+      "method": "direct",
+      "point": "NODE_R14_C23",
+      "reference": "P5"
+    },
+    {
+      "color": "#b2f2bb",
+      "method": "direct",
+      "point": "NODE_R20_C23",
+      "reference": "P6"
+    },
+    {
+      "color": "#ff922b",
+      "method": "direct",
+      "point": "NODE_R04_C05",
+      "reference": "P7"
+    },
+    {
+      "color": "#f783ac",
+      "method": "megohm",
+      "point": "NODE_R06_C05",
+      "reference": "P8"
+    },
+    {
+      "color": "#ff6b6b",
+      "method": "scope_10x",
+      "point": "NODE_R08_C05",
+      "reference": "P9"
+    },
+    {
+      "color": "#4ecdc4",
+      "method": "differential",
+      "point": "NODE_R04_C04",
+      "reference": "P10",
+      "second_point": "NODE_R04_C05"
+    },
+    {
+      "color": "#ffd93d",
+      "method": "current",
+      "part": "R1",
+      "reference": "P11"
+    },
+    {
+      "color": "#c084fc",
+      "method": "current",
+      "part": "R19",
+      "reference": "P12"
+    }
+  ],
+  "wires": [
+    {
+      "bridged": [],
+      "end": "NODE_R18_C06",
+      "reference": "W1",
+      "start": "NODE_R14_C06"
+    },
+    {
+      "bridged": [
+        "NODE_R16_C06"
+      ],
+      "end": "NODE_R16_C08",
+      "reference": "W2",
+      "start": "NODE_R16_C04"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R16_C20",
+      "reference": "W3",
+      "start": "NODE_R16_C19"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R24_C08",
+      "reference": "W4",
+      "start": "NODE_R24_C07"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R29_C11",
+      "reference": "W5",
+      "start": "NODE_R29_C10"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R29_C23",
+      "reference": "W6",
+      "start": "NODE_R29_C22"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R06_C35",
+      "reference": "W7",
+      "start": "NODE_R08_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R06_C33",
+      "reference": "W8",
+      "start": "NODE_R06_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R07_C33",
+      "reference": "W9",
+      "start": "NODE_R06_C33"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R12_C35",
+      "reference": "W10",
+      "start": "NODE_R14_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R12_C33",
+      "reference": "W11",
+      "start": "NODE_R12_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R13_C33",
+      "reference": "W12",
+      "start": "NODE_R12_C33"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R18_C35",
+      "reference": "W13",
+      "start": "NODE_R20_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R18_C33",
+      "reference": "W14",
+      "start": "NODE_R18_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R19_C33",
+      "reference": "W15",
+      "start": "NODE_R18_C33"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R24_C35",
+      "reference": "W16",
+      "start": "NODE_R26_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R24_C33",
+      "reference": "W17",
+      "start": "NODE_R24_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R25_C33",
+      "reference": "W18",
+      "start": "NODE_R24_C33"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R30_C35",
+      "reference": "W19",
+      "start": "NODE_R32_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R30_C33",
+      "reference": "W20",
+      "start": "NODE_R30_C35"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R31_C33",
+      "reference": "W21",
+      "start": "NODE_R30_C33"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R06_C40",
+      "reference": "W22",
+      "start": "NODE_R08_C40"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R06_C38",
+      "reference": "W23",
+      "start": "NODE_R06_C40"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R07_C38",
+      "reference": "W24",
+      "start": "NODE_R06_C38"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R12_C40",
+      "reference": "W25",
+      "start": "NODE_R14_C40"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R12_C38",
+      "reference": "W26",
+      "start": "NODE_R12_C40"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R13_C38",
+      "reference": "W27",
+      "start": "NODE_R12_C38"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R18_C40",
+      "reference": "W28",
+      "start": "NODE_R20_C40"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R18_C38",
+      "reference": "W29",
+      "start": "NODE_R18_C40"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R19_C38",
+      "reference": "W30",
+      "start": "NODE_R18_C38"
+    }
+  ]
+}
