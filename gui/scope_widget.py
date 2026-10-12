@@ -15,31 +15,32 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
-
-
-class ScopePlot(pg.PlotWidget):
-    """
-    Trace area that leaves room for the circuit.
-
-    PlotWidget asks for 600 by 450, so the scope would fill the window
-    and the grid would be a thin strip. The dock can still be dragged
-    taller.
-    """
-
-    def sizeHint(self):
-        return QSize(480, 160)
-
-    def minimumSizeHint(self):
-        return QSize(240, 120)
 
 from core.exceptions import ComponentError
 from core.units import format_spice_number, parse_value
 from sim.runner import default_transient_stop
 
 SCOPE_DIVISIONS = 10
+
+
+class ScopePlot(pg.PlotWidget):
+    """
+    Trace area beside the controls.
+
+    PlotWidget asks for 600 by 450. That made the scope a wide strip
+    and pushed the controls up under the circuit. The dock can still
+    be dragged.
+    """
+
+    def sizeHint(self):
+        return QSize(560, 280)
+
+    def minimumSizeHint(self):
+        return QSize(280, 180)
 
 
 class OscilloscopeDock(QDockWidget):
@@ -63,8 +64,7 @@ class OscilloscopeDock(QDockWidget):
 
     def _build(self):
         body = QWidget()
-        layout = QVBoxLayout()
-        form = QFormLayout()
+        row = QHBoxLayout()
 
         self.run_time_edit = QLineEdit("10m")
         self.run_time_edit.setToolTip(
@@ -85,6 +85,8 @@ class OscilloscopeDock(QDockWidget):
         )
         self.volts_edit.editingFinished.connect(self.channels_changed)
 
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         form.addRow("Run time:", self.run_time_edit)
         form.addRow("Time / div:", self.time_div_edit)
         form.addRow("Volts / div:", self.volts_edit)
@@ -104,20 +106,31 @@ class OscilloscopeDock(QDockWidget):
         self.note_label = QLabel("Press Start.")
         self.note_label.setWordWrap(True)
 
+        controls_layout = QVBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.addLayout(form)
+        controls_layout.addLayout(buttons)
+        controls_layout.addLayout(self.channel_layout)
+        controls_layout.addWidget(self.note_label)
+        controls_layout.addStretch(1)
+        controls = QWidget()
+        controls.setLayout(controls_layout)
+        # Stay a column. The trace beside it uses the rest of the dock.
+        controls.setMinimumWidth(220)
+        controls.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+
         self.plot = ScopePlot()
         self.plot.setBackground("#1b1e23")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setLabel("bottom", "Time", units="s")
         self.plot.setLabel("left", "Signal")
         self.plot.addLegend()
-        self.plot.setMinimumHeight(120)
+        self.plot.setMinimumHeight(180)
+        self.plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        layout.addLayout(form)
-        layout.addLayout(buttons)
-        layout.addLayout(self.channel_layout)
-        layout.addWidget(self.note_label)
-        layout.addWidget(self.plot, stretch=1)
-        body.setLayout(layout)
+        row.addWidget(controls)
+        row.addWidget(self.plot, stretch=1)
+        body.setLayout(row)
         self.setWidget(body)
 
     def _edited_run_time(self):

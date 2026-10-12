@@ -3,7 +3,7 @@ Panels drag, float, and dock. The scope stays under the circuit.
 """
 
 from PyQt5.QtCore import QSettings, Qt
-from PyQt5.QtWidgets import QApplication, QDockWidget
+from PyQt5.QtWidgets import QApplication, QDockWidget, QTabWidget
 
 from gui.main_window import MainWindow
 
@@ -35,6 +35,7 @@ def test_default_layout_keeps_the_scope_under_the_circuit(qt_application):
         assert window.probe_dock in window.tabifiedDockWidgets(
             window.selected_node_dock
         )
+        assert window.tabPosition(Qt.RightDockWidgetArea) == QTabWidget.North
     finally:
         close_window(window)
 
@@ -79,12 +80,28 @@ def test_a_normal_window_shows_the_circuit_and_the_scope(qt_application):
     window = MainWindow()
 
     try:
-        window.resize(1100, 720)
+        window.resize(1300, 850)
         window.show()
         QApplication.processEvents()
-        assert window.centralWidget().height() >= 200
-        assert window.oscilloscope_dock.height() >= 120
-        assert window.component_dock.height() > window.centralWidget().height()
+        grid = window.centralWidget()
+        dock = window.oscilloscope_dock
+        assert grid.height() >= 200
+        assert dock.height() >= 320
+        assert window.component_dock.height() > grid.height()
+
+        edit = dock.run_time_edit
+        plot = dock.plot
+        edit_at = edit.mapTo(dock, edit.rect().topLeft())
+        plot_at = plot.mapTo(dock, plot.rect().topLeft())
+        assert edit_at.x() + edit.width() <= plot_at.x()
+        assert plot_at.y() <= edit_at.y()
+        assert plot.height() > edit.height()
+
+        grid_bottom = grid.mapToGlobal(grid.rect().bottomLeft()).y()
+        edit_top = edit.mapToGlobal(edit.rect().topLeft()).y()
+        plot_top = plot.mapToGlobal(plot.rect().topLeft()).y()
+        assert edit_top >= grid_bottom
+        assert plot_top >= grid_bottom
     finally:
         close_window(window)
 
@@ -114,8 +131,8 @@ def test_view_menu_lists_every_panel(qt_application):
 
 def test_closing_during_tests_does_not_save_the_layout(qt_application):
     settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
-    settings.remove("geometry")
-    settings.remove("state")
+    settings.remove("geometry-v2")
+    settings.remove("state-v2")
     window = MainWindow()
 
     try:
@@ -124,8 +141,8 @@ def test_closing_during_tests_does_not_save_the_layout(qt_application):
     finally:
         close_window(window)
 
-    assert settings.value("geometry") is None
-    assert settings.value("state") is None
+    assert settings.value("geometry-v2") is None
+    assert settings.value("state-v2") is None
 
 
 def test_the_arrangement_comes_back_next_time(qt_application, monkeypatch):
