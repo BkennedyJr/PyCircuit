@@ -110,6 +110,26 @@ def test_a_2_v_sine_is_a_2_v_line():
     assert line_at(frequency, peaks, 1000.0)[1] == pytest.approx(2.0, abs=1e-9)
 
 
+def test_a_long_record_stays_a_1_v_line_without_a_long_wait():
+    # 4 samples per cycle for 5000 cycles is 5 seconds. The line is
+    # still 1 V at 1 kHz. The old sample-by-sample walk took seconds.
+    cycles = 5000
+    samples = cycles * 4
+    duration = cycles / 1000.0
+    times = tuple(
+        index * duration / samples for index in range(samples + 1)
+    )
+    values = tuple(
+        math.sin(2.0 * math.pi * 1000.0 * instant) for instant in times
+    )
+    started = time.perf_counter()
+    frequency, peaks = amplitude_spectrum(times, values)
+    elapsed = time.perf_counter() - started
+
+    assert line_at(frequency, peaks, 1000.0)[1] == pytest.approx(1.0, abs=1e-6)
+    assert elapsed < 1.0
+
+
 def test_uneven_samples_keep_the_same_line():
     times, values = sine_record(1.0, 1000.0)
     times = list(times)
