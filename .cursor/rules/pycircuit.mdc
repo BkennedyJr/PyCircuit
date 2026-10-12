@@ -12,12 +12,11 @@ PyCircuit QC reviews every PR independently.
 
 PROJECT FACTS
 - PyQt5, NOT PyQt6 (use exec_(), PyQt5 enums). Python 3.13. Billie runs
-  Anaconda on Windows. The program starts from the Anaconda Prompt:
-  conda activate base, then python main.py in the repo folder. Python
-  is C:\Users\danni\anaconda3\python.exe. He is repairing Spyder
-  himself. Give him Prompt steps. Do not send Spyder debugger steps
-  unless he asks. New packages still go in that base environment so
-  import works in the Prompt and in Spyder when it is back. Prefer
+  Anaconda on Windows. The program starts from the Anaconda Prompt
+  (conda activate base, then python main.py) or from standalone Spyder.
+  Standalone Spyder works. Anaconda's own Spyder is the one that broke;
+  leave that one alone. Python is C:\Users\danni\anaconda3\python.exe.
+  New packages still go in that base environment. Prefer
   conda-forge when it has a build for that Python: conda activate
   base, then conda install -c conda-forge <name>. conda-forge pyspice
   stops at Python 3.10, so PySpice is "pip install PySpice" in base,

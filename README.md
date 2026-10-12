@@ -98,8 +98,9 @@ From the Anaconda Prompt, in the repository folder:
     conda activate base
     python main.py
 
-That is the usual way to start the program. Spyder can open this same
-base Python later. Its debugger is not required.
+That starts the program from the Prompt. Standalone Spyder (not the
+Spyder that comes with Anaconda) also runs it: open main.py and use
+Debug.
 
 
 Using it
