@@ -32,6 +32,12 @@ def test_default_layout_keeps_the_scope_under_the_circuit(qt_application):
         assert window.bode_dock in window.tabifiedDockWidgets(
             window.oscilloscope_dock
         )
+        assert window.dockWidgetArea(window.fft_dock) == (
+            Qt.BottomDockWidgetArea
+        )
+        assert window.fft_dock in window.tabifiedDockWidgets(
+            window.oscilloscope_dock
+        )
         assert window.dockWidgetArea(window.selected_node_dock) == (
             Qt.RightDockWidgetArea
         )
@@ -57,6 +63,7 @@ def test_every_panel_can_move_float_and_close(qt_application):
             window.selected_node_dock,
             window.probe_dock,
             window.oscilloscope_dock,
+            window.fft_dock,
         )
 
         for dock in docks:
@@ -131,6 +138,7 @@ def test_view_menu_lists_every_panel(qt_application):
             "Probe",
             "Oscilloscope",
             "Bode",
+            "FFT",
         ]
     finally:
         close_window(window)

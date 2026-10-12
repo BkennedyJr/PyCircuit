@@ -8,7 +8,7 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: the oscilloscope, then Bode and FFT.
+Planned next: cursors on the plots.
 
 
 Requirements
@@ -192,6 +192,11 @@ Using it
   frequency to the stop frequency. Magnitude is dB relative to the
   one AC source, and phase is degrees. A checked probe is a curve.
   Editing the circuit clears the curves.
+- View > FFT opens the spectrum of the oscilloscope waveform (it can
+  float, and it starts as a tab on the oscilloscope). The height is
+  the peak of that wave. A 1 V sine that lasts a whole number of
+  cycles is a 1 V line at its frequency. Run the oscilloscope to
+  draw it. Editing the circuit clears it.
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time

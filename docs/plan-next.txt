@@ -52,8 +52,12 @@ which of those to do, and what comes after them.
    curve. The hand check is a 1k / 159n low-pass: about -3 dB and
    -45 degrees at 1 kHz. V(s) stays next to the DC number.
 
-6. FFT
-   A spectrum of the transient waveform, in its own dock.
+6. FFT (done)
+   View > FFT. A spectrum of the oscilloscope waveform, in its own
+   dock, tabbed with the oscilloscope. The height is the peak of that
+   wave. A whole number of cycles is one line. The hand check is a
+   1 V, 1 kHz sine: a 1 V line at 1 kHz. The 1k / 159n low-pass is
+   about 0.707 V at that line. V(s) stays next to the DC number.
 
 7. Cursors on the plots
    Only after the scope, Bode and FFT exist. Two cursors, and the
