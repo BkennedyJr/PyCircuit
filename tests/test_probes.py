@@ -21,13 +21,15 @@ from core.node_formula import build_node_formulas
 from core.probes import (
     ProbeCollection,
     describe_reading,
+    flag_offset_from_saved,
     parameter_lines,
     shunt_loads,
 )
+from core.project_io import load_project_file, save_project_file
 from core.wires import WireCollection
 from gui.grid_editor import grid_point_to_scene_position
 from gui.main_window import MainWindow
-from tests.view_mouse import click
+from tests.view_mouse import click, drag
 
 
 def point(row, column):
@@ -502,6 +504,166 @@ def test_a_plotted_probe_hides_the_parameter_box(qt_application):
 
         assert window.probe_parameter_label.text() == "On a plot."
         assert window.connection_grid_scene.probe_items[0].readout_lines == ()
+    finally:
+        close_window(window)
+
+
+def near(left, right, tolerance=1.5):
+    return (
+        abs(left.x() - right.x()) < tolerance
+        and abs(left.y() - right.y()) < tolerance
+    )
+
+
+def flag_for(window, reference, role="primary"):
+    return next(
+        item for item in window.connection_grid_scene.probe_items
+        if item.probe.reference == reference and item.role == role
+    )
+
+
+def show(window):
+    window.show()
+    QApplication.processEvents()
+
+
+def test_the_usual_probe_place_is_not_saved():
+    grid = ConnectionGrid(8, 8)
+    probe = ProbeCollection().add_voltage(point(1, 1), grid)
+
+    assert "flag_x" not in probe.to_dict()
+
+    probe.set_flag_offset(0.2, -0.2)
+
+    assert probe.flag_offset == (0.0, 0.0)
+    assert probe.flag_is_moved() is False
+
+
+def test_a_probe_position_must_be_two_finite_numbers():
+    grid = ConnectionGrid(8, 8)
+    probe = ProbeCollection().add_voltage(point(1, 1), grid)
+
+    with pytest.raises(ComponentError, match="two numbers"):
+        probe.set_flag_offset("left", 4)
+
+    with pytest.raises(ComponentError, match="finite"):
+        probe.set_flag_offset(float("nan"), 1)
+
+
+def test_a_saved_probe_position_needs_both_numbers():
+    with pytest.raises(ComponentError, match="both the across and down"):
+        flag_offset_from_saved({"flag_x": 3}, "flag_x", "flag_y")
+
+
+def test_a_second_flag_position_needs_a_second_point():
+    grid = ConnectionGrid(8, 8)
+    probes = ProbeCollection()
+
+    with pytest.raises(ComponentError, match="only one point"):
+        probes.place_saved(
+            "P1", "direct", "#ff6b6b", grid,
+            identifier=point(1, 1),
+            second_flag_offset=(4, 5),
+        )
+
+    assert probes.get_probes() == []
+
+
+def test_a_moved_probe_is_saved_and_loaded(tmp_path):
+    grid = ConnectionGrid(8, 8)
+    probes = ProbeCollection()
+    probe = probes.add_voltage(point(2, 3), grid)
+    probes.set_method(probe.reference, "differential")
+    probes.set_second_point(probe.reference, point(4, 2), grid)
+    probe.set_flag_offset(40, -12)
+    probe.set_flag_offset(8, 20, "second")
+    path = tmp_path / "probes.json"
+    save_project_file(path, grid, probe_collection=probes)
+
+    again = load_project_file(path).probe_collection.get("P1")
+
+    assert again.identifier == point(2, 3)
+    assert again.second_identifier == point(4, 2)
+    assert again.flag_offset == (40.0, -12.0)
+    assert again.second_flag_offset == (8.0, 20.0)
+
+
+def test_the_arrow_points_at_the_measured_point(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        show(window)
+        flag = flag_for(window, probe.reference)
+        anchor = grid_point_to_scene_position(2, 3)
+
+        assert near(flag.mapToScene(flag.leader_target()), anchor)
+        assert flag.boundingRect().contains(flag.leader_target())
+        assert not window.reset_probe_position_button.isEnabled()
+    finally:
+        close_window(window)
+
+
+def test_a_dragged_probe_stays_where_it_is_released(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        show(window)
+        flag = flag_for(window, probe.reference)
+        start = flag.mapToScene(flag._flag_rect().center())
+        # Toward the point, but not onto it, and not onto a neighbour.
+        released = start + QPointF(10, 10)
+        drag(window.connection_grid_view, start, released)
+
+        flag = flag_for(window, probe.reference)
+        anchor = grid_point_to_scene_position(2, 3)
+
+        assert probe.identifier == point(2, 3)
+        assert near(flag.mapToScene(flag._flag_rect().center()), released)
+        assert near(flag.mapToScene(flag.leader_target()), anchor)
+        assert window.reset_probe_position_button.isEnabled()
+        assert "Drop the probe" not in window.statusBar().currentMessage()
+
+        window.reset_probe_position_button.click()
+        flag = flag_for(window, probe.reference)
+
+        assert probe.identifier == point(2, 3)
+        assert near(flag.pos(), anchor)
+        assert probe.flag_offset == (0.0, 0.0)
+        assert window.reset_probe_position_button.isEnabled() is False
+    finally:
+        close_window(window)
+
+
+def test_releasing_a_probe_on_another_point_reads_that_point(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        show(window)
+        flag = flag_for(window, probe.reference)
+        start = flag.mapToScene(flag._flag_rect().center())
+        target = grid_point_to_scene_position(2, 5)
+        drag(window.connection_grid_view, start, target)
+
+        flag = flag_for(window, probe.reference)
+
+        assert probe.identifier == point(2, 5)
+        assert near(flag.mapToScene(flag._flag_rect().center()), target)
+        assert near(
+            flag.mapToScene(flag.leader_target()),
+            grid_point_to_scene_position(2, 5),
+        )
     finally:
         close_window(window)
 

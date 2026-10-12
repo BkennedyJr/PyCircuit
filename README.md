@@ -129,8 +129,12 @@ Using it
   (10 Mohm and 10 pF to ground), Differential (click the other point;
   the reading is the first point minus the second), or Current. A probe
   that is not on a plot shows a box of readings: voltage, current,
-  frequency and phase, on the grid and in the Probe panel. Drag a flag
-  to another point. Delete removes the selected probe.
+  frequency and phase, on the grid and in the Probe panel. Drag a
+  probe and it stays where you release it. A line and an arrow show
+  the point it is reading. Release it on another point to read that
+  point (a current probe, on another part). Reset position in the
+  Probe panel puts the picture back beside that point. Delete removes
+  the selected probe.
 - Type a name such as Vcc in that panel and press Apply (or Enter).
   Every point with the same name is one node, so a DC source wired to
   one of them sets the voltage at the others. Vcc and vcc match.

@@ -17,6 +17,7 @@ from core.exceptions import ComponentError
 from core.exceptions import GridConfigurationError
 from core.exceptions import ProjectFileError
 from core.probes import ProbeCollection
+from core.probes import flag_offset_from_saved
 from core.wires import WireCollection
 
 
@@ -304,7 +305,13 @@ def load_project_file(project_file_path):
                 identifier=probe_data.get("point"),
                 second_identifier=probe_data.get("second_point"),
                 component_reference=probe_data.get("part"),
-                components=component_collection.get_components()
+                components=component_collection.get_components(),
+                flag_offset=flag_offset_from_saved(
+                    probe_data, "flag_x", "flag_y"
+                ),
+                second_flag_offset=flag_offset_from_saved(
+                    probe_data, "second_flag_x", "second_flag_y"
+                ),
             )
     except KeyError as error:
         raise ProjectFileError(
