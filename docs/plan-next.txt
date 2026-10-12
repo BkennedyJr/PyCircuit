@@ -75,13 +75,13 @@ which of those to do, and what comes after them.
    and FFT.
 
 9. Toolbar buttons the user can choose (done)
-   The main toolbar repeats the menus. It starts with Save, Delete,
-   Wire Mode, Probe Mode, and DC Operating Point. View > Toolbar
-   lists every one of those menu commands, and each can be shown or
-   hidden. The choice is remembered. Zoom is not on the toolbar:
-   View has Zoom In, Zoom Out, and Zoom to Fit, with shortcuts and
-   Ctrl plus the wheel. The Grid toolbar (rows, columns, and Apply)
-   stays as it is.
+   The toolbar repeats the menus. It starts with Delete, Wire Mode,
+   Probe Mode, and DC Operating Point, on the same row as the grid
+   size. Save stays in the File menu. View > Toolbar lists every
+   one of those menu commands, and each can be shown or hidden.
+   The choice is remembered. Zoom is not on the toolbar: View has
+   Zoom In, Zoom Out, and Zoom to Fit, with shortcuts and Ctrl plus
+   the wheel.
 
 10. Real op-amp limits
     Output swing and gain-bandwidth on the op-amp models, checked

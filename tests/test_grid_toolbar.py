@@ -107,9 +107,9 @@ def test_grid_controls_sit_on_a_top_toolbar(qt_application):
     widget = window.grid_configuration_widget
     bar = window.grid_tool_bar
 
-    assert bar.windowTitle() == "Grid"
+    assert bar is window.main_tool_bar
     assert window.toolBarArea(bar) == Qt.TopToolBarArea
-    assert window.toolBarBreak(bar) is True
+    assert window.toolBarBreak(bar) is False
     assert toolbar_ancestor(widget) is bar
     assert "Grid Configuration" not in [
         dock.windowTitle() for dock in window.findChildren(QDockWidget)

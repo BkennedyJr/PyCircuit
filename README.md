@@ -148,13 +148,13 @@ Using it
   Leave the name blank and Apply to clear it. The name is drawn beside
   the point and is saved with the grid.
 - Node > Toggle Signal Pickoff marks the selected point green.
-- The main toolbar starts with Save, Delete, Wire Mode, Probe Mode,
-  and DC Operating Point. View > Toolbar shows or hides any command
-  that is also in a menu. That choice is remembered. Zoom is not on
-  the toolbar: View > Zoom In, Zoom Out, and Zoom to Fit, or Ctrl
-  and the wheel.
-- The Grid toolbar at the top sets the rows and columns. Press Apply,
-  or tab to Apply and press Enter.
+- The top toolbar starts with Delete, Wire Mode, Probe Mode, and
+  DC Operating Point, then the grid size (rows, columns, and Apply).
+  Save stays in the File menu. View > Toolbar shows or hides any
+  other command that is also in a menu. That choice is remembered.
+  Zoom is not on the toolbar: View > Zoom In, Zoom Out, and Zoom to
+  Fit, or Ctrl and the wheel. Press Apply, or tab to Apply and
+  press Enter, to resize the grid.
 - Placing a part: click a grid point, pick the part in the Components
   panel and press Place at Selected Point. The part appears
   see-through at that point: the arrow keys or W/A/S/D point it right,
