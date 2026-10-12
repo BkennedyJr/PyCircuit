@@ -41,10 +41,10 @@ Project layout
 Install (Windows, Anaconda Prompt)
 ----------------------------------
 
-Spyder's IPython uses Anaconda base. Install new packages there, so
-import works in that console. Do not install them only in a separate
-environment. An older pycircuit environment is not the Python Spyder
-uses.
+The Anaconda Prompt uses Anaconda base. Install new packages there.
+Spyder uses that same Python when it is running. Do not install them
+only in a separate environment. An older pycircuit environment is not
+this Python.
 
     git clone https://github.com/BkennedyJr/PyCircuit.git
     cd PyCircuit
@@ -69,18 +69,13 @@ not run "conda install pyqt" on top of a pip copy of PyQt. Do not
 PyQt5. When conda-forge has a build for this Python, use conda for
 that one package. PySpice is the exception, and it uses pip.
 
-Close Spyder and open it again. In the IPython console:
+In the Anaconda Prompt, with base active:
 
-    import sys
-    print(sys.executable)
-    import PySpice
-    print(PySpice.__file__)
+    python -c "import PySpice; print(PySpice.__file__)"
 
-sys.executable should be C:\Users\danni\anaconda3\python.exe, and
-PySpice.__file__ should be under
-C:\Users\danni\anaconda3\Lib\site-packages\PySpice. If Spyder is using
-a different Python, set Preferences > Python interpreter to that base
-python.exe, then restart the kernel (Consoles > Restart kernel).
+That path should be under
+C:\Users\danni\anaconda3\Lib\site-packages\PySpice. The same import
+works in Spyder's IPython once Spyder is using this base Python.
 
 
 Installing ngspice
@@ -98,18 +93,13 @@ With base active, this file should exist:
 Run
 ---
 
-In Spyder, open main.py. Run > Configuration per file, and choose
-Execute in current console. Then Debug > Debug file (Ctrl+F5).
-
-The window stays open until you close it, so the IPython prompt waits.
-Breakpoints in button handlers still stop. A second run in the same
-kernel can fail because a QApplication already exists. Consoles >
-Restart kernel, then run it again.
-
 From the Anaconda Prompt, in the repository folder:
 
     conda activate base
     python main.py
+
+That is the usual way to start the program. Spyder can open this same
+base Python later. Its debugger is not required.
 
 
 Using it
@@ -193,8 +183,8 @@ Tests
 -----
 
 pytest is only needed for running the tests, not for running the app, so
-it is not in requirements.txt. Install it once into the same Python
-Spyder uses, then run the tests:
+it is not in requirements.txt. Install it once into Anaconda base, then
+run the tests:
 
     conda activate base
     conda install -c conda-forge pytest
