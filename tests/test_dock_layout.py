@@ -133,6 +133,8 @@ def test_view_menu_lists_every_panel(qt_application):
             "Zoom Out",
             "Zoom to Fit",
             "",
+            "Toolbar",
+            "",
             "Components",
             "Selected Connection Point",
             "Probe",
@@ -148,6 +150,7 @@ def test_closing_during_tests_does_not_save_the_layout(qt_application):
     settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
     settings.remove("geometry-v2")
     settings.remove("state-v2")
+    settings.remove("toolbar-v1")
     window = MainWindow()
 
     try:
@@ -158,6 +161,7 @@ def test_closing_during_tests_does_not_save_the_layout(qt_application):
 
     assert settings.value("geometry-v2") is None
     assert settings.value("state-v2") is None
+    assert settings.value("toolbar-v1") is None
 
 
 def test_the_arrangement_comes_back_next_time(qt_application, monkeypatch):

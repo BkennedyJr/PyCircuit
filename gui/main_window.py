@@ -89,6 +89,35 @@ from sim.runner import transient_step
 PROJECT_FILE_FILTER = "Circuit Workbench Project (*.json);;All Files (*)"
 NETLIST_FILE_FILTER = "SPICE Netlist (*.cir);;All Files (*)"
 _NETLIST_SUFFIXES = (".cir", ".net", ".sp")
+# Commands that already live in the menus. The user shows or hides each
+# one on the main toolbar. Zoom stays in the View menu: it has shortcuts
+# and Ctrl plus the wheel.
+_TOOLBAR_GROUPS = (
+    (
+        "new_project_action",
+        "open_project_action",
+        "save_project_action",
+        "print_action",
+    ),
+    ("toggle_pickoff_action",),
+    (
+        "rotate_component_action",
+        "delete_component_action",
+        "wire_mode_action",
+        "probe_mode_action",
+        "dc_operating_point_action",
+    ),
+)
+_DEFAULT_TOOLBAR = (
+    "save_project_action",
+    "delete_component_action",
+    "wire_mode_action",
+    "probe_mode_action",
+    "dc_operating_point_action",
+)
+_TOOLBAR_COMMANDS = tuple(
+    name for group in _TOOLBAR_GROUPS for name in group
+)
 
 
 
@@ -119,6 +148,8 @@ class MainWindow(QMainWindow):
         self.connection_grid = ConnectionGrid(8, 8)
         self.current_project_file_path = None
         self.is_project_modified = False
+        self._toolbar_shown = set(_DEFAULT_TOOLBAR)
+        self._toolbar_toggles = {}
         self.selected_connection_point_identifier = None
         self.component_collection = ComponentCollection()
         self.selected_component_reference = None
@@ -470,6 +501,24 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.zoom_out_action)
         view_menu.addAction(self.fit_grid_action)
         view_menu.addSeparator()
+        toolbar_menu = view_menu.addMenu("Toolbar")
+        toolbar_menu.setToolTip(
+            "Choose which menu commands sit on the main toolbar"
+        )
+
+        for name in _TOOLBAR_COMMANDS:
+            command = getattr(self, name)
+            toggle = QAction(command.text(), self)
+            toggle.setCheckable(True)
+            toggle.setChecked(name in self._toolbar_shown)
+            toggle.toggled.connect(
+                lambda checked, command_name=name:
+                self.set_toolbar_command(command_name, checked)
+            )
+            toolbar_menu.addAction(toggle)
+            self._toolbar_toggles[name] = toggle
+
+        view_menu.addSeparator()
         view_menu.addAction(self.component_dock.toggleViewAction())
         view_menu.addAction(self.selected_node_dock.toggleViewAction())
         view_menu.addAction(self.probe_dock.toggleViewAction())
@@ -484,29 +533,104 @@ class MainWindow(QMainWindow):
 
     def create_tool_bar(self):
         """
-        Create a concise toolbar for common project operations.
+        Create the main toolbar. View > Toolbar shows or hides each
+        command. Zoom is not on this bar.
 
         :returns: None
         """
         self.main_tool_bar = QToolBar("Main Toolbar", self)
         self.addToolBar(self.main_tool_bar)
+        self.rebuild_main_toolbar()
 
-        self.main_tool_bar.addAction(self.new_project_action)
-        self.main_tool_bar.addAction(self.open_project_action)
-        self.main_tool_bar.addAction(self.save_project_action)
-        self.main_tool_bar.addAction(self.print_action)
-        self.main_tool_bar.addSeparator()
-        self.main_tool_bar.addAction(self.toggle_pickoff_action)
-        self.main_tool_bar.addSeparator()
-        self.main_tool_bar.addAction(self.rotate_component_action)
-        self.main_tool_bar.addAction(self.delete_component_action)
-        self.main_tool_bar.addAction(self.wire_mode_action)
-        self.main_tool_bar.addAction(self.probe_mode_action)
-        self.main_tool_bar.addAction(self.dc_operating_point_action)
-        self.main_tool_bar.addSeparator()
-        self.main_tool_bar.addAction(self.zoom_in_action)
-        self.main_tool_bar.addAction(self.zoom_out_action)
-        self.main_tool_bar.addAction(self.fit_grid_action)
+    def rebuild_main_toolbar(self):
+        """
+        Put the chosen commands on the main toolbar, in menu order.
+
+        :returns: None
+        """
+        self.main_tool_bar.clear()
+        started = False
+
+        for group in _TOOLBAR_GROUPS:
+            chosen = [
+                getattr(self, name)
+                for name in group
+                if name in self._toolbar_shown
+            ]
+
+            if not chosen:
+                continue
+
+            if started:
+                self.main_tool_bar.addSeparator()
+
+            started = True
+
+            for action in chosen:
+                self.main_tool_bar.addAction(action)
+
+    def set_toolbar_command(self, name, shown):
+        """
+        Show or hide one menu command on the main toolbar.
+
+        :param name: Attribute name of the command, such as
+            ``save_project_action``.
+        :type name: str
+        :param shown: True to put it on the toolbar.
+        :type shown: bool
+        :returns: None
+        """
+        if name not in _TOOLBAR_COMMANDS:
+            return
+
+        if shown:
+            self._toolbar_shown.add(name)
+        else:
+            self._toolbar_shown.discard(name)
+
+        self.rebuild_main_toolbar()
+        self.save_toolbar_choice()
+
+    def save_toolbar_choice(self):
+        """
+        Remember which commands are on the main toolbar.
+
+        Tests skip this so a test run does not change a real machine.
+
+        :returns: None
+        """
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
+
+        ordered = [
+            name
+            for name in _TOOLBAR_COMMANDS
+            if name in self._toolbar_shown
+        ]
+        settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
+        settings.setValue("toolbar-v1", "|".join(ordered))
+
+    def restore_toolbar_choice(self):
+        """
+        Put the saved commands back on the main toolbar.
+
+        A missing setting keeps the short default set. Zoom is never
+        restored onto this bar.
+
+        :returns: None
+        """
+        settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
+        stored = settings.value("toolbar-v1")
+
+        if stored is None:
+            return
+
+        names = [
+            part for part in str(stored).split("|")
+            if part in _TOOLBAR_COMMANDS
+        ]
+        self._toolbar_shown = set(names)
+        self.rebuild_main_toolbar()
 
     def create_grid_configuration_toolbar(self):
         """
@@ -900,6 +1024,8 @@ class MainWindow(QMainWindow):
 
         if state is not None:
             self.restoreState(state)
+
+        self.restore_toolbar_choice()
 
     def apply_grid_configuration(self, row_count, column_count):
         """

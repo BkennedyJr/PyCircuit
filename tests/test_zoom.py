@@ -419,6 +419,8 @@ def test_view_menu_has_the_zoom_actions(window):
         "Zoom Out",
         "Zoom to Fit",
         "",
+        "Toolbar",
+        "",
         "Components",
         "Selected Connection Point",
         "Probe",
@@ -428,12 +430,16 @@ def test_view_menu_has_the_zoom_actions(window):
     ]
 
 
-def test_toolbar_has_the_zoom_actions(window):
-    toolbar_actions = window.findChild(QToolBar).actions()
+def test_zoom_stays_off_the_toolbar(window):
+    toolbar_actions = [
+        action
+        for bar in window.findChildren(QToolBar)
+        for action in bar.actions()
+    ]
 
     for action in (window.zoom_in_action, window.zoom_out_action,
                    window.fit_grid_action):
-        assert action in toolbar_actions
+        assert action not in toolbar_actions
 
 
 def test_zoom_shortcuts(window):
