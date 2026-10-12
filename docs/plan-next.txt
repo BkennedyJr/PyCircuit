@@ -74,14 +74,24 @@ which of those to do, and what comes after them.
    value clears it. The same choice is on the oscilloscope, Bode,
    and FFT.
 
-9. Real op-amp limits
-   Output swing and gain-bandwidth on the op-amp models, checked
-   against the simulator. The flat-gain stand-ins stay available.
+9. Toolbar buttons the user can choose
+   The main toolbar repeats the menus: New, Open, Save, Print,
+   Toggle Signal Pickoff, Rotate, Delete, Wire Mode, Probe Mode,
+   DC Operating Point, Zoom In, Zoom Out, and Zoom to Fit. It starts
+   with a short set: Save, Wire Mode, Probe Mode, Delete, DC
+   Operating Point, and Zoom to Fit. View > Toolbar lists every one
+   of those commands, and each can be shown or hidden. The choice is
+   remembered the next time the program opens. The Grid toolbar
+   (rows, columns, and Apply) stays as it is.
 
-10. Example circuits
+10. Real op-amp limits
+    Output swing and gain-bandwidth on the op-amp models, checked
+    against the simulator. The flat-gain stand-ins stay available.
+
+11. Example circuits
     A small menu: a divider, an RC, a unity-gain buffer, and one gate.
     Each one opens as a normal circuit the user can edit.
 
-11. Undo, and copy and paste
+12. Undo, and copy and paste
     Undo and redo for place, move, wire, value and delete. Copy a
     selected chunk of the circuit and paste it somewhere else.

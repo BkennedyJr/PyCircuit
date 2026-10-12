@@ -8,7 +8,7 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: real op-amp output swing and gain-bandwidth.
+Planned next: let the user choose which buttons are on the toolbar.
 
 
 Requirements
