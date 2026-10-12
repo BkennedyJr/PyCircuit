@@ -614,8 +614,9 @@ def test_part_shortcuts_are_scoped_to_the_grid_view(window):
 
 @pytest.mark.parametrize(
     "widget_name",
-    ["kind_combo_box", "place_button", "apply_value_button",
-     "rotate_button", "delete_button"],
+    ["kind_combo_box", "ic_family_combo", "ic_device_combo",
+     "place_button", "apply_value_button", "rotate_button",
+     "delete_button"],
 )
 def test_r_does_not_rotate_from_the_dock(window, widget_name):
     place(window, "NODE_R04_C04", "resistor", "1k")
@@ -625,8 +626,9 @@ def test_r_does_not_rotate_from_the_dock(window, widget_name):
 
 @pytest.mark.parametrize(
     "widget_name",
-    ["kind_combo_box", "place_button", "apply_value_button",
-     "rotate_button", "delete_button"],
+    ["kind_combo_box", "ic_family_combo", "ic_device_combo",
+     "place_button", "apply_value_button", "rotate_button",
+     "delete_button"],
 )
 def test_delete_does_not_delete_from_the_dock(window, widget_name):
     place(window, "NODE_R04_C04", "resistor", "1k")
