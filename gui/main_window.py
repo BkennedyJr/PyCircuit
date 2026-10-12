@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QTabBar
 from PyQt5.QtWidgets import QTabWidget
 from PyQt5.QtWidgets import QToolBar
+from PyQt5.QtWidgets import QToolButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QWidget
 
@@ -110,12 +111,16 @@ _TOOLBAR_GROUPS = (
     ),
 )
 _DEFAULT_TOOLBAR = (
-    "save_project_action",
     "delete_component_action",
     "wire_mode_action",
     "probe_mode_action",
     "dc_operating_point_action",
 )
+# The first toolbar choice included Save. File already has it, so that
+# exact saved set drops Save and keeps the rest.
+_PREVIOUS_DEFAULT_TOOLBAR = (
+    "save_project_action",
+) + _DEFAULT_TOOLBAR
 _TOOLBAR_COMMANDS = tuple(
     name for group in _TOOLBAR_GROUPS for name in group
 )
@@ -538,18 +543,22 @@ class MainWindow(QMainWindow):
 
     def create_tool_bar(self):
         """
-        Create the main toolbar. View > Toolbar shows or hides each
-        command. Zoom is not on this bar.
+        Create the one top toolbar. Commands and the grid size share it.
+
+        View > Toolbar shows or hides each command. Zoom is not on
+        this bar. Save stays in the File menu.
 
         :returns: None
         """
-        self.main_tool_bar = QToolBar("Main Toolbar", self)
-        self.addToolBar(self.main_tool_bar)
-        self.rebuild_main_toolbar()
+        self.main_tool_bar = QToolBar("Toolbar", self)
+        self.main_tool_bar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        # Rows and columns sit on this same bar.
+        self.grid_tool_bar = self.main_tool_bar
+        self.addToolBar(Qt.TopToolBarArea, self.main_tool_bar)
 
     def rebuild_main_toolbar(self):
         """
-        Put the chosen commands on the main toolbar, in menu order.
+        Put the chosen commands on the toolbar, then the grid size.
 
         :returns: None
         """
@@ -572,7 +581,27 @@ class MainWindow(QMainWindow):
             started = True
 
             for action in chosen:
-                self.main_tool_bar.addAction(action)
+                self._add_toolbar_command(action)
+
+        if started:
+            self.main_tool_bar.addSeparator()
+
+        self.main_tool_bar.addWidget(self.grid_configuration_widget)
+
+    def _add_toolbar_command(self, action):
+        """
+        Put one command on the toolbar without taking its shortcut.
+
+        Delete, R, W and P belong to the grid. A button on this bar
+        must not make them fire while rows or Apply has focus.
+
+        :param action: Menu command to show.
+        :type action: QAction
+        :returns: None
+        """
+        button = QToolButton(self.main_tool_bar)
+        button.setDefaultAction(action)
+        self.main_tool_bar.addWidget(button)
 
     def set_toolbar_command(self, name, shown):
         """
@@ -634,15 +663,18 @@ class MainWindow(QMainWindow):
             part for part in str(stored).split("|")
             if part in _TOOLBAR_COMMANDS
         ]
+
+        if tuple(names) == _PREVIOUS_DEFAULT_TOOLBAR:
+            names = list(_DEFAULT_TOOLBAR)
+
         self._toolbar_shown = set(names)
         self.rebuild_main_toolbar()
 
     def create_grid_configuration_toolbar(self):
         """
-        Put rows, columns and Apply on their own toolbar at the top.
+        Put rows, columns and Apply on the same toolbar as the commands.
 
-        The bar sits on the line under the main toolbar. Enter on Apply
-        resizes the grid (see ApplyGridButton).
+        Enter on Apply resizes the grid (see ApplyGridButton).
 
         :returns: None
         """
@@ -654,11 +686,7 @@ class MainWindow(QMainWindow):
         self.grid_configuration_widget.configuration_requested.connect(
             self.apply_grid_configuration
         )
-
-        self.addToolBarBreak(Qt.TopToolBarArea)
-        self.grid_tool_bar = QToolBar("Grid", self)
-        self.grid_tool_bar.addWidget(self.grid_configuration_widget)
-        self.addToolBar(Qt.TopToolBarArea, self.grid_tool_bar)
+        self.rebuild_main_toolbar()
 
     def create_component_dock(self):
         """
@@ -982,11 +1010,8 @@ class MainWindow(QMainWindow):
             self.setTabPosition(area, QTabWidget.North)
 
         self.main_tool_bar.setObjectName("main_toolbar")
-        self.grid_tool_bar.setObjectName("grid_toolbar")
         self.main_tool_bar.setMovable(True)
         self.main_tool_bar.setFloatable(True)
-        self.grid_tool_bar.setMovable(True)
-        self.grid_tool_bar.setFloatable(True)
         self.tabifyDockWidget(self.oscilloscope_dock, self.bode_dock)
         self.tabifyDockWidget(self.oscilloscope_dock, self.fft_dock)
         self.oscilloscope_dock.raise_()
