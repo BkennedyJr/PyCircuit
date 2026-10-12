@@ -8,7 +8,7 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: let the user choose which buttons are on the toolbar.
+Planned next: real op-amp output swing and gain-bandwidth.
 
 
 Requirements
@@ -148,6 +148,11 @@ Using it
   Leave the name blank and Apply to clear it. The name is drawn beside
   the point and is saved with the grid.
 - Node > Toggle Signal Pickoff marks the selected point green.
+- The main toolbar starts with Save, Delete, Wire Mode, Probe Mode,
+  and DC Operating Point. View > Toolbar shows or hides any command
+  that is also in a menu. That choice is remembered. Zoom is not on
+  the toolbar: View > Zoom In, Zoom Out, and Zoom to Fit, or Ctrl
+  and the wheel.
 - The Grid toolbar at the top sets the rows and columns. Press Apply,
   or tab to Apply and press Enter.
 - Placing a part: click a grid point, pick the part in the Components
@@ -215,7 +220,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18).
 
 
 Third-party files
