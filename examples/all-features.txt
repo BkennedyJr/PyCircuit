@@ -100,3 +100,10 @@ through P6 checked.
 
 P7 through P12 are DC points. Uncheck them so the plot stays on the
 sine.
+
+FFT
+---
+
+View > FFT is a tab on the oscilloscope. Run the oscilloscope first,
+with P1 through P6 checked. P1 is a 1 V line at 1 kHz. P2 is about
+0.7 V on that same line.
