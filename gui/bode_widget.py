@@ -327,6 +327,14 @@ class BodeDock(QDockWidget):
         """
         return _curves(self.magnitude)
 
+    def plotted_phase(self):
+        """
+        Return ``(name, frequency, degrees)`` for each phase curve.
+
+        :rtype: list
+        """
+        return _curves(self.phase)
+
     @staticmethod
     def _clear_plot(plot):
         plot.plotItem.clearPlots()

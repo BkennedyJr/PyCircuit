@@ -8,7 +8,7 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: re-run the plots when a value changes.
+Planned next: real op-amp output swing and gain-bandwidth.
 
 
 Requirements
@@ -174,7 +174,9 @@ Using it
   loads. The same netlist is what ngspice uses for the DC operating
   point. Simulate > DC Operating Point draws those voltages on the
   nodes and those currents on the parts. The selected point shows the
-  DC voltage next to V(s). Editing the circuit clears the numbers.
+  DC voltage next to V(s). Change a resistor, a source, a pot
+  position, or a switch and those numbers run again. Moving or
+  deleting a part clears them.
 - Drag a panel by its title bar. Drop it on an edge to dock it, drop
   it on another panel to put them in tabs, or float it. View shows a
   closed panel again. The scope starts under the circuit, so it does
@@ -187,13 +189,15 @@ Using it
   10 ms. Time per division and volts per division set the grid; leave
   volts blank for Auto.
   Moving a probe redraws it from the last run when that point was in
-  the run. An LED lights when its current is above 1 mA. The exact
-  V(s) stays next to the DC number.
+  the run. An LED lights when its current is above 1 mA. Change a
+  value and the trace runs again, and the spectrum follows it. The
+  exact V(s) stays next to the DC number.
 - View > Bode opens the frequency-sweep dock (it can float, and it
   starts as a tab on the oscilloscope). Start sweeps from the start
   frequency to the stop frequency. Magnitude is dB relative to the
   one AC source, and phase is degrees. A checked probe is a curve.
-  Editing the circuit clears the curves.
+  Change a value and the curves run again. Moving or deleting a
+  part clears them.
 - View > FFT opens the spectrum of the oscilloscope waveform (it can
   float, and it starts as a tab on the oscilloscope). The height is
   the peak of that wave. A 1 V sine that lasts a whole number of
@@ -207,7 +211,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13).
 
 
 Third-party files
