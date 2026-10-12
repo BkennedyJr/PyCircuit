@@ -10,7 +10,7 @@ from PyQt5.QtGui import QKeyEvent, QKeySequence
 from PyQt5.QtWidgets import QDockWidget, QPushButton, QScrollArea
 
 from core.components import ComponentCollection
-from gui.component_panel_widget import NO_PART_SELECTED_TEXT
+from gui.component_panel_widget import IC_TYPE, NO_PART_SELECTED_TEXT
 from gui.main_window import MainWindow
 
 
@@ -491,6 +491,15 @@ def test_saving_without_parts_has_no_warning(window, tmp_path):
 
 # ----- QC PR #10 fixes -----
 
+def enable_library_when_needed(window, widget_name):
+    """Family and Device can take focus only after Type is IC."""
+    if widget_name not in ("ic_family_combo", "ic_device_combo"):
+        return
+
+    combo = panel(window).kind_combo_box
+    combo.setCurrentIndex(combo.findData(IC_TYPE))
+
+
 def focus_and_press(window, widget, key):
     """
     Give a widget real keyboard focus in the active window, then press a
@@ -622,6 +631,7 @@ def test_part_shortcuts_are_scoped_to_the_grid_view(window):
 )
 def test_r_does_not_rotate_from_the_dock(window, widget_name):
     place(window, "NODE_R04_C04", "resistor", "1k")
+    enable_library_when_needed(window, widget_name)
     focus_and_press(window, getattr(panel(window), widget_name), Qt.Key_R)
     assert window.component_collection.get_component("R1").rotation == 0
 
@@ -634,6 +644,7 @@ def test_r_does_not_rotate_from_the_dock(window, widget_name):
 )
 def test_delete_does_not_delete_from_the_dock(window, widget_name):
     place(window, "NODE_R04_C04", "resistor", "1k")
+    enable_library_when_needed(window, widget_name)
     focus_and_press(
         window, getattr(panel(window), widget_name), Qt.Key_Delete
     )

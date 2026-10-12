@@ -3,9 +3,9 @@ Components dock panel for the Circuit Workbench GUI.
 
 The panel has two parts:
 
-- "New Part": pick a discrete part, or an IC from the library
-  (a family, then a device). Place uses whichever list you picked
-  last. Edit the value, then place it at the selected grid point.
+- "New Part": pick a discrete part, or IC. The library (a family,
+  then a device) turns on only when Type is IC, and Place uses that
+  device. Edit the value, then place it at the selected grid point.
 - "Selected Part": shows the selected part and lets the user rotate it,
   change its name or value, or delete it.
 
@@ -40,6 +40,8 @@ from core.exceptions import ComponentError
 from core.ic_library import IC_FAMILIES, kinds_in_family, part_kinds
 
 NO_PART_SELECTED_TEXT = "No part selected"
+# Type-list choice that turns the IC library on. Not a component kind.
+IC_TYPE = "ic"
 
 
 def get_all_panel_parameters():
@@ -226,21 +228,20 @@ class ComponentPanelWidget(QWidget):
 
         self.kind_combo_box = QComboBox()
         self.kind_combo_box.setToolTip(
-            "Discrete parts, the follower, and the amplifier blocks."
+            "A discrete part, or IC to use the library below."
         )
         self.ic_family_combo = QComboBox()
         self.ic_family_combo.setToolTip(
-            "Groups of packaged ICs. Picking a family chooses its first "
-            "device, and that is what Place uses."
+            "Groups of packaged ICs. Available when Type is IC. "
+            "Picking a family chooses its first device."
         )
         self.ic_device_combo = QComboBox()
         self.ic_device_combo.setToolTip(
-            "One device in the family above. Picking it is what Place uses."
+            "One device in the family above. Available when Type is IC. "
+            "That device is what Place uses."
         )
         self.place_source_label = QLabel("Placing from parts:")
         self.place_source_label.setWordWrap(True)
-        # True while Place reads the IC library instead of the Type list.
-        self.placing_from_library = False
         self.filling_devices = False
         self.value_label = QLabel("Value:")
         self.value_line_edit = QLineEdit()
@@ -302,12 +303,14 @@ class ComponentPanelWidget(QWidget):
 
         :returns: None
         """
-        # Discrete parts and functional blocks, in definition order. The
-        # kind is stored as item data so the display text can change.
-        # Packaged ICs are in the library below, not in this list.
+        # Discrete parts and functional blocks, in definition order, then
+        # IC. The kind is stored as item data so the display text can
+        # change. Packaged devices are in the library below, not here.
         for kind in part_kinds():
             definition = COMPONENT_DEFINITIONS[kind]
             self.kind_combo_box.addItem(definition["display_name"], kind)
+
+        self.kind_combo_box.addItem("IC", IC_TYPE)
 
         for family_id, label, _kinds in IC_FAMILIES:
             self.ic_family_combo.addItem(label, family_id)
@@ -324,8 +327,9 @@ class ComponentPanelWidget(QWidget):
         library_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         library_form.addRow("Family:", self.ic_family_combo)
         library_form.addRow("Device:", self.ic_device_combo)
-        library_group = QGroupBox("IC Library")
-        library_group.setLayout(library_form)
+        self.ic_library_group = QGroupBox("IC Library")
+        self.ic_library_group.setLayout(library_form)
+        self.ic_library_group.setEnabled(False)
 
         new_part_form = QFormLayout()
         new_part_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -336,7 +340,7 @@ class ComponentPanelWidget(QWidget):
 
         new_part_layout = QVBoxLayout()
         new_part_layout.addLayout(type_form)
-        new_part_layout.addWidget(library_group)
+        new_part_layout.addWidget(self.ic_library_group)
         new_part_layout.addWidget(self.place_source_label)
         new_part_layout.addLayout(new_part_form)
         new_part_layout.addWidget(self.place_button)
@@ -394,7 +398,7 @@ class ComponentPanelWidget(QWidget):
             [
                 COMPONENT_DEFINITIONS[kind]["display_name"]
                 for kind in part_kinds()
-            ],
+            ] + ["IC"],
         )
         keep_combo_names_visible(
             self.ic_family_combo,
@@ -419,7 +423,7 @@ class ComponentPanelWidget(QWidget):
             self.handle_kind_change
         )
         # activated fires even when the user re-picks the current item,
-        # so choosing the part that is already showing leaves the library.
+        # so choosing IC again turns the library back on.
         self.kind_combo_box.activated.connect(self.handle_kind_change)
         self.ic_family_combo.currentIndexChanged.connect(
             self.handle_family_change
@@ -529,17 +533,35 @@ class ComponentPanelWidget(QWidget):
             )
         )
 
+    def using_ic_library(self):
+        """
+        Return whether Type is IC, so Place reads the library.
+
+        :returns: True when the Type list shows IC.
+        :rtype: bool
+        """
+        return self.kind_combo_box.currentData() == IC_TYPE
+
+    def set_library_enabled(self, enabled):
+        """
+        Turn the Family and Device lists on or off together.
+
+        :param enabled: True when Type is IC.
+        :type enabled: bool
+        :returns: None
+        """
+        self.ic_library_group.setEnabled(enabled)
+
     def get_selected_kind(self):
         """
         Return the kind Place will use.
 
-        That is the IC device when the library was picked last, and the
-        Type list otherwise.
+        That is the IC device when Type is IC, and the Type list otherwise.
 
         :returns: Component kind, for example "resistor".
         :rtype: str
         """
-        if self.placing_from_library:
+        if self.using_ic_library():
             return self.ic_device_combo.currentData()
 
         return self.kind_combo_box.currentData()
@@ -573,7 +595,7 @@ class ComponentPanelWidget(QWidget):
         kind = self.get_selected_kind()
         name = COMPONENT_DEFINITIONS[kind]["display_name"]
 
-        if self.placing_from_library:
+        if self.using_ic_library():
             self.place_source_label.setText(
                 f"Placing from IC library: {name}"
             )
@@ -582,7 +604,9 @@ class ComponentPanelWidget(QWidget):
 
     def handle_kind_change(self):
         """
-        Use the Type list for Place and fill that part's default value.
+        Follow the Type list: a part, or the library when Type is IC.
+
+        Choosing IC again keeps the family and device already showing.
 
         :returns: None
         """
@@ -591,12 +615,24 @@ class ComponentPanelWidget(QWidget):
         if kind is None:
             return
 
-        self.placing_from_library = False
+        if kind == IC_TYPE:
+            self.set_library_enabled(True)
+            device = self.ic_device_combo.currentData()
+
+            if device is not None:
+                self.show_kind_fields(device)
+
+            return
+
+        self.set_library_enabled(False)
         self.show_kind_fields(kind)
 
     def handle_family_change(self):
         """
-        Show the picked family's devices and use the first one for Place.
+        Show the picked family's devices.
+
+        Place uses the first device only while Type is IC. Re-picking
+        the family that is already showing keeps its device.
 
         :returns: None
         """
@@ -605,8 +641,6 @@ class ComponentPanelWidget(QWidget):
         if family_id is None:
             return
 
-        # Re-picking the family that is already showing keeps its device
-        # and only switches Place over to the library.
         shown = tuple(
             self.ic_device_combo.itemData(index)
             for index in range(self.ic_device_combo.count())
@@ -615,16 +649,18 @@ class ComponentPanelWidget(QWidget):
         if shown != kinds_in_family(family_id):
             self.fill_device_combo(family_id)
 
-        self.placing_from_library = True
+        if not self.using_ic_library():
+            return
+
         self.show_kind_fields(self.ic_device_combo.currentData())
 
     def handle_device_change(self):
         """
-        Use the picked IC for Place.
+        Use the picked IC for Place while Type is IC.
 
         :returns: None
         """
-        if self.filling_devices:
+        if self.filling_devices or not self.using_ic_library():
             return
 
         kind = self.ic_device_combo.currentData()
@@ -632,7 +668,6 @@ class ComponentPanelWidget(QWidget):
         if kind is None:
             return
 
-        self.placing_from_library = True
         self.show_kind_fields(kind)
 
     def show_kind_fields(self, kind):
