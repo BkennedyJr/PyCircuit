@@ -153,7 +153,10 @@ def test_selected_ground_can_rotate_and_delete_but_not_take_a_value(panel):
 
     assert panel.rotate_button.isEnabled()
     assert panel.delete_button.isEnabled()
-    assert not panel.apply_value_button.isEnabled()
+    # Apply stays on so the schematic name can change. The value box does not.
+    assert panel.apply_value_button.isEnabled()
+    assert panel.selected_name_line_edit.isEnabled()
+    assert panel.selected_name_line_edit.text() == "GND1"
     assert not panel.selected_value_line_edit.isEnabled()
 
 
@@ -163,8 +166,10 @@ def test_show_none_clears_everything_again(panel):
 
     assert panel.selected_component_label.text() == NO_PART_SELECTED_TEXT
     assert panel.selected_value_line_edit.text() == ""
+    assert panel.selected_name_line_edit.text() == ""
     for widget in (panel.rotate_button, panel.apply_value_button,
-                   panel.delete_button, panel.selected_value_line_edit):
+                   panel.delete_button, panel.selected_value_line_edit,
+                   panel.selected_name_line_edit):
         assert not widget.isEnabled()
 
 

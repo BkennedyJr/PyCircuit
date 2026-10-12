@@ -6,7 +6,7 @@ The panel has two parts:
 - "New Part": pick a type, edit its value, and place it at the selected
   grid point.
 - "Selected Part": shows the selected part and lets the user rotate it,
-  change its value or delete it.
+  change its name or value, or delete it.
 
 Kinds with extra settings (the AC source's frequency) get one more row in
 each part; the row is hidden for every other kind.
@@ -217,6 +217,12 @@ class ComponentPanelWidget(QWidget):
         # only applied when it differs from this part's).
         self.selected_component = None
         self.selected_component_label = QLabel(NO_PART_SELECTED_TEXT)
+        self.selected_name_line_edit = QLineEdit()
+        self.selected_name_line_edit.setToolTip(
+            "Schematic name, for example BATT. The netlist adds the part "
+            "letter when the name does not already start with it, so a "
+            "battery named BATT is VBATT."
+        )
         self.selected_value_label = QLabel("Value:")
         self.selected_value_line_edit = QLineEdit()
 
@@ -240,7 +246,7 @@ class ComponentPanelWidget(QWidget):
             )
 
         self.rotate_button = QPushButton("Rotate 90")
-        self.apply_value_button = QPushButton("Apply Value")
+        self.apply_value_button = QPushButton("Apply")
         self.delete_button = QPushButton("Delete Part")
 
         self.create_widget_layout()
@@ -277,6 +283,7 @@ class ComponentPanelWidget(QWidget):
         new_part_group.setLayout(new_part_layout)
 
         selected_part_form = QFormLayout()
+        selected_part_form.addRow("Name:", self.selected_name_line_edit)
         selected_part_form.addRow(
             self.selected_value_label,
             self.selected_value_line_edit
@@ -330,6 +337,9 @@ class ComponentPanelWidget(QWidget):
         self.apply_value_button.clicked.connect(
             self.emit_value_change_request
         )
+        self.selected_name_line_edit.returnPressed.connect(
+            self.emit_value_change_request
+        )
         self.selected_value_line_edit.returnPressed.connect(
             self.emit_value_change_request
         )
@@ -372,8 +382,11 @@ class ComponentPanelWidget(QWidget):
             picked = self.selected_parameter_line_edits[name].itemData(index)
             value_text = self.selected_value_line_edit.text().strip()
 
+            name_text = self.selected_name_line_edit.text().strip()
+
             if (picked == component.parameter_texts.get(name) and
-                    value_text == component.value_text):
+                    value_text == component.value_text and
+                    name_text == component.reference):
                 return
 
         self.emit_value_change_request()
@@ -497,8 +510,9 @@ class ComponentPanelWidget(QWidget):
         """
         Request a new value for the selected part.
 
-        Does nothing when the button would be disabled (no part, or a part
-        without a value), so pressing Enter cannot bypass it.
+        Does nothing when the button would be disabled (no part selected),
+        so pressing Enter cannot bypass it. The name is read by the window
+        from the name box when this request is applied.
 
         :returns: None
         """
@@ -534,6 +548,7 @@ class ComponentPanelWidget(QWidget):
         if component is None:
             self.selected_component_kind = None
             self.selected_component_label.setText(NO_PART_SELECTED_TEXT)
+            self.selected_name_line_edit.clear()
             self.selected_value_label.setText("Value:")
             self.selected_value_line_edit.clear()
             part_has_value = False
@@ -542,6 +557,7 @@ class ComponentPanelWidget(QWidget):
             self.selected_component_label.setText(
                 describe_component(component)
             )
+            self.selected_name_line_edit.setText(component.reference)
             self.selected_value_label.setText(
                 get_value_field_label(component.kind)
             )
@@ -566,5 +582,7 @@ class ComponentPanelWidget(QWidget):
 
         self.rotate_button.setEnabled(component is not None)
         self.delete_button.setEnabled(component is not None)
+        self.selected_name_line_edit.setEnabled(component is not None)
         self.selected_value_line_edit.setEnabled(part_has_value)
-        self.apply_value_button.setEnabled(part_has_value)
+        # Apply saves the name as well as the value, so ground can use it.
+        self.apply_value_button.setEnabled(component is not None)

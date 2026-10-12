@@ -1660,7 +1660,10 @@ class MainWindow(QMainWindow):
 
     def apply_component_value(self, value_text, parameter_texts=None):
         """
-        Change the value (and settings) of the selected part.
+        Change the name and the value (and settings) of the selected part.
+
+        The name comes from the Selected Part name box. A bad name or a
+        bad value leaves both as they were.
 
         :param value_text: New value as typed, for example "2k2".
         :type value_text: str
@@ -1674,14 +1677,39 @@ class MainWindow(QMainWindow):
         if component is None:
             return
 
+        old_reference = component.reference
+        new_reference = (
+            self.component_panel_widget.selected_name_line_edit.text().strip()
+        )
+        old_value_text = component.value_text
+        old_parameters = dict(component.parameter_texts)
+
+        if new_reference != old_reference:
+            try:
+                self.component_collection.rename_component(
+                    old_reference, new_reference
+                )
+            except ComponentError as error:
+                self.show_error_message(
+                    "Part Not Changed",
+                    str(error),
+                    "The name and the value were left as they were."
+                )
+                self.component_panel_widget.show_component(component)
+                return
+
         try:
             self.component_collection.set_component_value(
                 component.reference,
                 value_text,
                 parameter_texts
             )
-
         except ComponentError as error:
+            if component.reference != old_reference:
+                self.component_collection.rename_component(
+                    component.reference, old_reference
+                )
+
             self.show_error_message(
                 "Part Value Not Changed",
                 str(error),
@@ -1689,16 +1717,51 @@ class MainWindow(QMainWindow):
                 "100n, 1m or 1k, or a model name for diodes, LEDs and "
                 "transistors."
             )
-            # Put the unchanged value back in the box.
+            # Put the unchanged name and value back in the boxes.
             self.component_panel_widget.show_component(component)
             return
 
+        renamed = component.reference != old_reference
+
+        if renamed:
+            self.probe_collection.rename_part(
+                old_reference, component.reference
+            )
+            scene = self.connection_grid_scene
+            item = scene.component_items_by_reference.pop(
+                old_reference, None
+            )
+
+            if item is not None:
+                scene.component_items_by_reference[
+                    component.reference
+                ] = item
+
+            self.selected_component_reference = component.reference
+
+        value_changed = (
+            component.value_text != old_value_text or
+            component.parameter_texts != old_parameters
+        )
         self.connection_grid_scene.refresh_component(component.reference)
         self.component_panel_widget.show_component(component)
-        self.mark_project_modified(
-            f"Set {component.reference} to "
-            f"{component.label_text().partition(' ')[2]}."
-        )
+
+        if not renamed and not value_changed:
+            return
+
+        shown = component.label_text().partition(" ")[2]
+
+        if renamed and value_changed:
+            status = (
+                f"Renamed {old_reference} to {component.reference} "
+                f"and set it to {shown}."
+            )
+        elif renamed:
+            status = f"Renamed {old_reference} to {component.reference}."
+        else:
+            status = f"Set {component.reference} to {shown}."
+
+        self.mark_project_modified(status)
 
     def handle_component_moved(self, reference):
         """
