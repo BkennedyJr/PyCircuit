@@ -110,10 +110,9 @@ Using it
 --------
 
 - The Type list is resistors, sources, and the other discrete parts,
-  plus the follower and the amplifier blocks. Packaged ICs are in the
-  IC library next to that list, grouped as op-amps, comparators,
-  logic, timers, and regulators. Place uses whichever of those two
-  lists you picked last.
+  plus the follower and the amplifier blocks, and IC. The IC library
+  (op-amps, comparators, logic, timers, and regulators) turns on only
+  when Type is IC, and Place uses the device shown there.
 - Click a grid point to select it. The right-hand panel shows its
   identifier (for example NODE_R03_C05), row and column, and the
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
@@ -221,7 +220,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17).
 
 
 Third-party files
