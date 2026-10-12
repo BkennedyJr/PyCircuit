@@ -45,8 +45,12 @@ which of those to do, and what comes after them.
    lights when its current is above 1 mA. V(s) stays next to the DC
    number.
 
-5. AC sweep and Bode
-   A frequency sweep, magnitude and phase, in its own dock.
+5. AC sweep and Bode (done)
+   View > Bode. Start and Stop on that dock, tabbed with the
+   oscilloscope. Magnitude is dB relative to the one AC source, and
+   phase is degrees, on a log frequency axis. A checked probe is a
+   curve. The hand check is a 1k / 159n low-pass: about -3 dB and
+   -45 degrees at 1 kHz. V(s) stays next to the DC number.
 
 6. FFT
    A spectrum of the transient waveform, in its own dock.

@@ -423,6 +423,7 @@ def test_view_menu_has_the_zoom_actions(window):
         "Selected Connection Point",
         "Probe",
         "Oscilloscope",
+        "Bode",
     ]
 
 

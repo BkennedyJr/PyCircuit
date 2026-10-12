@@ -26,6 +26,12 @@ def test_default_layout_keeps_the_scope_under_the_circuit(qt_application):
         assert window.dockWidgetArea(window.oscilloscope_dock) == (
             Qt.BottomDockWidgetArea
         )
+        assert window.dockWidgetArea(window.bode_dock) == (
+            Qt.BottomDockWidgetArea
+        )
+        assert window.bode_dock in window.tabifiedDockWidgets(
+            window.oscilloscope_dock
+        )
         assert window.dockWidgetArea(window.selected_node_dock) == (
             Qt.RightDockWidgetArea
         )
@@ -124,6 +130,7 @@ def test_view_menu_lists_every_panel(qt_application):
             "Selected Connection Point",
             "Probe",
             "Oscilloscope",
+            "Bode",
         ]
     finally:
         close_window(window)

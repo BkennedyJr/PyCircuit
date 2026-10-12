@@ -7,7 +7,7 @@ Each merge to main after 0.1.0 adds 1 to the last number here
 """
 
 APP_NAME = "Circuit Workbench"
-APP_VERSION = "0.1.8"
+APP_VERSION = "0.1.9"
 
 
 def about_text():
