@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QScrollArea
+from PyQt5.QtWidgets import QTabBar
 from PyQt5.QtWidgets import QTabWidget
 from PyQt5.QtWidgets import QToolBar
 from PyQt5.QtWidgets import QToolButton
@@ -189,6 +190,10 @@ class MainWindow(QMainWindow):
         self._ac_name_by_point = {}
         self._ac_reference_peak = None
         self._ac_rerun = False
+        # A closed plot is left alone. Opening it runs the missed update.
+        self._tran_stale = False
+        self._ac_stale = False
+        self._fft_dirty = False
         # Continuous runs a showing result again when a value changes.
         # Snapshot keeps that one reading and clears it on the next edit.
         self._continuous = True
@@ -901,6 +906,9 @@ class MainWindow(QMainWindow):
         self.oscilloscope_dock.update_mode_combo.activated.connect(
             self._on_update_mode_combo
         )
+        self.oscilloscope_dock.visibilityChanged.connect(
+            self._on_scope_visibility
+        )
         self.addDockWidget(Qt.BottomDockWidgetArea, self.oscilloscope_dock)
         self.oscilloscope_dock.refresh_automatic_times(
             self.component_collection.get_components()
@@ -921,6 +929,7 @@ class MainWindow(QMainWindow):
         self.bode_dock.update_mode_combo.activated.connect(
             self._on_update_mode_combo
         )
+        self.bode_dock.visibilityChanged.connect(self._on_bode_visibility)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.bode_dock)
 
     def create_fft_dock(self):
@@ -937,6 +946,7 @@ class MainWindow(QMainWindow):
         self.fft_dock.update_mode_combo.activated.connect(
             self._on_update_mode_combo
         )
+        self.fft_dock.visibilityChanged.connect(self._on_fft_visibility)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.fft_dock)
 
     def configure_docks(self):
@@ -1863,8 +1873,8 @@ class MainWindow(QMainWindow):
         :type status_message: str
         :param keep_scope: True to leave the last transient on the scope.
         :type keep_scope: bool
-        :param refresh_results: True to run DC, the oscilloscope, and
-            Bode again when they are already showing a result.
+        :param refresh_results: True to run DC and each open plot again
+            when that plot is already showing a result.
         :type refresh_results: bool
         :returns: None
         """
@@ -2981,22 +2991,74 @@ class MainWindow(QMainWindow):
 
     def refresh_shown_results(self):
         """
-        Run again each analysis that is already on screen.
+        Run again each analysis whose window is open.
 
         A resistor, a source, a pot position, or a switch does this.
-        Nothing starts when that analysis has not been run. A run that
-        is still going is dropped and replaced by this one.
+        Nothing starts when that analysis has not been run. A closed
+        oscilloscope, Bode, or FFT window is left for when it opens.
+        The spectrum needs the oscilloscope run, so that run also
+        starts while FFT is open. A run that is still going is dropped
+        and replaced by this one.
 
         :returns: None
         """
         if self._dc_volts_by_node or self._dc_thread is not None:
             self._request_dc_refresh()
 
+        scope_open = self.plot_is_open(self.oscilloscope_dock)
+        fft_open = self.plot_is_open(self.fft_dock)
+
         if self._tran_result is not None or self._tran_thread is not None:
-            self._request_tran_refresh()
+            if scope_open or fft_open:
+                self._tran_stale = False
+                self._request_tran_refresh()
+            else:
+                self._tran_stale = True
+                self._fft_dirty = True
+                self._drop_closed_tran_run()
 
         if self._ac_result is not None or self._ac_thread is not None:
-            self._request_ac_refresh()
+            if self.plot_is_open(self.bode_dock):
+                self._ac_stale = False
+                self._request_ac_refresh()
+            else:
+                self._ac_stale = True
+                self._drop_closed_ac_run()
+
+    def _drop_closed_tran_run(self):
+        """
+        Ignore an oscilloscope run that is still going after its window
+        closed and the circuit changed.
+
+        Opening the window starts the new run. This one is not restarted
+        when the thread stops.
+
+        :returns: None
+        """
+        if self._tran_thread is None:
+            return
+
+        self._tran_rerun = False
+        self._tran_run_id += 1
+
+        if self._tran_cancel is not None:
+            self._tran_cancel.set()
+
+    def _drop_closed_ac_run(self):
+        """
+        Ignore a frequency sweep that is still going after Bode closed
+        and the circuit changed.
+
+        :returns: None
+        """
+        if self._ac_thread is None:
+            return
+
+        self._ac_rerun = False
+        self._ac_run_id += 1
+
+        if self._ac_cancel is not None:
+            self._ac_cancel.set()
 
     def _request_dc_refresh(self):
         """
@@ -3196,6 +3258,8 @@ class MainWindow(QMainWindow):
 
         self._tran_result = None
         self._tran_name_by_point = {}
+        self._tran_stale = False
+        self._fft_dirty = False
         self.oscilloscope_dock.clear_traces()
         self.connection_grid_scene.set_led_lights(set())
         self._set_probe_plots(set())
@@ -3230,6 +3294,7 @@ class MainWindow(QMainWindow):
         self._ac_result = None
         self._ac_name_by_point = {}
         self._ac_reference_peak = None
+        self._ac_stale = False
         self.bode_dock.clear_traces()
         self.refresh_bode_channels()
 
@@ -3253,9 +3318,142 @@ class MainWindow(QMainWindow):
         self.fft_dock.clear_traces()
         self.refresh_fft_channels()
 
+    def showEvent(self, event):
+        """
+        Watch the plot tabs once the window is on screen.
+
+        :param event: Show event.
+        :type event: QShowEvent
+        :returns: None
+        """
+        super().showEvent(event)
+        self._watch_plot_tabs()
+
+    def plot_is_open(self, dock):
+        """
+        Return whether a plot window is the one on screen.
+
+        A tab behind the oscilloscope is not open. A floating plot is
+        open while its window is showing. A closed dock is not open.
+
+        :param dock: Oscilloscope, Bode, or FFT dock.
+        :type dock: QDockWidget
+        :returns: True when that plot should be calculated.
+        :rtype: bool
+        """
+        if not dock.toggleViewAction().isChecked():
+            return False
+
+        if dock.isFloating():
+            return dock.isVisible()
+
+        self._watch_plot_tabs()
+        current = self._plot_tab_is_current(dock.windowTitle())
+
+        if current is None:
+            return False
+
+        return current
+
+    def _plot_tab_is_current(self, title):
+        """
+        Return whether a plot's tab is the one in front.
+
+        :param title: Dock title, for example ``FFT``.
+        :type title: str
+        :returns: True or False, or None when that title is not tabbed.
+        :rtype: bool or None
+        """
+        found = []
+
+        for bar in self.findChildren(QTabBar):
+            for index in range(bar.count()):
+                if bar.tabText(index) == title:
+                    found.append((bar, index))
+                    break
+
+        if not found:
+            return None
+
+        visible = [item for item in found if item[0].isVisible()]
+        bar, index = max(visible or found, key=lambda item: item[0].count())
+        return bar.currentIndex() == index
+
+    def _watch_plot_tabs(self):
+        """
+        Calculate a plot when the user brings its tab to the front.
+
+        :returns: None
+        """
+        for bar in self.findChildren(QTabBar):
+            if bar.property("watched_plot_tabs"):
+                continue
+
+            titles = {bar.tabText(index) for index in range(bar.count())}
+
+            if not titles.intersection(("Oscilloscope", "Bode", "FFT")):
+                continue
+
+            bar.setProperty("watched_plot_tabs", True)
+            bar.currentChanged.connect(self._calculate_opened_plots)
+
+    def _on_scope_visibility(self, visible):
+        """
+        Run a missed oscilloscope update when that window opens.
+
+        :param visible: True when the dock is shown.
+        :type visible: bool
+        :returns: None
+        """
+        self._calculate_opened_plots()
+
+    def _on_bode_visibility(self, visible):
+        """
+        Run a missed frequency sweep when the Bode window opens.
+
+        :param visible: True when the dock is shown.
+        :type visible: bool
+        :returns: None
+        """
+        self._calculate_opened_plots()
+
+    def _on_fft_visibility(self, visible):
+        """
+        Draw a missed spectrum when the FFT window opens.
+
+        :param visible: True when the dock is shown.
+        :type visible: bool
+        :returns: None
+        """
+        self._calculate_opened_plots()
+
+    def _calculate_opened_plots(self):
+        """
+        Run a plot that was skipped while its window was closed.
+
+        The spectrum uses the oscilloscope waveform, so opening FFT
+        after a new value runs that waveform first.
+
+        :returns: None
+        """
+        scope_open = self.plot_is_open(self.oscilloscope_dock)
+        fft_open = self.plot_is_open(self.fft_dock)
+
+        if (scope_open or fft_open) and self._tran_stale:
+            self._tran_stale = False
+            self._request_tran_refresh()
+        elif fft_open and self._fft_dirty:
+            self.replot_fft()
+
+        if self.plot_is_open(self.bode_dock) and self._ac_stale:
+            self._ac_stale = False
+            self._request_ac_refresh()
+
     def replot_fft(self):
         """
         Draw the checked probes from the last oscilloscope run.
+
+        A closed FFT window is not calculated. Opening it draws this.
 
         :returns: None
         """
@@ -3264,6 +3462,11 @@ class MainWindow(QMainWindow):
         if result is None:
             return
 
+        if not self.plot_is_open(self.fft_dock):
+            self._fft_dirty = True
+            return
+
+        self._fft_dirty = False
         enabled = set(self.fft_dock.enabled_references())
         traces = []
         missing = []
@@ -3442,6 +3645,7 @@ class MainWindow(QMainWindow):
             return
 
         self._ac_result = result
+        self._ac_stale = False
         self.replot_bode()
         self.statusBar().showMessage("Bode plot updated.", 5000)
 
@@ -3689,6 +3893,7 @@ class MainWindow(QMainWindow):
             return
 
         self._tran_result = result
+        self._tran_stale = False
         self.replot_transient()
         self.replot_fft()
         self.connection_grid_scene.set_led_lights(lit_led_references(

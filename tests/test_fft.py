@@ -257,6 +257,10 @@ def test_the_dock_draws_the_low_pass(qt_application):
         )
         window.refresh_scope_channels()
         window.refresh_fft_channels()
+        window.show()
+        window.fft_dock.setFloating(True)
+        window.fft_dock.show()
+        QApplication.processEvents()
         window.run_transient()
         deadline = time.time() + 30
 

@@ -197,20 +197,23 @@ Using it
   volts blank for Auto.
   Moving a probe redraws it from the last run when that point was in
   the run. An LED lights when its current is above 1 mA. In
-  Continuous, a new value runs the trace again and the spectrum
-  follows it. The exact V(s) stays next to the DC number.
+  Continuous, a new value runs the trace again while this window is
+  open. The exact V(s) stays next to the DC number.
 - View > Bode opens the frequency-sweep dock (it can float, and it
   starts as a tab on the oscilloscope). Start sweeps from the start
   frequency to the stop frequency. Magnitude is dB relative to the
   one AC source, and phase is degrees. A checked probe is a curve.
-  In Continuous, a new value runs the curves again. Snapshot, or
-  moving or deleting a part, clears them.
+  In Continuous, a new value runs the curves again while this window
+  is open. A closed Bode window waits until you open it. Snapshot,
+  or moving or deleting a part, clears them.
 - View > FFT opens the spectrum of the oscilloscope waveform (it can
   float, and it starts as a tab on the oscilloscope). The height is
   the peak of that wave. A 1 V sine that lasts a whole number of
-  cycles is a 1 V line at its frequency. Run the oscilloscope to
-  draw it. In Continuous a new value runs that oscilloscope again
-  and this spectrum follows it. Snapshot, or moving or deleting a
+  cycles is a 1 V line at its frequency. It is calculated when this
+  window is open, from the oscilloscope run. With only the
+  oscilloscope open, the spectrum is not calculated. Opening FFT
+  draws it from that run. In Continuous, a new value runs it again
+  while this window is open. Snapshot, or moving or deleting a
   part, clears it.
 - The oscilloscope, Bode, and FFT each have two cursors, A and B.
   Drag the dashed lines. The box under the controls reads both and
@@ -220,7 +223,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19).
 
 
 Third-party files
