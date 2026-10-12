@@ -1,6 +1,6 @@
 """
 DC operating point, transient, and frequency sweep through the ngspice
-shared library.
+shared library. The spectrum is the FFT of a transient waveform.
 
 ``run_op``, ``run_tran`` and ``run_ac`` take the netlist text from
 ``core.netlist.build_netlist``. Ground is node 0. ngspice hands node
@@ -19,6 +19,8 @@ import os
 import re
 import threading
 from pathlib import Path
+
+import numpy
 
 from core.exceptions import SimulationError
 from core.netlist import build_netlist
@@ -288,6 +290,70 @@ def probe_series(probe, transient, name_by_point):
         return None
 
     return transient.time, values
+
+
+def amplitude_spectrum(time_seconds, values):
+    """
+    Return ``(frequency, peak)`` for one real waveform.
+
+    The record runs from the first sample to the last. The last instant
+    is the end of the record, not an extra sample, because a repeating
+    waveform meets itself there. The samples used for the FFT are spaced
+    evenly across that record.
+
+    Bin k is ``k / duration`` hertz. The height is the peak of that
+    sine. A 1 V sine that fits a whole number of cycles is a 1 V line.
+    The average is the line at 0 Hz. The Nyquist line is not doubled.
+
+    :param time_seconds: Sample times, in seconds.
+    :param values: Sample values, one per time.
+    :rtype: tuple
+    :raises SimulationError: If the samples are too few, unevenly
+        paired, or do not move forward in time.
+    """
+    times, samples = _spectrum_samples(time_seconds, values)
+    duration = times[-1] - times[0]
+    count = len(times) - 1
+    step = duration / count
+    waveform = [
+        sample_at(times, samples, times[0] + index * step)
+        for index in range(count)
+    ]
+    coefficients = numpy.fft.rfft(waveform)
+    frequencies = []
+    peaks = []
+
+    for bin_index, coefficient in enumerate(coefficients):
+        frequencies.append(bin_index / duration)
+        peak = abs(coefficient) / count
+
+        if 0 < bin_index < count / 2.0:
+            peak *= 2.0
+
+        peaks.append(float(peak))
+
+    return tuple(frequencies), tuple(peaks)
+
+
+def probe_spectrum(probe, transient, name_by_point):
+    """
+    Return ``(frequency, peak)`` for one probe, or None if this run has
+    no sample for it.
+
+    The peak is volts for a voltage probe and amps for a current probe.
+
+    :param probe: Probe to read.
+    :param transient: Result from ``run_tran``.
+    :param name_by_point: Grid point to SPICE node name.
+    :rtype: tuple or None
+    :raises SimulationError: If the samples cannot make a spectrum.
+    """
+    series = probe_series(probe, transient, name_by_point)
+
+    if series is None:
+        return None
+
+    return amplitude_spectrum(series[0], series[1])
 
 
 class FrequencySweep:
@@ -647,6 +713,43 @@ def _with_transient(netlist, step, stop, use_initial_conditions):
     lines.append(".end")
 
     return "\n".join(lines) + "\n"
+
+
+def _spectrum_samples(time_seconds, values):
+    if len(time_seconds) != len(values) or not time_seconds:
+        raise SimulationError("The transient samples are not usable.")
+
+    if len(time_seconds) < 4:
+        raise SimulationError(
+            "A spectrum needs at least 4 samples from a transient run."
+        )
+
+    times = []
+    samples = []
+    previous = None
+
+    for instant, sample in zip(time_seconds, values):
+        if not _finite_number(instant) or not _finite_number(sample):
+            raise SimulationError("The transient samples are not usable.")
+
+        if previous is not None and not instant > previous:
+            raise SimulationError(
+                "The transient times must move forward."
+            )
+
+        times.append(float(instant))
+        samples.append(float(sample))
+        previous = instant
+
+    return tuple(times), tuple(samples)
+
+
+def _finite_number(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def _positive_number(value):

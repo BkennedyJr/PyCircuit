@@ -424,6 +424,7 @@ def test_view_menu_has_the_zoom_actions(window):
         "Probe",
         "Oscilloscope",
         "Bode",
+        "FFT",
     ]
 
 

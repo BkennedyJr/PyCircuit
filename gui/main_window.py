@@ -67,6 +67,7 @@ from gui.bode_widget import BodeDock
 from gui.bode_widget import BodeRunner
 from gui.component_panel_widget import ComponentPanelWidget
 from gui.dc_numbers import DcOperatingPointRunner
+from gui.fft_widget import FftDock
 from gui.help_dialog import HelpDialog
 from gui.help_dialog import build_about_box
 from gui.help_dialog import read_help_text
@@ -80,6 +81,7 @@ from sim.runner import ac_source_peak
 from sim.runner import lit_led_references
 from sim.runner import probe_bode
 from sim.runner import probe_series
+from sim.runner import probe_spectrum
 from sim.runner import transient_step
 
 
@@ -184,6 +186,7 @@ class MainWindow(QMainWindow):
         self.create_actions()
         self.create_oscilloscope_dock()
         self.create_bode_dock()
+        self.create_fft_dock()
         self.create_tool_bar()
         self.create_grid_configuration_toolbar()
         self.create_component_dock()
@@ -441,6 +444,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.probe_dock.toggleViewAction())
         view_menu.addAction(self.oscilloscope_dock.toggleViewAction())
         view_menu.addAction(self.bode_dock.toggleViewAction())
+        view_menu.addAction(self.fft_dock.toggleViewAction())
 
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self.help_action)
@@ -730,6 +734,19 @@ class MainWindow(QMainWindow):
         self.bode_dock.channels_changed.connect(self.replot_bode)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.bode_dock)
 
+    def create_fft_dock(self):
+        """
+        Create the FFT dock. It starts as a tab on the oscilloscope.
+
+        View > FFT shows or hides it. The curves are the spectrum of
+        the last oscilloscope run.
+
+        :returns: None
+        """
+        self.fft_dock = FftDock(self)
+        self.fft_dock.channels_changed.connect(self.replot_fft)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.fft_dock)
+
     def configure_docks(self):
         """
         Make every panel drag, float, and dock.
@@ -753,6 +770,7 @@ class MainWindow(QMainWindow):
             (self.probe_dock, "probe"),
             (self.oscilloscope_dock, "oscilloscope"),
             (self.bode_dock, "bode"),
+            (self.fft_dock, "fft"),
         )
 
         for dock, object_name in named_docks:
@@ -796,6 +814,7 @@ class MainWindow(QMainWindow):
         self.grid_tool_bar.setMovable(True)
         self.grid_tool_bar.setFloatable(True)
         self.tabifyDockWidget(self.oscilloscope_dock, self.bode_dock)
+        self.tabifyDockWidget(self.oscilloscope_dock, self.fft_dock)
         self.oscilloscope_dock.raise_()
         # Tall enough for the trace, with the controls beside it.
         # A saved arrangement replaces this.
@@ -1237,8 +1256,10 @@ class MainWindow(QMainWindow):
         self.show_probe(self.probe_collection.get(reference))
         self.refresh_scope_channels()
         self.refresh_bode_channels()
+        self.refresh_fft_channels()
         self.replot_transient()
         self.replot_bode()
+        self.replot_fft()
 
     def handle_probe_moved(self, reference):
         """
@@ -1255,8 +1276,10 @@ class MainWindow(QMainWindow):
         self.show_probe(self.probe_collection.get(reference))
         self.refresh_scope_channels()
         self.refresh_bode_channels()
+        self.refresh_fft_channels()
         self.replot_transient()
         self.replot_bode()
+        self.replot_fft()
 
     def handle_probe_refused(self, reason):
         """
@@ -1420,8 +1443,10 @@ class MainWindow(QMainWindow):
         self.show_probe(probe)
         self.refresh_scope_channels()
         self.refresh_bode_channels()
+        self.refresh_fft_channels()
         self.replot_transient()
         self.replot_bode()
+        self.replot_fft()
 
     def _probe_where_text(self, probe):
         """
@@ -2158,8 +2183,10 @@ class MainWindow(QMainWindow):
         else:
             self.refresh_scope_channels()
             self.refresh_bode_channels()
+            self.refresh_fft_channels()
             self.replot_transient()
             self.replot_bode()
+            self.replot_fft()
 
     def reset_component_collection(self):
         """
@@ -2812,6 +2839,7 @@ class MainWindow(QMainWindow):
         )
         self.refresh_scope_channels()
         self.clear_bode_run()
+        self.clear_fft_run()
 
     def refresh_bode_channels(self):
         """
@@ -2839,6 +2867,79 @@ class MainWindow(QMainWindow):
         self._ac_reference_peak = None
         self.bode_dock.clear_traces()
         self.refresh_bode_channels()
+
+    def refresh_fft_channels(self):
+        """
+        Rebuild the spectrum's probe checkboxes.
+
+        :returns: None
+        """
+        self.fft_dock.set_channels(self.probe_collection.get_probes())
+
+    def clear_fft_run(self):
+        """
+        Drop the spectrum. Probe checkboxes stay.
+
+        The oscilloscope run is cleared by the caller. This does not
+        start a new analysis.
+
+        :returns: None
+        """
+        self.fft_dock.clear_traces()
+        self.refresh_fft_channels()
+
+    def replot_fft(self):
+        """
+        Draw the checked probes from the last oscilloscope run.
+
+        :returns: None
+        """
+        result = self._tran_result
+
+        if result is None:
+            return
+
+        enabled = set(self.fft_dock.enabled_references())
+        traces = []
+        missing = []
+
+        try:
+            for probe in self.probe_collection.get_probes():
+                series = None
+
+                if probe.reference in enabled:
+                    series = probe_spectrum(
+                        probe, result, self._tran_name_by_point
+                    )
+
+                if probe.reference in enabled and series is None:
+                    missing.append(probe.reference)
+
+                if series is None:
+                    continue
+
+                name = probe.reference
+
+                if probe.method == "current":
+                    name = f"{probe.reference} (A)"
+
+                traces.append((name, probe.color, series[0], series[1]))
+        except SimulationError as error:
+            self.show_error_message(
+                "FFT",
+                str(error),
+                "Run the oscilloscope again."
+            )
+            return
+
+        self.fft_dock.show_traces(traces)
+
+        if missing:
+            names = ", ".join(missing)
+            self.statusBar().showMessage(
+                f"Press Start again. {names} is not in the last run.",
+                7000,
+            )
 
     def replot_bode(self):
         """
@@ -3213,6 +3314,7 @@ class MainWindow(QMainWindow):
 
         self._tran_result = result
         self.replot_transient()
+        self.replot_fft()
         self.connection_grid_scene.set_led_lights(lit_led_references(
             self.component_collection.get_components(), result
         ))
