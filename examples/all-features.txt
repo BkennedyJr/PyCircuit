@@ -107,3 +107,15 @@ FFT
 View > FFT is a tab on the oscilloscope. Run the oscilloscope first,
 with P1 through P6 checked. P1 is a 1 V line at 1 kHz. P2 is about
 0.7 V on that same line.
+
+Cursors
+-------
+
+The oscilloscope, Bode, and FFT each have two dashed lines, A and B.
+Drag them. The box reads both, and the difference is B minus A.
+
+On the oscilloscope, put A on a zero of P1 and B 250 us later. That
+is a quarter cycle of the 1 kHz sine, so the difference is about 1 V.
+On the FFT, put A at 0 Hz and B on the 1 kHz line. The difference is
+about 1 V. On Bode, put A at 100 Hz and B at 1 kHz on P2. The
+difference is about -3 dB and -39 degrees.
