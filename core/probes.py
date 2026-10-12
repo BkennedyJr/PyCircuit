@@ -488,6 +488,20 @@ class ProbeCollection:
 
         return probe
 
+    def rename_part(self, old_reference, new_reference):
+        """
+        Point current probes at a part's new schematic name.
+
+        :param old_reference: Name the part had, such as ``V1``.
+        :type old_reference: str
+        :param new_reference: Name the part has now, such as ``BATT``.
+        :type new_reference: str
+        :returns: None
+        """
+        for probe in self.probes_by_reference.values():
+            if probe.component_reference == old_reference:
+                probe.component_reference = new_reference
+
     def remove_for_components(self, component_references):
         """
         Remove current probes whose part is gone.

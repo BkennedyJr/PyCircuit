@@ -506,14 +506,15 @@ def test_unknown_kind_raises(kind):
 @pytest.mark.parametrize(
     "kind, reference",
     [
-        ("resistor", "C1"),
-        ("resistor", "R0"),
-        ("resistor", "R"),
-        ("resistor", "r1"),
         ("resistor", " R1"),
-        ("resistor", "R01"),
+        ("resistor", "1R"),
+        ("resistor", ""),
+        ("resistor", "BATT 1"),
+        ("resistor", "R-1"),
+        ("resistor", "s"),
+        ("resistor", "v_0"),
+        ("resistor", "A" * 17),
         ("resistor", None),
-        ("ground", "G1"),
     ]
 )
 def test_bad_reference_raises(kind, reference):

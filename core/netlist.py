@@ -17,7 +17,13 @@ import re
 import tempfile
 from pathlib import Path
 
-from core.components import COMPONENT_DEFINITIONS, Component, ComponentCollection
+from core.components import (
+    COMPONENT_DEFINITIONS,
+    Component,
+    ComponentCollection,
+    _reference_sort_key,
+    element_name,
+)
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError, SimulationError
 from core.spice_models import DEVICE_KIND_BY_PART, device_model_line, get_device_model
@@ -200,10 +206,7 @@ def _component_list(components):
 
 
 def _reference_key(component):
-    reference = component.reference
-    prefix = reference.rstrip("0123456789")
-
-    return (prefix, int(reference[len(prefix):]))
+    return _reference_sort_key(component.reference)
 
 
 def _validate_wires_and_grid(wire_collection, connection_grid):
@@ -458,7 +461,7 @@ def _element_lines(component, node_of):
         minus = _pin_node(node_of, component, "minus")
 
         return [
-            (f"{reference} {plus} {minus} "
+            (f"{element_name(reference, 'C')} {plus} {minus} "
             f"{format_spice_number(component.value)}")
         ]
 
@@ -467,7 +470,9 @@ def _element_lines(component, node_of):
         cathode = _pin_node(node_of, component, "cathode")
         model_name = get_device_model(component.value_text)[0]
 
-        return [f"{reference} {anode} {cathode} {model_name}"]
+        return [
+            f"{element_name(reference, 'D')} {anode} {cathode} {model_name}"
+        ]
 
     if kind == "npn":
         return [_bjt_line(component, node_of, "collector", "base", "emitter")]
@@ -482,7 +487,8 @@ def _element_lines(component, node_of):
         model_name = get_device_model(component.value_text)[0]
 
         return [
-            f"{reference} {drain} {gate} {source} {source} {model_name}"
+            (f"{element_name(reference, 'M')} {drain} {gate} {source} "
+            f"{source} {model_name}")
         ]
 
     if kind == "dc_source":
@@ -490,7 +496,7 @@ def _element_lines(component, node_of):
         minus = _pin_node(node_of, component, "minus")
 
         return [
-            (f"{reference} {plus} {minus} DC "
+            (f"{element_name(reference, 'V')} {plus} {minus} DC "
             f"{format_spice_number(component.value)}")
         ]
 
@@ -504,8 +510,10 @@ def _element_lines(component, node_of):
         )
         phase = format_spice_number(component.parameter_values["phase"])
 
+        spice_name = element_name(reference, "V")
+
         return [
-            (f"{reference} {plus} {minus} DC {offset} AC {peak} "
+            (f"{spice_name} {plus} {minus} DC {offset} AC {peak} "
             f"SIN({offset} {peak} {frequency} 0 0 {phase})")
         ]
 
@@ -515,7 +523,7 @@ def _element_lines(component, node_of):
         outgoing = _pin_node(node_of, component, "out")
 
         return [
-            (f"{reference} {incoming} {outgoing} DC "
+            (f"{element_name(reference, 'I')} {incoming} {outgoing} DC "
             f"{format_spice_number(component.value)}")
         ]
 
@@ -529,7 +537,8 @@ def _element_lines(component, node_of):
 
         return [
             f"* {reference} {state}",
-            f"R{reference} {first} {second} {format_spice_number(ohms)}",
+            (f"{element_name(reference, 'R')} {first} {second} "
+            f"{format_spice_number(ohms)}"),
         ]
 
     if kind == "potentiometer":
@@ -554,9 +563,8 @@ def _two_pin_line(component, node_of, reference, letter):
     first = _pin_node(node_of, component, "1")
     second = _pin_node(node_of, component, "2")
 
-    # The reference already starts with the SPICE letter (R, C, L).
-    if not reference.startswith(letter):
-        reference = letter + reference
+    # BATT does not start with R, so the resistor line is RBATT.
+    reference = element_name(reference, letter)
 
     return (
         f"{reference} {first} {second} "
@@ -568,7 +576,7 @@ def _bjt_line(component, node_of, collector, base, emitter):
     model_name = get_device_model(component.value_text)[0]
 
     return (
-        f"{component.reference} "
+        f"{element_name(component.reference, 'Q')} "
         f"{_pin_node(node_of, component, collector)} "
         f"{_pin_node(node_of, component, base)} "
         f"{_pin_node(node_of, component, emitter)} {model_name}"
@@ -616,12 +624,13 @@ def _transformer_lines(component, node_of):
     s1 = _pin_node(node_of, component, "s1")
     s2 = _pin_node(node_of, component, "s2")
     reference = component.reference
-    voltage_source = f"E{reference}"
+    voltage_source = element_name(reference, "E")
+    current_source = element_name(reference, "F")
 
     return [
         f"* {reference} turns={turns} dots on p1 and s1",
         f"{voltage_source} {s1} {s2} {p1} {p2} {turns}",
-        f"F{reference} {p2} {p1} {voltage_source} {turns}",
+        f"{current_source} {p2} {p1} {voltage_source} {turns}",
     ]
 
 
@@ -633,8 +642,8 @@ def _regulator_lines(component, node_of):
 
     return [
         f"* {component.reference} {voltage}V",
-        (f"X{component.reference} {pin_in} {ground} {pin_out} REG "
-        f"voltage={voltage}"),
+        (f"{element_name(component.reference, 'X')} {pin_in} {ground} "
+        f"{pin_out} REG voltage={voltage}"),
     ]
 
 
@@ -654,10 +663,7 @@ def _subcircuit_lines(component, node_of):
     nodes = [
         _pin_node(node_of, component, pin_name) for pin_name in ports
     ]
-    spice_reference = component.reference
-
-    if not spice_reference.startswith("X"):
-        spice_reference = "X" + spice_reference
+    spice_reference = element_name(component.reference, "X")
 
     line = f"{spice_reference} {' '.join(nodes)} {model_name}"
 

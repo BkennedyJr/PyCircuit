@@ -59,6 +59,10 @@ VALID_ROTATIONS = (0, 90, 180, 270)
 VALID_VALUE_KINDS = ("positive", "any", "model", "none")
 
 MAXIMUM_MODEL_NAME_LENGTH = 32
+MAXIMUM_REFERENCE_LENGTH = 16
+_REFERENCE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,15}")
+# "s" is the Laplace variable. v_0, v_1, ... are node voltages.
+_RESERVED_REFERENCE = re.compile(r"s|v_[0-9]+", re.IGNORECASE)
 
 # LED colors (Billie, Oct 9) and the default SPICE model of each. When an
 # LED's color changes and its model is still the old color's default, the
@@ -494,6 +498,101 @@ COMPONENT_DEFINITIONS = {
         "default_value_text": "",
     },
 }
+
+
+def element_name(reference, letter):
+    """
+    Return the SPICE element name for a schematic name.
+
+    ngspice decides the device type from the first letter. A name that
+    already starts with that letter is kept (V1, VBATT). Any other name
+    gains the letter: a battery called BATT is VBATT in the netlist.
+
+    :param reference: Schematic name, such as "BATT" or "V1".
+    :type reference: str
+    :param letter: Device letter, such as "V" or "R".
+    :type letter: str
+    :rtype: str
+    """
+    if reference.upper().startswith(letter.upper()):
+        return reference
+
+    return letter + reference
+
+
+def spice_device_names(kind, reference):
+    """
+    Return the element names this part writes, without nodes.
+
+    A potentiometer always keeps an R in front of the schematic name,
+    because RV1 is already the resistor pair RRV1A and RRV1B.
+
+    :param kind: Component kind.
+    :type kind: str
+    :param reference: Schematic name.
+    :type reference: str
+    :rtype: list
+    """
+    if kind == "ground":
+        return []
+
+    if kind == "resistor":
+        return [element_name(reference, "R")]
+
+    if kind in ("capacitor", "capacitor_polarized"):
+        return [element_name(reference, "C")]
+
+    if kind == "inductor":
+        return [element_name(reference, "L")]
+
+    if kind in ("diode", "led"):
+        return [element_name(reference, "D")]
+
+    if kind in ("npn", "pnp"):
+        return [element_name(reference, "Q")]
+
+    if kind in ("nmos", "pmos"):
+        return [element_name(reference, "M")]
+
+    if kind in ("dc_source", "ac_source"):
+        return [element_name(reference, "V")]
+
+    if kind == "current_source":
+        return [element_name(reference, "I")]
+
+    if kind == "switch":
+        return [element_name(reference, "R")]
+
+    if kind == "potentiometer":
+        return [f"R{reference}A", f"R{reference}B"]
+
+    if kind == "transformer":
+        return [
+            element_name(reference, "E"),
+            element_name(reference, "F"),
+        ]
+
+    if kind == "voltage_regulator":
+        return [element_name(reference, "X")]
+
+    if COMPONENT_DEFINITIONS[kind]["prefix"] in ("X", "A"):
+        return [element_name(reference, "X")]
+
+    return []
+
+
+def _formula_names(kind, reference):
+    """
+    Symbols the s-domain formula uses for one part.
+
+    :rtype: set
+    """
+    names = {f"I_{reference}"}
+
+    if kind == "ac_source":
+        names.add(reference)
+
+    return names
 
 
 def _is_plain_integer(candidate_value):
@@ -965,8 +1064,9 @@ class Component:
         self.parameter_texts = texts
         self.parameter_values = values
 
-        # kind and reference are fixed for the life of the part; the
-        # collection keys parts by reference and the prefix follows kind.
+        # The kind is fixed. The collection can rename the reference later;
+        # assigning to the property does not, so the collection key stays
+        # in step with the part.
         self._kind = kind
         self._reference = reference
         self.value_text = clean_text
@@ -997,7 +1097,11 @@ class Component:
     @property
     def reference(self):
         """
-        Reference designator, for example "R1". Read-only.
+        Schematic name, for example "R1" or "BATT".
+
+        Assigning to this property raises. Use
+        ComponentCollection.rename_component so the collection's key
+        changes with the part.
 
         :rtype: str
         """
@@ -1114,26 +1218,34 @@ class Component:
     @staticmethod
     def validate_reference(reference, component_definition):
         """
-        Validate a reference designator such as "R1" for its kind.
+        Validate a schematic name such as "R1" or "BATT".
 
-        The reference must be the kind's prefix followed by a number from
-        1 upward, because SPICE identifies device types by the first letter.
+        The name starts with a letter. The rest is letters, digits and
+        underscores, up to 16 characters. ngspice still needs its device
+        letter, so the netlist adds that letter when the name does not
+        already start with it.
 
-        :param reference: Reference designator to check.
+        :param reference: Schematic name to check.
         :type reference: str
         :param component_definition: Definition of the component kind.
         :type component_definition: dict
         :returns: None
-        :raises ComponentError: If the reference is invalid.
+        :raises ComponentError: If the name is invalid.
         """
-        prefix = component_definition["prefix"]
+        display_name = component_definition["display_name"]
 
-        if not isinstance(reference, str) or not re.fullmatch(
-                re.escape(prefix) + r"[1-9][0-9]{0,5}", reference):
+        if (not isinstance(reference, str) or
+                _REFERENCE_PATTERN.fullmatch(reference) is None):
             raise ComponentError(
-                f"Reference {reference!r} is not valid for a "
-                f"{component_definition['display_name']}. Use '{prefix}' "
-                f"followed by a number, for example {prefix}1."
+                f"Name {reference!r} is not valid for a {display_name}. "
+                "Use a letter, then letters, digits or underscores, up to "
+                f"{MAXIMUM_REFERENCE_LENGTH} characters. For example BATT."
+            )
+
+        if _RESERVED_REFERENCE.fullmatch(reference) is not None:
+            raise ComponentError(
+                f"The name {reference} is reserved for the formula. "
+                "Pick another name, for example BATT."
             )
 
     @staticmethod
@@ -1351,14 +1463,20 @@ def _reference_sort_key(reference):
     """
     Sort key that orders references naturally: R2 before R10.
 
-    :param reference: Reference designator such as "R10" or "GND1".
+    A name with no trailing digits, such as BATT, sorts by its letters.
+
+    :param reference: Reference designator such as "R10" or "BATT".
     :type reference: str
     :returns: (prefix, number) tuple.
     :rtype: tuple
     """
     prefix = reference.rstrip("0123456789")
+    suffix = reference[len(prefix):]
 
-    return (prefix, int(reference[len(prefix):]))
+    if not suffix:
+        return (prefix, -1)
+
+    return (prefix, int(suffix))
 
 
 def _validate_connection_grid(connection_grid):
@@ -1422,7 +1540,7 @@ class ComponentCollection:
         prefix = _lookup_component_definition(kind)["prefix"]
         reference_number = 1
 
-        while f"{prefix}{reference_number}" in self.components_by_reference:
+        while self._reference_taken(f"{prefix}{reference_number}"):
             reference_number += 1
 
         return f"{prefix}{reference_number}"
@@ -1514,11 +1632,6 @@ class ComponentCollection:
         :raises ComponentError: If the part is invalid, off the grid,
             overlapping, or the name is already used. Nothing is stored then.
         """
-        if reference in self.components_by_reference:
-            raise ComponentError(
-                f"{reference} is already on this circuit."
-            )
-
         component = Component(
             kind,
             reference,
@@ -1528,11 +1641,123 @@ class ComponentCollection:
             rotation,
             parameter_texts
         )
+        self._require_reference_available(kind, component.reference)
         self.ensure_pins_fit_grid(component, connection_grid)
         self.ensure_no_overlap(component)
-        self.components_by_reference[reference] = component
+        self.components_by_reference[component.reference] = component
 
         return component
+
+    def rename_component(self, reference, new_reference):
+        """
+        Change a part's schematic name.
+
+        Nothing is stored unless the new name is valid and free. The
+        netlist name must be free too: BATT on a voltage source is VBATT,
+        so it cannot sit beside a part already called VBATT.
+
+        :param reference: Current name, such as "V1".
+        :type reference: str
+        :param new_reference: New name, such as "BATT". Surrounding spaces
+            are ignored.
+        :type new_reference: str
+        :returns: The renamed part.
+        :rtype: Component
+        :raises ComponentError: If the part is unknown or the new name
+            cannot be used. The old name is then kept.
+        """
+        component = self.get_component(reference)
+
+        if isinstance(new_reference, str):
+            new_reference = new_reference.strip()
+
+        if new_reference == component.reference:
+            return component
+
+        self._require_reference_available(
+            component.kind, new_reference, component
+        )
+        del self.components_by_reference[component.reference]
+        component._reference = new_reference
+        self.components_by_reference[new_reference] = component
+
+        return component
+
+    def _reference_taken(self, reference):
+        """
+        Return True when some part already uses this name, ignoring case.
+
+        :rtype: bool
+        """
+        folded = reference.casefold()
+
+        return any(
+            name.casefold() == folded
+            for name in self.components_by_reference
+        )
+
+    def _require_reference_available(self, kind, reference, current=None):
+        """
+        Refuse a name that is invalid, already used, or clashes in SPICE.
+
+        :param current: Part being renamed, which may keep its own name.
+        :type current: Component or None
+        :returns: None
+        :raises ComponentError: If the name cannot be used. Nothing is
+            changed.
+        """
+        Component.validate_reference(
+            reference, _lookup_component_definition(kind)
+        )
+
+        for existing in self.components_by_reference.values():
+            if existing is current:
+                continue
+
+            if existing.reference.casefold() == reference.casefold():
+                if existing.reference == reference:
+                    raise ComponentError(
+                        f"{reference} is already on this circuit."
+                    )
+
+                raise ComponentError(
+                    f"{reference} is already used by {existing.reference}."
+                )
+
+        for spice_name in spice_device_names(kind, reference):
+            for existing in self.components_by_reference.values():
+                if existing is current:
+                    continue
+
+                for other_name in spice_device_names(
+                        existing.kind, existing.reference):
+                    if spice_name.casefold() != other_name.casefold():
+                        continue
+
+                    raise ComponentError(
+                        f"{reference} would be {spice_name} in the "
+                        f"netlist, and {existing.reference} is already "
+                        f"{other_name}."
+                    )
+
+        new_symbols = _formula_names(kind, reference)
+
+        for existing in self.components_by_reference.values():
+            if existing is current:
+                continue
+
+            overlap = new_symbols.intersection(
+                _formula_names(existing.kind, existing.reference)
+            )
+
+            if not overlap:
+                continue
+
+            taken = min(overlap)
+            raise ComponentError(
+                f"{taken} is already used in the formula for "
+                f"{existing.reference}. Pick another name."
+            )
 
     def find_component_with_same_pins(self, component):
         """
