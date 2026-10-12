@@ -1,7 +1,8 @@
 """
-DC operating point and transient through the ngspice shared library.
+DC operating point, transient, and frequency sweep through the ngspice
+shared library.
 
-``run_op`` and ``run_tran`` take the netlist text from
+``run_op``, ``run_tran`` and ``run_ac`` take the netlist text from
 ``core.netlist.build_netlist``. Ground is node 0. ngspice hands node
 names back in lowercase; they are mapped to the spelling in the netlist
 (Vcc stays Vcc).
@@ -289,6 +290,231 @@ def probe_series(probe, transient, name_by_point):
     return transient.time, values
 
 
+class FrequencySweep:
+    """
+    One AC sweep.
+
+    :param frequency: Sample frequencies, in hertz.
+    :type frequency: tuple
+    :param voltages: Node name to a tuple of complex volts.
+        Includes ``"0"`` at 0 V.
+    :type voltages: dict
+    :param currents: Part reference to a tuple of complex amps.
+    :type currents: dict
+    """
+
+    def __init__(self, frequency, voltages, currents):
+        self.frequency = frequency
+        self.voltages = voltages
+        self.currents = currents
+
+
+def ac_source_peak(components):
+    """
+    Return the peak of the one AC source a sweep is measured against.
+
+    Magnitude on the Bode plot is relative to this peak, so a 1 V
+    source and a 2 V source draw the same gain.
+
+    :param components: Placed parts.
+    :rtype: float
+    :raises SimulationError: If there is not exactly one AC source, or
+        its peak is not above zero.
+    """
+    sources = [
+        component for component in components
+        if getattr(component, "kind", None) == "ac_source"
+    ]
+
+    if not sources:
+        raise SimulationError(
+            "Add an AC source before running a frequency sweep."
+        )
+
+    if len(sources) > 1:
+        names = ", ".join(component.reference for component in sources)
+        raise SimulationError(
+            "A frequency sweep uses one AC source. "
+            f"This circuit has {names}."
+        )
+
+    peak = sources[0].value
+
+    if not _positive_number(peak):
+        raise SimulationError(
+            f"{sources[0].reference} needs a peak above zero for a "
+            "frequency sweep."
+        )
+
+    return peak
+
+
+def run_ac(netlist, start, stop, points_per_decade, cancel_event=None):
+    """
+    Run a decade frequency sweep on one SPICE netlist.
+
+    :param netlist: Text from build_netlist.
+    :type netlist: str
+    :param start: First frequency, in hertz.
+    :type start: float
+    :param stop: Last frequency, in hertz.
+    :type stop: float
+    :param points_per_decade: Whole number of points in each decade.
+    :type points_per_decade: int
+    :param cancel_event: Set this to stop the run.
+    :type cancel_event: threading.Event or None
+    :rtype: FrequencySweep
+    :raises SimulationError: ngspice is missing, the sweep settings are
+        not usable, the run was stopped, or the circuit did not solve.
+    """
+    if not isinstance(netlist, str) or not netlist.strip():
+        raise SimulationError(
+            "The netlist text is empty, so it was not run."
+        )
+
+    if not _has_ground(netlist):
+        raise SimulationError("Add a ground part.")
+
+    if (not _positive_number(start) or not _positive_number(stop)
+            or stop <= start):
+        raise SimulationError(
+            "The start and stop frequencies must be positive numbers, "
+            "and the stop must be higher than the start."
+        )
+
+    if (isinstance(points_per_decade, bool)
+            or not isinstance(points_per_decade, int)
+            or not 1 <= points_per_decade <= 100):
+        raise SimulationError(
+            "Points per decade must be a whole number from 1 to 100, "
+            "such as 20."
+        )
+
+    with _LOCK:
+        return _run_ac(
+            netlist, start, stop, points_per_decade, cancel_event
+        )
+
+
+def probe_bode(probe, sweep, name_by_point, reference_peak):
+    """
+    Return ``(frequency, magnitude_db, phase_degrees)`` for one probe.
+
+    A voltage probe is gain against ``reference_peak``. A current probe
+    is dB relative to 1 A. None means this sweep has no sample for it.
+
+    :param probe: Probe to read.
+    :param sweep: Result from ``run_ac``.
+    :param name_by_point: Grid point to SPICE node name.
+    :param reference_peak: AC source peak, in volts.
+    :type reference_peak: float
+    :rtype: tuple or None
+    """
+    if probe.method == "current":
+        values = sweep.currents.get(probe.component_reference)
+        scale = 1.0
+    elif probe.method == "differential":
+        first = _complex_for_point(sweep, name_by_point, probe.identifier)
+        second = _complex_for_point(
+            sweep, name_by_point, probe.second_identifier
+        )
+
+        if first is None or second is None:
+            return None
+
+        values = tuple(left - right for left, right in zip(first, second))
+        scale = reference_peak
+    else:
+        values = _complex_for_point(sweep, name_by_point, probe.identifier)
+        scale = reference_peak
+
+    if values is None:
+        return None
+
+    return (
+        sweep.frequency,
+        magnitude_db(values, scale),
+        phase_degrees(values, scale),
+    )
+
+
+def magnitude_db(values, scale):
+    """
+    Return 20 log10 of each magnitude, relative to ``scale``.
+
+    A zero sample is minus infinity.
+
+    :param values: Complex samples.
+    :param scale: Positive reference, in volts or amps.
+    :rtype: tuple
+    """
+    result = []
+
+    for value in values:
+        magnitude = abs(value) / scale
+
+        if magnitude <= 0:
+            result.append(float("-inf"))
+        else:
+            result.append(20.0 * math.log10(magnitude))
+
+    return tuple(result)
+
+
+def phase_degrees(values, scale):
+    """
+    Return the unwrapped phase of each sample, in degrees.
+
+    ``scale`` is real and positive, so it does not change the phase.
+
+    :param values: Complex samples.
+    :param scale: Positive reference.
+    :rtype: tuple
+    """
+    del scale
+    wrapped = [
+        math.degrees(math.atan2(value.imag, value.real)) for value in values
+    ]
+    return tuple(_unwrap_degrees(wrapped))
+
+
+def sample_at_frequency(frequency, values, when):
+    """
+    Return the sample at ``when`` hertz, interpolated on a log axis.
+
+    :param frequency: Sample frequencies, in hertz.
+    :param values: One number per frequency.
+    :param when: Frequency to read, in hertz.
+    :rtype: float
+    :raises SimulationError: If ``when`` is outside the sweep.
+    """
+    if len(frequency) != len(values) or not frequency:
+        raise SimulationError("The sweep samples are not usable.")
+
+    if when < frequency[0] or when > frequency[-1]:
+        raise SimulationError("That frequency is outside the sweep.")
+
+    for index, hertz in enumerate(frequency):
+        if hertz == when:
+            return values[index]
+
+        if hertz > when:
+            earlier = frequency[index - 1]
+            span = math.log(hertz) - math.log(earlier)
+
+            if span == 0:
+                return values[index - 1]
+
+            fraction = (math.log(when) - math.log(earlier)) / span
+
+            return (
+                values[index - 1]
+                + fraction * (values[index] - values[index - 1])
+            )
+
+    return values[-1]
+
+
 def lit_led_references(components, transient):
     """
     Return LED references whose current exceeds 1 mA at any sample.
@@ -432,6 +658,88 @@ def _positive_number(value):
     )
 
 
+def _run_ac(netlist, start, stop, points_per_decade, cancel_event):
+    from PySpice.Spice.NgSpice.Shared import (
+        NgSpiceCircuitError,
+        NgSpiceCommandError,
+    )
+
+    shared = _shared_library()
+    prepared = _with_ac(netlist, start, stop, points_per_decade)
+
+    try:
+        shared.destroy()
+    except NgSpiceCommandError:
+        shared.clear_output()
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise SimulationError("Stopped.")
+
+    try:
+        shared.load_circuit(prepared)
+        shared.run()
+    except (NgSpiceCommandError, NgSpiceCircuitError, NameError):
+        _raise_plain_failure(shared)
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise SimulationError("Stopped.")
+
+    plot_name = shared.last_plot
+
+    if not plot_name or plot_name == "const":
+        _raise_plain_failure(shared)
+
+    plot = shared.plot(None, plot_name)
+
+    return _read_frequency(plot, netlist)
+
+
+def _with_ac(netlist, start, stop, points_per_decade):
+    lines = [line for line in netlist.splitlines() if line.strip()]
+
+    if lines and lines[-1].strip().lower() == ".end":
+        lines.pop()
+
+    lines.append(".options savecurrents")
+    lines.append(
+        f".ac dec {points_per_decade} {format_spice_number(start)} "
+        f"{format_spice_number(stop)}"
+    )
+    lines.append(".end")
+
+    return "\n".join(lines) + "\n"
+
+
+def _complex_for_point(sweep, name_by_point, identifier):
+    if not identifier:
+        return None
+
+    node = name_by_point.get(identifier)
+
+    if node is None:
+        return None
+
+    return sweep.voltages.get(node)
+
+
+def _unwrap_degrees(wrapped):
+    unwrapped = []
+    previous = None
+
+    for value in wrapped:
+        if previous is not None:
+            while value - previous > 180:
+                value -= 360
+
+            while value - previous < -180:
+                value += 360
+
+        unwrapped.append(value)
+        previous = value
+
+    return unwrapped
+
+
 def _voltage_for_point(transient, name_by_point, identifier):
     if not identifier:
         return None
@@ -507,6 +815,73 @@ def _read_transient(plot, netlist):
     })
 
     return Transient(time_seconds, voltages, currents)
+
+
+def _complex_series(vector):
+    return tuple(complex(value) for value in vector._data)
+
+
+def _read_frequency(plot, netlist):
+    spellings = _spellings(netlist)
+    part_names = {
+        name.lower(): _restore(name, spellings)
+        for name in _top_level_parts(netlist)
+    }
+    frequency = None
+    voltages = {}
+    branch_currents = {}
+    device_currents = {}
+
+    for name, vector in plot.items():
+        if name.lower() == "frequency":
+            frequency = tuple(float(value.real) for value in vector._data)
+            continue
+
+        if vector.is_voltage_node:
+            node = name[2:-1] if name.lower().startswith("v(") else name
+            voltages[_restore(node, spellings)] = _complex_series(vector)
+            continue
+
+        if name.endswith("#branch"):
+            reference = name[:-len("#branch")]
+            original = part_names.get(reference.lower())
+
+            if original is not None:
+                branch_currents[original] = _complex_series(vector)
+
+            continue
+
+        match = _DEVICE_CURRENT.match(name)
+
+        if match is None:
+            continue
+
+        original = part_names.get(match.group(1).lower())
+
+        if original is not None:
+            device_currents[original] = _complex_series(vector)
+
+    if not frequency:
+        raise SimulationError(
+            "The frequency sweep did not return a frequency axis."
+        )
+
+    count = len(frequency)
+    voltages = {
+        name: values for name, values in voltages.items()
+        if len(values) == count
+    }
+    voltages["0"] = tuple(0j for _ in frequency)
+    currents = {
+        name: values for name, values in device_currents.items()
+        if len(values) == count
+    }
+    currents.update({
+        name: values for name, values in branch_currents.items()
+        if len(values) == count
+    })
+
+    return FrequencySweep(frequency, voltages, currents)
 
 
 def _library_path():

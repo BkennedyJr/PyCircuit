@@ -187,6 +187,11 @@ Using it
   Moving a probe redraws it from the last run when that point was in
   the run. An LED lights when its current is above 1 mA. The exact
   V(s) stays next to the DC number.
+- View > Bode opens the frequency-sweep dock (it can float, and it
+  starts as a tab on the oscilloscope). Start sweeps from the start
+  frequency to the stop frequency. Magnitude is dB relative to the
+  one AC source, and phase is degrees. A checked probe is a curve.
+  Editing the circuit clears the curves.
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time

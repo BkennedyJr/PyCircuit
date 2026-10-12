@@ -63,6 +63,8 @@ from core.probes import shunt_loads
 from core.units import format_dc_reading
 from core.wires import WireCollection
 from core.wires import describe_crossings
+from gui.bode_widget import BodeDock
+from gui.bode_widget import BodeRunner
 from gui.component_panel_widget import ComponentPanelWidget
 from gui.dc_numbers import DcOperatingPointRunner
 from gui.help_dialog import HelpDialog
@@ -74,7 +76,9 @@ from gui.grid_editor import ConnectionGridScene
 from gui.grid_editor import ConnectionGridView
 from gui.scope_widget import OscilloscopeDock
 from gui.scope_widget import TransientRunner
+from sim.runner import ac_source_peak
 from sim.runner import lit_led_references
+from sim.runner import probe_bode
 from sim.runner import probe_series
 from sim.runner import transient_step
 
@@ -134,6 +138,15 @@ class MainWindow(QMainWindow):
         self._tran_stop_requested = False
         self._tran_result = None
         self._tran_name_by_point = {}
+        self._ac_thread = None
+        self._ac_runner = None
+        self._ac_run_id = 0
+        self._ac_active_run_id = 0
+        self._ac_cancel = None
+        self._ac_stop_requested = False
+        self._ac_result = None
+        self._ac_name_by_point = {}
+        self._ac_reference_peak = None
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -170,6 +183,7 @@ class MainWindow(QMainWindow):
 
         self.create_actions()
         self.create_oscilloscope_dock()
+        self.create_bode_dock()
         self.create_tool_bar()
         self.create_grid_configuration_toolbar()
         self.create_component_dock()
@@ -426,6 +440,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.selected_node_dock.toggleViewAction())
         view_menu.addAction(self.probe_dock.toggleViewAction())
         view_menu.addAction(self.oscilloscope_dock.toggleViewAction())
+        view_menu.addAction(self.bode_dock.toggleViewAction())
 
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self.help_action)
@@ -510,6 +525,11 @@ class MainWindow(QMainWindow):
 
         self.component_dock = QDockWidget("Components", self)
         self.component_dock.setWidget(self.component_scroll)
+        # The scroll area's own minimum is tiny, so a wide scope would
+        # squash the part names. Keep the dock wide enough for them.
+        self.component_dock.setMinimumWidth(
+            self.component_panel_widget.sizeHint().width()
+        )
 
         self.addDockWidget(
             Qt.LeftDockWidgetArea,
@@ -696,6 +716,20 @@ class MainWindow(QMainWindow):
             self.component_collection.get_components()
         )
 
+    def create_bode_dock(self):
+        """
+        Create the Bode dock. It starts as a tab on the oscilloscope.
+
+        View > Bode shows or hides it. Drag the title bar to move it.
+
+        :returns: None
+        """
+        self.bode_dock = BodeDock(self)
+        self.bode_dock.start_requested.connect(self.run_frequency_sweep)
+        self.bode_dock.stop_requested.connect(self.stop_frequency_sweep)
+        self.bode_dock.channels_changed.connect(self.replot_bode)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.bode_dock)
+
     def configure_docks(self):
         """
         Make every panel drag, float, and dock.
@@ -718,6 +752,7 @@ class MainWindow(QMainWindow):
             (self.selected_node_dock, "selected_connection_point"),
             (self.probe_dock, "probe"),
             (self.oscilloscope_dock, "oscilloscope"),
+            (self.bode_dock, "bode"),
         )
 
         for dock, object_name in named_docks:
@@ -738,6 +773,12 @@ class MainWindow(QMainWindow):
         self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
         self.tabifyDockWidget(self.selected_node_dock, self.probe_dock)
         self.selected_node_dock.raise_()
+        self.selected_node_dock.setMinimumWidth(
+            max(
+                self.selected_node_dock.sizeHint().width(),
+                self.probe_dock.sizeHint().width(),
+            )
+        )
         # Tabs sit at the top of a panel. The default puts them at the
         # bottom, beside the scope.
         for area in (
@@ -754,6 +795,8 @@ class MainWindow(QMainWindow):
         self.main_tool_bar.setFloatable(True)
         self.grid_tool_bar.setMovable(True)
         self.grid_tool_bar.setFloatable(True)
+        self.tabifyDockWidget(self.oscilloscope_dock, self.bode_dock)
+        self.oscilloscope_dock.raise_()
         # Tall enough for the trace, with the controls beside it.
         # A saved arrangement replaces this.
         self.resizeDocks(
@@ -1193,7 +1236,9 @@ class MainWindow(QMainWindow):
         )
         self.show_probe(self.probe_collection.get(reference))
         self.refresh_scope_channels()
+        self.refresh_bode_channels()
         self.replot_transient()
+        self.replot_bode()
 
     def handle_probe_moved(self, reference):
         """
@@ -1209,7 +1254,9 @@ class MainWindow(QMainWindow):
         )
         self.show_probe(self.probe_collection.get(reference))
         self.refresh_scope_channels()
+        self.refresh_bode_channels()
         self.replot_transient()
+        self.replot_bode()
 
     def handle_probe_refused(self, reason):
         """
@@ -1372,7 +1419,9 @@ class MainWindow(QMainWindow):
         self.mark_project_modified(status, keep_scope=True)
         self.show_probe(probe)
         self.refresh_scope_channels()
+        self.refresh_bode_channels()
         self.replot_transient()
+        self.replot_bode()
 
     def _probe_where_text(self, probe):
         """
@@ -2108,7 +2157,9 @@ class MainWindow(QMainWindow):
             self.clear_scope_run()
         else:
             self.refresh_scope_channels()
+            self.refresh_bode_channels()
             self.replot_transient()
+            self.replot_bode()
 
     def reset_component_collection(self):
         """
@@ -2760,6 +2811,226 @@ class MainWindow(QMainWindow):
             self.component_collection.get_components()
         )
         self.refresh_scope_channels()
+        self.clear_bode_run()
+
+    def refresh_bode_channels(self):
+        """
+        Rebuild the Bode plot's probe checkboxes.
+
+        :returns: None
+        """
+        self.bode_dock.set_channels(self.probe_collection.get_probes())
+
+    def clear_bode_run(self):
+        """
+        Drop the last frequency sweep. An in-flight run is ignored.
+
+        Probe checkboxes stay.
+
+        :returns: None
+        """
+        self._ac_run_id += 1
+
+        if self._ac_cancel is not None:
+            self._ac_cancel.set()
+
+        self._ac_result = None
+        self._ac_name_by_point = {}
+        self._ac_reference_peak = None
+        self.bode_dock.clear_traces()
+        self.refresh_bode_channels()
+
+    def replot_bode(self):
+        """
+        Draw the checked probes from the last frequency sweep.
+
+        :returns: None
+        """
+        result = self._ac_result
+
+        if result is None:
+            return
+
+        enabled = set(self.bode_dock.enabled_references())
+        traces = []
+        missing = []
+
+        for probe in self.probe_collection.get_probes():
+            series = None
+
+            if probe.reference in enabled:
+                series = probe_bode(
+                    probe,
+                    result,
+                    self._ac_name_by_point,
+                    self._ac_reference_peak,
+                )
+
+            if probe.reference in enabled and series is None:
+                missing.append(probe.reference)
+
+            if series is None:
+                continue
+
+            name = probe.reference
+
+            if probe.method == "current":
+                name = f"{probe.reference} (dB A)"
+
+            traces.append((name, probe.color, series[0], series[1], series[2]))
+
+        self.bode_dock.show_traces(traces)
+
+        if missing:
+            names = ", ".join(missing)
+            self.statusBar().showMessage(
+                f"Press Start again. {names} is not in the last sweep.",
+                7000,
+            )
+
+    def run_frequency_sweep(self):
+        """
+        Build the netlist, including probe loads, and sweep it in the
+        background.
+
+        :returns: None
+        """
+        if self._ac_thread is not None:
+            return
+
+        try:
+            parts = self.component_collection.get_components()
+            peak = ac_source_peak(parts)
+            start = self.bode_dock.start_hertz()
+            stop = self.bode_dock.stop_hertz()
+            points = self.bode_dock.points_per_decade()
+            netlist = build_netlist(
+                parts, self.wire_collection, self.connection_grid
+            )
+            name_by_point, _draw_at = spice_node_map(
+                parts, self.wire_collection, self.connection_grid
+            )
+            netlist = append_shunt_loads(
+                netlist,
+                shunt_loads(self.probe_collection.get_probes()),
+                name_by_point,
+            )
+        except (SimulationError, ComponentError) as error:
+            self.show_error_message(
+                "Bode",
+                str(error),
+                "Fix the circuit or the frequency settings, then press "
+                "Start again."
+            )
+            return
+
+        self._ac_run_id += 1
+        run_id = self._ac_run_id
+        cancel = threading.Event()
+        thread = QThread(self)
+        runner = BodeRunner(netlist, start, stop, points, cancel)
+        runner.moveToThread(thread)
+        thread.started.connect(runner.run)
+        runner.succeeded.connect(self._on_ac_succeeded)
+        runner.failed.connect(self._on_ac_failed)
+        runner.succeeded.connect(thread.quit)
+        runner.failed.connect(thread.quit)
+        thread.finished.connect(self._on_ac_thread_finished)
+        self._ac_thread = thread
+        self._ac_runner = runner
+        self._ac_cancel = cancel
+        self._ac_stop_requested = False
+        self._ac_active_run_id = run_id
+        self._ac_name_by_point = name_by_point
+        self._ac_reference_peak = peak
+        self.bode_dock.set_running(True)
+        self.statusBar().showMessage("Running the frequency sweep...")
+        thread.start()
+
+    def stop_frequency_sweep(self):
+        """
+        Ask the running sweep to drop its result.
+
+        :returns: None
+        """
+        if self._ac_thread is None:
+            return
+
+        self._ac_stop_requested = True
+        self._ac_run_id += 1
+
+        if self._ac_cancel is not None:
+            self._ac_cancel.set()
+
+        self.statusBar().showMessage("Stopping the Bode plot...")
+
+    def _on_ac_succeeded(self, result):
+        """
+        Draw a finished sweep when the circuit has not changed.
+
+        :param result: FrequencySweep from the background run.
+        :returns: None
+        """
+        if self._ac_active_run_id != self._ac_run_id:
+            return
+
+        self._ac_result = result
+        self.replot_bode()
+        self.statusBar().showMessage("Bode plot updated.", 5000)
+
+    def _on_ac_failed(self, reason):
+        """
+        Show why the sweep failed, if that run is still current.
+
+        :param reason: Plain-English message.
+        :type reason: str
+        :returns: None
+        """
+        if self._ac_active_run_id != self._ac_run_id:
+            return
+
+        if reason == "Stopped.":
+            self.statusBar().showMessage("Stopped.", 5000)
+            return
+
+        self.show_error_message(
+            "Bode",
+            reason,
+            "Fix the circuit, then press Start again."
+        )
+
+    def _on_ac_thread_finished(self):
+        """
+        Allow another sweep once the background thread has stopped.
+
+        :returns: None
+        """
+        stopped = self._ac_stop_requested
+        self._ac_thread = None
+        self._ac_runner = None
+        self._ac_cancel = None
+        self._ac_stop_requested = False
+        self.bode_dock.set_running(False)
+
+        if stopped:
+            self.statusBar().showMessage("Stopped.", 5000)
+
+    def _stop_ac_thread(self):
+        """
+        Wait for a background sweep to stop.
+
+        :returns: None
+        """
+        if self._ac_cancel is not None:
+            self._ac_cancel.set()
+
+        thread = self._ac_thread
+
+        if thread is None:
+            return
+
+        thread.quit()
+        thread.wait(3000)
 
     def replot_transient(self):
         """
@@ -3011,8 +3282,10 @@ class MainWindow(QMainWindow):
         """
         self._dc_run_id += 1
         self._tran_run_id += 1
+        self._ac_run_id += 1
         self._stop_dc_thread()
         self._stop_tran_thread()
+        self._stop_ac_thread()
 
         if not self.is_project_modified:
             self.save_window_arrangement()
