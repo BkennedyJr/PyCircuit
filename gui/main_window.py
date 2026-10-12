@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QScrollArea
+from PyQt5.QtWidgets import QTabWidget
 from PyQt5.QtWidgets import QToolBar
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QWidget
@@ -737,6 +738,15 @@ class MainWindow(QMainWindow):
         self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
         self.tabifyDockWidget(self.selected_node_dock, self.probe_dock)
         self.selected_node_dock.raise_()
+        # Tabs sit at the top of a panel. The default puts them at the
+        # bottom, beside the scope.
+        for area in (
+            Qt.LeftDockWidgetArea,
+            Qt.RightDockWidgetArea,
+            Qt.TopDockWidgetArea,
+            Qt.BottomDockWidgetArea,
+        ):
+            self.setTabPosition(area, QTabWidget.North)
 
         self.main_tool_bar.setObjectName("main_toolbar")
         self.grid_tool_bar.setObjectName("grid_toolbar")
@@ -744,11 +754,11 @@ class MainWindow(QMainWindow):
         self.main_tool_bar.setFloatable(True)
         self.grid_tool_bar.setMovable(True)
         self.grid_tool_bar.setFloatable(True)
-        # A short scope under the circuit. A saved arrangement replaces
-        # this, and the user can drag the edge taller.
+        # Tall enough for the trace, with the controls beside it.
+        # A saved arrangement replaces this.
         self.resizeDocks(
             [self.oscilloscope_dock],
-            [260],
+            [400],
             Qt.Vertical,
         )
         self.restore_window_arrangement()
@@ -766,8 +776,8 @@ class MainWindow(QMainWindow):
             return
 
         settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
-        settings.setValue("geometry", self.saveGeometry())
-        settings.setValue("state", self.saveState())
+        settings.setValue("geometry-v2", self.saveGeometry())
+        settings.setValue("state-v2", self.saveState())
 
     def restore_window_arrangement(self):
         """
@@ -779,8 +789,9 @@ class MainWindow(QMainWindow):
             return
 
         settings = QSettings("CircuitWorkbench", "CircuitWorkbench")
-        geometry = settings.value("geometry")
-        state = settings.value("state")
+        # v2 drops the short scope that hid its controls under the grid.
+        geometry = settings.value("geometry-v2")
+        state = settings.value("state-v2")
 
         if geometry is not None:
             self.restoreGeometry(geometry)

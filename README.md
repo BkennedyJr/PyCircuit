@@ -178,10 +178,12 @@ Using it
   closed panel again. The scope starts under the circuit, so it does
   not cover the part buttons. That arrangement is remembered the next
   time the program opens.
-- View > Oscilloscope opens the scope dock (it can float). Start runs
-  a transient and draws each checked probe. Stop drops that run. The
-  run is five periods of the slowest sine, or 10 ms. Time per division
-  and volts per division set the grid; leave volts blank for Auto.
+- View > Oscilloscope opens the scope dock (it can float). The run
+  time, time per division, and volts per division sit beside the
+  trace. Start runs a transient and draws each checked probe. Stop
+  drops that run. The run is five periods of the slowest sine, or
+  10 ms. Time per division and volts per division set the grid; leave
+  volts blank for Auto.
   Moving a probe redraws it from the last run when that point was in
   the run. An LED lights when its current is above 1 mA. The exact
   V(s) stays next to the DC number.
