@@ -8,7 +8,7 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: cursors on the plots.
+Planned next: re-run the plots when a value changes.
 
 
 Requirements
@@ -199,10 +199,15 @@ Using it
   the peak of that wave. A 1 V sine that lasts a whole number of
   cycles is a 1 V line at its frequency. Run the oscilloscope to
   draw it. Editing the circuit clears it.
+- The oscilloscope, Bode, and FFT each have two cursors, A and B.
+  Drag the dashed lines. The box under the controls reads both and
+  the difference, B minus A. On Bode that difference is frequency,
+  decibels, and degrees. A trace chooser appears when more than one
+  probe is drawn.
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12).
 
 
 Third-party files

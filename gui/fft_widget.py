@@ -19,6 +19,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.cursors import format_cursor_text, value_at
+from gui.plot_cursors import CursorBox
+
 
 class FftPlot(pg.PlotWidget):
     """
@@ -58,16 +61,6 @@ class FftDock(QDockWidget):
         self.note_label = QLabel("Run the oscilloscope to see a spectrum.")
         self.note_label.setWordWrap(True)
 
-        controls_layout = QVBoxLayout()
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.addLayout(self.channel_layout)
-        controls_layout.addWidget(self.note_label)
-        controls_layout.addStretch(1)
-        controls = QWidget()
-        controls.setLayout(controls_layout)
-        controls.setMinimumWidth(220)
-        controls.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-
         self.plot = FftPlot()
         self.plot.setBackground("#1b1e23")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
@@ -76,6 +69,18 @@ class FftDock(QDockWidget):
         self.plot.addLegend()
         self.plot.setMinimumHeight(120)
         self.plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        controls_layout = QVBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.addLayout(self.channel_layout)
+        controls_layout.addWidget(self.note_label)
+        self.cursors = CursorBox((self.plot,), controls_layout)
+        self.cursors.describe = _fft_cursor_text
+        controls_layout.addStretch(1)
+        controls = QWidget()
+        controls.setLayout(controls_layout)
+        controls.setMinimumWidth(220)
+        controls.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         row.addWidget(controls)
         row.addWidget(self.plot, stretch=1)
@@ -143,6 +148,9 @@ class FftDock(QDockWidget):
         :returns: None
         """
         self._clear_plot()
+        series = {}
+        lowest = None
+        highest = None
 
         for name, color, frequency, peak in traces:
             pen = pg.mkPen(color, width=2)
@@ -157,6 +165,9 @@ class FftDock(QDockWidget):
 
             hertz, height = zip(*finite)
             self.plot.plot(list(hertz), list(height), pen=pen, name=name)
+            series[name] = (hertz, height)
+            lowest = min(hertz) if lowest is None else min(lowest, min(hertz))
+            highest = max(hertz) if highest is None else max(highest, max(hertz))
 
         if traces:
             self.note_label.setText(
@@ -168,6 +179,11 @@ class FftDock(QDockWidget):
                 "Check a probe. This is the spectrum of the oscilloscope."
             )
 
+        if lowest is None:
+            self.cursors.show_series([], {}, 0, 1)
+        else:
+            self.cursors.show_series(list(series), series, lowest, highest)
+
     def clear_traces(self):
         """
         Remove the traces. The checkboxes stay.
@@ -176,6 +192,7 @@ class FftDock(QDockWidget):
         """
         self._clear_plot()
         self.note_label.setText("Run the oscilloscope to see a spectrum.")
+        self.cursors.clear()
 
     def plotted_spectrum(self):
         """
@@ -195,9 +212,30 @@ class FftDock(QDockWidget):
 
         return series
 
+    def set_cursors(self, first_hertz, second_hertz):
+        """
+        Put the cursors on two frequencies.
+
+        :param first_hertz: Cursor A, in hertz.
+        :param second_hertz: Cursor B, in hertz.
+        :returns: None
+        """
+        self.cursors.set_positions(first_hertz, second_hertz)
+
     def _clear_plot(self):
-        self.plot.clear()
+        self.plot.plotItem.clearPlots()
         legend = self.plot.plotItem.legend
 
         if legend is not None:
             legend.clear()
+
+
+def _fft_cursor_text(name, series, first, second):
+    frequency, peak = series
+    return format_cursor_text(
+        name,
+        first,
+        second,
+        "Hz",
+        ((value_at(frequency, peak, first), value_at(frequency, peak, second), ""),),
+    )

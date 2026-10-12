@@ -5,6 +5,8 @@ Magnitude is dB relative to the AC source. Phase is degrees. The
 frequency axis is logarithmic.
 """
 
+import math
+
 import pyqtgraph as pg
 from PyQt5.QtCore import QObject, QSize, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -20,8 +22,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.cursors import format_cursor_text, value_at_log_x
 from core.exceptions import ComponentError
 from core.units import parse_value
+from gui.plot_cursors import CursorBox
 
 
 class BodePlot(pg.PlotWidget):
@@ -94,12 +98,20 @@ class BodeDock(QDockWidget):
         )
         self.note_label.setWordWrap(True)
 
+        self.magnitude = _styled_plot("Magnitude", "dB")
+        self.phase = _styled_plot("Phase", "deg")
+        self.phase.setXLink(self.magnitude)
+
         controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.addLayout(form)
         controls_layout.addLayout(buttons)
         controls_layout.addLayout(self.channel_layout)
         controls_layout.addWidget(self.note_label)
+        self.cursors = CursorBox(
+            (self.magnitude, self.phase), controls_layout
+        )
+        self.cursors.describe = _bode_cursor_text
         controls_layout.addStretch(1)
         controls = QWidget()
         controls.setLayout(controls_layout)
@@ -107,9 +119,6 @@ class BodeDock(QDockWidget):
         controls.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         plots = QVBoxLayout()
-        self.magnitude = _styled_plot("Magnitude", "dB")
-        self.phase = _styled_plot("Phase", "deg")
-        self.phase.setXLink(self.magnitude)
         plots.addWidget(self.magnitude, stretch=1)
         plots.addWidget(self.phase, stretch=1)
 
@@ -243,6 +252,9 @@ class BodeDock(QDockWidget):
         """
         self._clear_plot(self.magnitude)
         self._clear_plot(self.phase)
+        series = {}
+        lowest = None
+        highest = None
 
         for name, color, frequency, decibels, phase in traces:
             pen = pg.mkPen(color, width=2)
@@ -258,6 +270,9 @@ class BodeDock(QDockWidget):
             hertz, db, degrees = zip(*finite)
             self.magnitude.plot(list(hertz), list(db), pen=pen, name=name)
             self.phase.plot(list(hertz), list(degrees), pen=pen, name=name)
+            series[name] = (hertz, db, degrees)
+            lowest = min(hertz) if lowest is None else min(lowest, min(hertz))
+            highest = max(hertz) if highest is None else max(highest, max(hertz))
 
         if traces:
             self.note_label.setText(
@@ -266,6 +281,16 @@ class BodeDock(QDockWidget):
             )
         else:
             self.note_label.setText("Check a probe, then press Start.")
+
+        if lowest is None:
+            self.cursors.show_series([], {}, 0, 1)
+        else:
+            self.cursors.show_series(
+                list(series),
+                series,
+                math.log10(lowest),
+                math.log10(highest),
+            )
 
     def clear_traces(self):
         """
@@ -278,6 +303,21 @@ class BodeDock(QDockWidget):
         self.note_label.setText(
             "Press Start. Magnitude is dB relative to the AC source."
         )
+        self.cursors.clear()
+
+    def set_cursors(self, first_hertz, second_hertz):
+        """
+        Put the cursors on two frequencies.
+
+        :param first_hertz: Cursor A, in hertz.
+        :param second_hertz: Cursor B, in hertz.
+        :returns: None
+        :raises ComponentError: If a frequency is not above 0.
+        """
+        self.cursors.set_positions(
+            _log_hertz(first_hertz),
+            _log_hertz(second_hertz),
+        )
 
     def plotted_magnitude(self):
         """
@@ -289,7 +329,7 @@ class BodeDock(QDockWidget):
 
     @staticmethod
     def _clear_plot(plot):
-        plot.clear()
+        plot.plotItem.clearPlots()
         legend = plot.plotItem.legend
 
         if legend is not None:
@@ -343,6 +383,40 @@ class BodeRunner(QObject):
             return
 
         self.succeeded.emit(result)
+
+
+def _bode_cursor_text(name, series, first_log, second_log):
+    frequency, decibels, phase = series
+    first_hertz = 10.0 ** first_log
+    second_hertz = 10.0 ** second_log
+    return format_cursor_text(
+        name,
+        first_hertz,
+        second_hertz,
+        "Hz",
+        (
+            (
+                value_at_log_x(frequency, decibels, first_hertz),
+                value_at_log_x(frequency, decibels, second_hertz),
+                "dB",
+            ),
+            (
+                value_at_log_x(frequency, phase, first_hertz),
+                value_at_log_x(frequency, phase, second_hertz),
+                "deg",
+            ),
+        ),
+    )
+
+
+def _log_hertz(hertz):
+    if not isinstance(hertz, (int, float)) or isinstance(hertz, bool):
+        raise ComponentError("A Bode cursor has to sit above 0 Hz.")
+
+    if not math.isfinite(hertz) or hertz <= 0:
+        raise ComponentError("A Bode cursor has to sit above 0 Hz.")
+
+    return math.log10(hertz)
 
 
 def _styled_plot(label, units):

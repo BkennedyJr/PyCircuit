@@ -20,8 +20,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.cursors import format_cursor_text, value_at
 from core.exceptions import ComponentError
 from core.units import format_spice_number, parse_value
+from gui.plot_cursors import CursorBox
 from sim.runner import default_transient_stop
 
 SCOPE_DIVISIONS = 10
@@ -106,19 +108,6 @@ class OscilloscopeDock(QDockWidget):
         self.note_label = QLabel("Press Start.")
         self.note_label.setWordWrap(True)
 
-        controls_layout = QVBoxLayout()
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.addLayout(form)
-        controls_layout.addLayout(buttons)
-        controls_layout.addLayout(self.channel_layout)
-        controls_layout.addWidget(self.note_label)
-        controls_layout.addStretch(1)
-        controls = QWidget()
-        controls.setLayout(controls_layout)
-        # Stay a column. The trace beside it uses the rest of the dock.
-        controls.setMinimumWidth(220)
-        controls.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-
         self.plot = ScopePlot()
         self.plot.setBackground("#1b1e23")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
@@ -127,6 +116,21 @@ class OscilloscopeDock(QDockWidget):
         self.plot.addLegend()
         self.plot.setMinimumHeight(180)
         self.plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        controls_layout = QVBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.addLayout(form)
+        controls_layout.addLayout(buttons)
+        controls_layout.addLayout(self.channel_layout)
+        controls_layout.addWidget(self.note_label)
+        self.cursors = CursorBox((self.plot,), controls_layout)
+        self.cursors.describe = _scope_cursor_text
+        controls_layout.addStretch(1)
+        controls = QWidget()
+        controls.setLayout(controls_layout)
+        # Stay a column. The trace beside it uses the rest of the dock.
+        controls.setMinimumWidth(220)
+        controls.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         row.addWidget(controls)
         row.addWidget(self.plot, stretch=1)
@@ -277,11 +281,13 @@ class OscilloscopeDock(QDockWidget):
         :param volts_per_division: Volts across one division, or None.
         :returns: None
         """
-        self.plot.clear()
+        self.plot.plotItem.clearPlots()
         legend = self.plot.plotItem.legend
 
         if legend is not None:
             legend.clear()
+
+        series = {}
 
         for name, color, time_seconds, values in traces:
             self.plot.plot(
@@ -290,8 +296,13 @@ class OscilloscopeDock(QDockWidget):
                 pen=pg.mkPen(color, width=2),
                 name=name,
             )
+            series[name] = (
+                tuple(float(value) for value in time_seconds),
+                tuple(float(value) for value in values),
+            )
 
-        self.plot.setXRange(0, SCOPE_DIVISIONS * time_per_division, padding=0)
+        window = SCOPE_DIVISIONS * time_per_division
+        self.plot.setXRange(0, window, padding=0)
 
         if volts_per_division is None:
             self.plot.enableAutoRange(axis="y")
@@ -304,19 +315,32 @@ class OscilloscopeDock(QDockWidget):
         else:
             self.note_label.setText("Check a probe, then press Start.")
 
+        self.cursors.show_series(list(series), series, 0, window)
+
+    def set_cursors(self, first_seconds, second_seconds):
+        """
+        Put the cursors on two times.
+
+        :param first_seconds: Cursor A, in seconds.
+        :param second_seconds: Cursor B, in seconds.
+        :returns: None
+        """
+        self.cursors.set_positions(first_seconds, second_seconds)
+
     def clear_traces(self):
         """
         Remove the traces. The checkboxes stay.
 
         :returns: None
         """
-        self.plot.clear()
+        self.plot.plotItem.clearPlots()
         legend = self.plot.plotItem.legend
 
         if legend is not None:
             legend.clear()
 
         self.note_label.setText("Press Start.")
+        self.cursors.clear()
 
     def plotted_series(self):
         """
@@ -381,6 +405,17 @@ class TransientRunner(QObject):
             return
 
         self.succeeded.emit(result)
+
+
+def _scope_cursor_text(name, series, first, second):
+    times, values = series
+    return format_cursor_text(
+        name,
+        first,
+        second,
+        "s",
+        ((value_at(times, values, first), value_at(times, values, second), ""),),
+    )
 
 
 def _positive_time(text, label):

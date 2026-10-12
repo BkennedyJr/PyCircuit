@@ -59,9 +59,11 @@ which of those to do, and what comes after them.
    1 V, 1 kHz sine: a 1 V line at 1 kHz. The 1k / 159n low-pass is
    about 0.707 V at that line. V(s) stays next to the DC number.
 
-7. Cursors on the plots
-   Only after the scope, Bode and FFT exist. Two cursors, and the
-   difference between them.
+7. Cursors on the plots (done)
+   The oscilloscope, Bode, and FFT each have two cursors, A and B.
+   Drag them. The dock shows both readings and the difference,
+   B minus A. On Bode the value between two frequencies follows the
+   log axis. V(s) stays next to the DC number.
 
 8. Re-run when a value changes
    Change a resistor, a source, a pot position or a switch and the
