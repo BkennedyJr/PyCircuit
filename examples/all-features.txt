@@ -41,8 +41,10 @@ Simulate > DC Operating Point. These are the checks:
 
 - The three 10k / 10k dividers on V10 read 5 V in the middle.
   Change the bottom resistor of one to 30k and that middle becomes
-  7.5 V. A source, a pot position, or a switch does the same: the
-  DC numbers, and any plot already showing, run again.
+  7.5 V. A source, a pot position, or a switch does the same.
+  Continuous (the usual choice) runs the DC numbers and any plot
+  already showing. Snapshot keeps one reading, and a new value
+  clears it.
 - The wire that hops the vertical ground wire reads 6 V. Without that
   bridge the same point would be ground.
 - The potentiometer is at position 0.5, so the wiper is about 6 V.

@@ -22,6 +22,7 @@ from PyQt5.QtGui import QPainter
 from PyQt5.QtPrintSupport import QPrintDialog
 from PyQt5.QtPrintSupport import QPrinter
 from PyQt5.QtWidgets import QAction
+from PyQt5.QtWidgets import QActionGroup
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QComboBox
 from PyQt5.QtWidgets import QDialog
@@ -152,6 +153,9 @@ class MainWindow(QMainWindow):
         self._ac_name_by_point = {}
         self._ac_reference_peak = None
         self._ac_rerun = False
+        # Continuous runs a showing result again when a value changes.
+        # Snapshot keeps that one reading and clears it on the next edit.
+        self._continuous = True
 
         self.connection_grid_scene = ConnectionGridScene(
             self.connection_grid,
@@ -314,6 +318,27 @@ class MainWindow(QMainWindow):
             self.run_dc_operating_point
         )
 
+        self.snapshot_action = QAction("Snapshot", self)
+        self.snapshot_action.setCheckable(True)
+        self.snapshot_action.setToolTip(
+            "Keep one reading. A new value clears the DC numbers and "
+            "the plots."
+        )
+        self.continuous_action = QAction("Continuous", self)
+        self.continuous_action.setCheckable(True)
+        self.continuous_action.setChecked(True)
+        self.continuous_action.setToolTip(
+            "A new value updates the DC numbers and any plot already "
+            "showing."
+        )
+        self._update_mode_group = QActionGroup(self)
+        self._update_mode_group.setExclusive(True)
+        self._update_mode_group.addAction(self.snapshot_action)
+        self._update_mode_group.addAction(self.continuous_action)
+        self._update_mode_group.triggered.connect(
+            self._on_update_mode_action
+        )
+
         self.print_action = QAction("Print...", self)
         self.print_action.setShortcut(QKeySequence.Print)
         self.print_action.setToolTip("Print the circuit")
@@ -436,6 +461,9 @@ class MainWindow(QMainWindow):
 
         simulate_menu = self.menuBar().addMenu("&Simulate")
         simulate_menu.addAction(self.dc_operating_point_action)
+        simulate_menu.addSeparator()
+        simulate_menu.addAction(self.snapshot_action)
+        simulate_menu.addAction(self.continuous_action)
 
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.zoom_in_action)
@@ -718,6 +746,9 @@ class MainWindow(QMainWindow):
         self.oscilloscope_dock.start_requested.connect(self.run_transient)
         self.oscilloscope_dock.stop_requested.connect(self.stop_transient)
         self.oscilloscope_dock.channels_changed.connect(self.replot_transient)
+        self.oscilloscope_dock.update_mode_combo.activated.connect(
+            self._on_update_mode_combo
+        )
         self.addDockWidget(Qt.BottomDockWidgetArea, self.oscilloscope_dock)
         self.oscilloscope_dock.refresh_automatic_times(
             self.component_collection.get_components()
@@ -735,6 +766,9 @@ class MainWindow(QMainWindow):
         self.bode_dock.start_requested.connect(self.run_frequency_sweep)
         self.bode_dock.stop_requested.connect(self.stop_frequency_sweep)
         self.bode_dock.channels_changed.connect(self.replot_bode)
+        self.bode_dock.update_mode_combo.activated.connect(
+            self._on_update_mode_combo
+        )
         self.addDockWidget(Qt.BottomDockWidgetArea, self.bode_dock)
 
     def create_fft_dock(self):
@@ -748,6 +782,9 @@ class MainWindow(QMainWindow):
         """
         self.fft_dock = FftDock(self)
         self.fft_dock.channels_changed.connect(self.replot_fft)
+        self.fft_dock.update_mode_combo.activated.connect(
+            self._on_update_mode_combo
+        )
         self.addDockWidget(Qt.BottomDockWidgetArea, self.fft_dock)
 
     def configure_docks(self):
@@ -1668,7 +1705,8 @@ class MainWindow(QMainWindow):
 
         Moving a probe keeps the last oscilloscope run so the trace can
         follow that point. Moving or deleting a part drops the DC
-        numbers and the plots. A new value runs them again instead.
+        numbers and the plots. In Continuous, a new value runs them
+        again. Snapshot keeps one reading and the next edit clears it.
 
         :param status_message: Status-bar text.
         :type status_message: str
@@ -2058,7 +2096,10 @@ class MainWindow(QMainWindow):
         else:
             status = f"Set {component.reference} to {shown}."
 
-        self.mark_project_modified(status, refresh_results=value_changed)
+        self.mark_project_modified(
+            status,
+            refresh_results=value_changed and self._continuous,
+        )
 
     def handle_component_moved(self, reference):
         """
@@ -2724,6 +2765,68 @@ class MainWindow(QMainWindow):
         )
         self.refresh_selected_node_formula()
         self.statusBar().showMessage("DC operating point is drawn.", 5000)
+
+    def set_continuous(self, continuous):
+        """
+        Choose whether a new value updates the readings.
+
+        Continuous runs the DC numbers and any plot already showing.
+        Snapshot leaves the current reading until the next edit, which
+        clears it. The Simulate menu and the plot boxes stay together.
+
+        :param continuous: True for Continuous, False for Snapshot.
+        :type continuous: bool
+        :returns: None
+        """
+        continuous = bool(continuous)
+        changed = continuous != self._continuous
+        self._continuous = continuous
+
+        if continuous:
+            self.continuous_action.setChecked(True)
+        else:
+            self.snapshot_action.setChecked(True)
+
+        index = 1 if continuous else 0
+
+        for dock in (
+                self.oscilloscope_dock, self.bode_dock, self.fft_dock):
+            dock.update_mode_combo.setCurrentIndex(index)
+
+        if not changed:
+            return
+
+        if continuous:
+            message = (
+                "Continuous: a new value updates the DC numbers and "
+                "the plots."
+            )
+        else:
+            message = (
+                "Snapshot: a new value clears the DC numbers and the plots."
+            )
+
+        self.statusBar().showMessage(message, 5000)
+
+    def _on_update_mode_action(self, action):
+        """
+        Follow a Snapshot or Continuous choice from the Simulate menu.
+
+        :param action: The menu action the user chose.
+        :type action: QAction
+        :returns: None
+        """
+        self.set_continuous(action is self.continuous_action)
+
+    def _on_update_mode_combo(self, index):
+        """
+        Follow a Snapshot or Continuous choice on a plot.
+
+        :param index: 0 is Snapshot, 1 is Continuous.
+        :type index: int
+        :returns: None
+        """
+        self.set_continuous(index == 1)
 
     def refresh_shown_results(self):
         """

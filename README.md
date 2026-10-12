@@ -174,9 +174,12 @@ Using it
   loads. The same netlist is what ngspice uses for the DC operating
   point. Simulate > DC Operating Point draws those voltages on the
   nodes and those currents on the parts. The selected point shows the
-  DC voltage next to V(s). Change a resistor, a source, a pot
-  position, or a switch and those numbers run again. Moving or
-  deleting a part clears them.
+  DC voltage next to V(s). Simulate > Continuous is the usual
+  choice: change a resistor, a source, a pot position, or a switch
+  and those numbers run again, along with any plot already showing.
+  Simulate > Snapshot keeps one reading, and a new value clears it.
+  The same choice is on the oscilloscope, Bode, and FFT. Moving or
+  deleting a part clears them either way.
 - Drag a panel by its title bar. Drop it on an edge to dock it, drop
   it on another panel to put them in tabs, or float it. View shows a
   closed panel again. The scope starts under the circuit, so it does
@@ -189,20 +192,22 @@ Using it
   10 ms. Time per division and volts per division set the grid; leave
   volts blank for Auto.
   Moving a probe redraws it from the last run when that point was in
-  the run. An LED lights when its current is above 1 mA. Change a
-  value and the trace runs again, and the spectrum follows it. The
-  exact V(s) stays next to the DC number.
+  the run. An LED lights when its current is above 1 mA. In
+  Continuous, a new value runs the trace again and the spectrum
+  follows it. The exact V(s) stays next to the DC number.
 - View > Bode opens the frequency-sweep dock (it can float, and it
   starts as a tab on the oscilloscope). Start sweeps from the start
   frequency to the stop frequency. Magnitude is dB relative to the
   one AC source, and phase is degrees. A checked probe is a curve.
-  Change a value and the curves run again. Moving or deleting a
-  part clears them.
+  In Continuous, a new value runs the curves again. Snapshot, or
+  moving or deleting a part, clears them.
 - View > FFT opens the spectrum of the oscilloscope waveform (it can
   float, and it starts as a tab on the oscilloscope). The height is
   the peak of that wave. A 1 V sine that lasts a whole number of
   cycles is a 1 V line at its frequency. Run the oscilloscope to
-  draw it. Editing the circuit clears it.
+  draw it. In Continuous a new value runs that oscilloscope again
+  and this spectrum follows it. Snapshot, or moving or deleting a
+  part, clears it.
 - The oscilloscope, Bode, and FFT each have two cursors, A and B.
   Drag the dashed lines. The box under the controls reads both and
   the difference, B minus A. On Bode that difference is frequency,
@@ -211,7 +216,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14).
 
 
 Third-party files

@@ -26,6 +26,7 @@ from core.cursors import format_cursor_text, value_at_log_x
 from core.exceptions import ComponentError
 from core.units import parse_value
 from gui.plot_cursors import CursorBox
+from gui.update_mode import update_mode_combo
 
 
 class BodePlot(pg.PlotWidget):
@@ -77,6 +78,8 @@ class BodeDock(QDockWidget):
 
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.update_mode_combo = update_mode_combo()
+        form.addRow("Update:", self.update_mode_combo)
         form.addRow("Start:", self.start_edit)
         form.addRow("Stop:", self.stop_edit)
         form.addRow("Points / dec:", self.points_edit)

@@ -24,6 +24,7 @@ from core.cursors import format_cursor_text, value_at
 from core.exceptions import ComponentError
 from core.units import format_spice_number, parse_value
 from gui.plot_cursors import CursorBox
+from gui.update_mode import update_mode_combo
 from sim.runner import default_transient_stop
 
 SCOPE_DIVISIONS = 10
@@ -89,6 +90,8 @@ class OscilloscopeDock(QDockWidget):
 
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.update_mode_combo = update_mode_combo()
+        form.addRow("Update:", self.update_mode_combo)
         form.addRow("Run time:", self.run_time_edit)
         form.addRow("Time / div:", self.time_div_edit)
         form.addRow("Volts / div:", self.volts_edit)
