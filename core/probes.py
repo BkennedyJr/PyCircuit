@@ -80,6 +80,77 @@ class Probe:
         self.second_identifier = second_identifier
         self.component_reference = component_reference
         self.has_plot = False
+        # Scene pixels from the measured point to where the flag was
+        # released. (0, 0) is the usual place, up and to the left.
+        self.flag_offset = (0.0, 0.0)
+        self.second_flag_offset = (0.0, 0.0)
+
+    def offset_for(self, which="primary"):
+        """
+        Return the flag shift for one end of this probe.
+
+        :param which: ``"primary"`` or ``"second"``.
+        :type which: str
+        :returns: ``(across, down)`` in scene pixels.
+        :rtype: tuple
+        :raises ComponentError: If ``which`` is not an end of a probe.
+        """
+        if which == "primary":
+            return self.flag_offset
+
+        if which == "second":
+            return self.second_flag_offset
+
+        raise ComponentError(
+            f"A probe flag must be 'primary' or 'second', not {which!r}."
+        )
+
+    def set_flag_offset(self, dx, dy, which="primary"):
+        """
+        Remember where one flag was released, relative to its point.
+
+        A shift smaller than half a pixel is stored as the usual place.
+
+        :param dx: Scene pixels to the right of the measured point.
+        :param dy: Scene pixels down from the measured point.
+        :param which: ``"primary"`` or ``"second"``.
+        :returns: The offset that was stored.
+        :rtype: tuple
+        :raises ComponentError: If the numbers are not finite, or
+            ``which`` is not an end of a probe.
+        """
+        pair = _flag_offset_pair(dx, dy)
+
+        if which == "primary":
+            self.flag_offset = pair
+        elif which == "second":
+            self.second_flag_offset = pair
+        else:
+            raise ComponentError(
+                f"A probe flag must be 'primary' or 'second', not {which!r}."
+            )
+
+        return pair
+
+    def reset_flag_position(self):
+        """
+        Put both flags back in the usual place beside their points.
+
+        :returns: None
+        """
+        self.flag_offset = (0.0, 0.0)
+        self.second_flag_offset = (0.0, 0.0)
+
+    def flag_is_moved(self):
+        """
+        Return whether either flag has been dragged off its usual place.
+
+        :rtype: bool
+        """
+        return (
+            self.flag_offset != (0.0, 0.0)
+            or self.second_flag_offset != (0.0, 0.0)
+        )
 
     def to_dict(self):
         """
@@ -102,6 +173,13 @@ class Probe:
 
             if self.second_identifier:
                 data["second_point"] = self.second_identifier
+
+        _store_flag_offset(data, "flag_x", "flag_y", self.flag_offset)
+
+        if self.second_identifier:
+            _store_flag_offset(
+                data, "second_flag_x", "second_flag_y", self.second_flag_offset
+            )
 
         return data
 
@@ -207,7 +285,8 @@ class ProbeCollection:
 
     def place_saved(self, reference, method, color, connection_grid,
                     identifier=None, second_identifier=None,
-                    component_reference=None, components=()):
+                    component_reference=None, components=(),
+                    flag_offset=(0.0, 0.0), second_flag_offset=(0.0, 0.0)):
         """
         Put a probe from a project file onto the circuit, keeping its name.
 
@@ -291,6 +370,17 @@ class ProbeCollection:
                 second_identifier=second_identifier
             )
 
+        primary = _require_offset(flag_offset)
+        second = _require_offset(second_flag_offset)
+
+        if probe.second_identifier is None and second != (0.0, 0.0):
+            raise ComponentError(
+                f"{reference} has a position for a second flag, but it "
+                "has only one point."
+            )
+
+        probe.flag_offset = primary
+        probe.second_flag_offset = second
         self.probes_by_reference[reference] = probe
 
         return probe
@@ -354,6 +444,7 @@ class ProbeCollection:
             probe.component_reference = component.reference
             probe.identifier = None
             probe.second_identifier = None
+            probe.second_flag_offset = (0.0, 0.0)
             return probe
 
         if probe.method == "current":
@@ -369,6 +460,7 @@ class ProbeCollection:
 
         if method != "differential":
             probe.second_identifier = None
+            probe.second_flag_offset = (0.0, 0.0)
 
         return probe
 
@@ -546,6 +638,7 @@ class ProbeCollection:
             if (probe.second_identifier is not None and
                     not _point_fits(probe.second_identifier, connection_grid)):
                 probe.second_identifier = None
+                probe.second_flag_offset = (0.0, 0.0)
 
         for reference in removed:
             del self.probes_by_reference[reference]
@@ -1064,6 +1157,102 @@ def _valid_probe_color(color):
         return False
 
     return all(character in "0123456789abcdefABCDEF" for character in color[1:])
+
+
+def flag_offset_from_saved(data, x_key, y_key):
+    """
+    Read one saved flag position, or the usual place when it was not saved.
+
+    :param data: One probe object from a project file.
+    :type data: dict
+    :param x_key: Key for the across distance, such as ``"flag_x"``.
+    :param y_key: Key for the down distance.
+    :returns: ``(across, down)``.
+    :rtype: tuple
+    :raises ComponentError: If only one of the two numbers is present, or
+        a number is not finite.
+    """
+    has_x = x_key in data
+    has_y = y_key in data
+
+    if has_x != has_y:
+        raise ComponentError(
+            "A saved probe position needs both the across and down "
+            "numbers, or neither."
+        )
+
+    if not has_x:
+        return (0.0, 0.0)
+
+    return _flag_offset_pair(data[x_key], data[y_key])
+
+
+def _store_flag_offset(data, x_key, y_key, offset):
+    """
+    Write a flag position when it is not the usual place.
+
+    :returns: None
+    """
+    if offset == (0.0, 0.0):
+        return
+
+    data[x_key] = offset[0]
+    data[y_key] = offset[1]
+
+
+def _require_offset(offset):
+    """
+    Return a stored ``(across, down)`` pair.
+
+    :raises ComponentError: If the value is not two numbers.
+    """
+    if (
+        isinstance(offset, (tuple, list))
+        and not isinstance(offset, str)
+        and len(offset) == 2
+    ):
+        return _flag_offset_pair(offset[0], offset[1])
+
+    raise ComponentError(
+        "A probe position must be two numbers: how far across, and how "
+        "far down, from the point it measures."
+    )
+
+
+def _flag_offset_pair(dx, dy):
+    """
+    Return a finite ``(across, down)`` pair, or the usual place.
+
+    :raises ComponentError: If either value is not a finite number.
+    """
+    if not _is_real_number(dx) or not _is_real_number(dy):
+        raise ComponentError(
+            "A probe position must be two numbers: how far across, and "
+            "how far down, from the point it measures."
+        )
+
+    x_position = float(dx)
+    y_position = float(dy)
+
+    if not math.isfinite(x_position) or not math.isfinite(y_position):
+        raise ComponentError(
+            "A probe position must be a finite distance from the point "
+            "it measures."
+        )
+
+    if abs(x_position) < 0.5 and abs(y_position) < 0.5:
+        return (0.0, 0.0)
+
+    return (x_position, y_position)
+
+
+def _is_real_number(value):
+    """
+    Return True for an int or float, and False for bool and other types.
+
+    :rtype: bool
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _probe_sort_key(reference):

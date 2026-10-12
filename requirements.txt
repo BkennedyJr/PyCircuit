@@ -2,9 +2,12 @@
 # PySpice: pip install PySpice
 #   conda-forge pyspice has no build for Python 3.11 or newer.
 # ngspice library: conda install -c conda-forge ngspice-lib
+# Oscilloscope: pip install pyqtgraph
+#   Do not conda install pyqtgraph. That package also installs PyQt.
 # Do not pip install this whole file into base (that would add a second PyQt).
 # See README, "Install (Windows, Anaconda Prompt)".
 PyQt5>=5.15
 sympy>=1.12
 PySpice>=1.5
 numpy>=1.24
+pyqtgraph>=0.13

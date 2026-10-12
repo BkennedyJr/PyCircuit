@@ -41,23 +41,26 @@ Project layout
 Install (Windows, Anaconda Prompt)
 ----------------------------------
 
-Spyder's IPython uses Anaconda base. Install new packages there, so
-import works in that console. Do not install them only in a separate
-environment. An older pycircuit environment is not the Python Spyder
-uses.
+The Anaconda Prompt uses Anaconda base. Install new packages there.
+Spyder uses that same Python when it is running. Do not install them
+only in a separate environment. An older pycircuit environment is not
+this Python.
 
     git clone https://github.com/BkennedyJr/PyCircuit.git
     cd PyCircuit
     conda activate base
     python -c "import sys; print(sys.executable)"
     pip install PySpice
+    pip install pyqtgraph
     conda install -c conda-forge ngspice-lib
 
 python.exe should be C:\Users\danni\anaconda3\python.exe before those
 installs. conda-forge has no PySpice build for Python 3.11 or newer
 (its newest Windows build is Python 3.10), so "conda install pyspice"
 cannot succeed here. pip install PySpice puts the module in base. In
-Python the name is PySpice.
+Python the name is PySpice. pyqtgraph draws the oscilloscope. Install
+it with pip. Do not conda install pyqtgraph: that package also
+installs PyQt.
 
 ngspice-lib is the shared library (ngspice.dll). Read the plan conda
 prints. If it would remove Spyder or replace PyQt, stop and do not
@@ -69,18 +72,13 @@ not run "conda install pyqt" on top of a pip copy of PyQt. Do not
 PyQt5. When conda-forge has a build for this Python, use conda for
 that one package. PySpice is the exception, and it uses pip.
 
-Close Spyder and open it again. In the IPython console:
+In the Anaconda Prompt, with base active:
 
-    import sys
-    print(sys.executable)
-    import PySpice
-    print(PySpice.__file__)
+    python -c "import PySpice; print(PySpice.__file__)"
 
-sys.executable should be C:\Users\danni\anaconda3\python.exe, and
-PySpice.__file__ should be under
-C:\Users\danni\anaconda3\Lib\site-packages\PySpice. If Spyder is using
-a different Python, set Preferences > Python interpreter to that base
-python.exe, then restart the kernel (Consoles > Restart kernel).
+That path should be under
+C:\Users\danni\anaconda3\Lib\site-packages\PySpice. The same import
+works in Spyder's IPython once Spyder is using this base Python.
 
 
 Installing ngspice
@@ -98,23 +96,24 @@ With base active, this file should exist:
 Run
 ---
 
-In Spyder, open main.py. Run > Configuration per file, and choose
-Execute in current console. Then Debug > Debug file (Ctrl+F5).
-
-The window stays open until you close it, so the IPython prompt waits.
-Breakpoints in button handlers still stop. A second run in the same
-kernel can fail because a QApplication already exists. Consoles >
-Restart kernel, then run it again.
-
 From the Anaconda Prompt, in the repository folder:
 
     conda activate base
     python main.py
 
+That starts the program from the Prompt. Standalone Spyder (not the
+Spyder that comes with Anaconda) also runs it: open main.py and use
+Debug.
+
 
 Using it
 --------
 
+- The Type list is resistors, sources, and the other discrete parts,
+  plus the follower and the amplifier blocks. Packaged ICs are in the
+  IC library next to that list, grouped as op-amps, comparators,
+  logic, timers, and regulators. Place uses whichever of those two
+  lists you picked last.
 - Click a grid point to select it. The right-hand panel shows its
   identifier (for example NODE_R03_C05), row and column, and the
   s-domain voltage formula at that node, such as V(s) = 5 V. A bridge
@@ -138,8 +137,12 @@ Using it
   (10 Mohm and 10 pF to ground), Differential (click the other point;
   the reading is the first point minus the second), or Current. A probe
   that is not on a plot shows a box of readings: voltage, current,
-  frequency and phase, on the grid and in the Probe panel. Drag a flag
-  to another point. Delete removes the selected probe.
+  frequency and phase, on the grid and in the Probe panel. Drag a
+  probe and it stays where you release it. A line and an arrow show
+  the point it is reading. Release it on another point to read that
+  point (a current probe, on another part). Reset position in the
+  Probe panel puts the picture back beside that point. Delete removes
+  the selected probe.
 - Type a name such as Vcc in that panel and press Apply (or Enter).
   Every point with the same name is one node, so a DC source wired to
   one of them sets the voltage at the others. Vcc and vcc match.
@@ -170,10 +173,17 @@ Using it
   point. Simulate > DC Operating Point draws those voltages on the
   nodes and those currents on the parts. The selected point shows the
   DC voltage next to V(s). Editing the circuit clears the numbers.
+- View > Oscilloscope opens the scope dock (it can float). Start runs
+  a transient and draws each checked probe. Stop drops that run. The
+  run is five periods of the slowest sine, or 10 ms. Time per division
+  and volts per division set the grid; leave volts blank for Auto.
+  Moving a probe redraws it from the last run when that point was in
+  the run. An LED lights when its current is above 1 mA. The exact
+  V(s) stays next to the DC number.
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6).
 
 
 Third-party files
@@ -193,8 +203,8 @@ Tests
 -----
 
 pytest is only needed for running the tests, not for running the app, so
-it is not in requirements.txt. Install it once into the same Python
-Spyder uses, then run the tests:
+it is not in requirements.txt. Install it once into Anaconda base, then
+run the tests:
 
     conda activate base
     conda install -c conda-forge pytest

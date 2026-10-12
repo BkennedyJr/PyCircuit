@@ -1,9 +1,10 @@
 """
-DC operating point through the ngspice shared library.
+DC operating point and transient through the ngspice shared library.
 
-``run_op`` takes the netlist text from ``core.netlist.build_netlist``.
-Ground is node 0. ngspice hands node names back in lowercase; they are
-mapped to the spelling in the netlist (Vcc stays Vcc).
+``run_op`` and ``run_tran`` take the netlist text from
+``core.netlist.build_netlist``. Ground is node 0. ngspice hands node
+names back in lowercase; they are mapped to the spelling in the netlist
+(Vcc stays Vcc).
 
 Current is in amps. For a resistor it is from the first pin toward the
 second. For a voltage source it is into the positive pin, so a source
@@ -12,6 +13,7 @@ that is powering the circuit has a negative current.
 
 import ctypes.util
 import logging
+import math
 import os
 import re
 import threading
@@ -19,6 +21,7 @@ from pathlib import Path
 
 from core.exceptions import SimulationError
 from core.netlist import build_netlist
+from core.units import format_spice_number
 
 NGSPICE_MISSING = (
     "ngspice is not installed. See README: Installing ngspice."
@@ -27,7 +30,7 @@ NGSPICE_MISSING = (
 _LOCK = threading.Lock()
 _SHARED = None
 _ELEMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_DEVICE_CURRENT = re.compile(r"^@([^[]+)\[(i|current)\]$")
+_DEVICE_CURRENT = re.compile(r"^@([^[]+)\[(i|id|current)\]$")
 
 
 class OperatingPoint:
@@ -43,6 +46,31 @@ class OperatingPoint:
     def __init__(self, voltages, currents):
         self.voltages = voltages
         self.currents = currents
+
+
+class Transient:
+    """
+    One transient run.
+
+    :param time: Sample times, in seconds.
+    :type time: tuple
+    :param voltages: Node name to a tuple of volts, one per sample.
+        Includes ``"0"`` at 0 V.
+    :type voltages: dict
+    :param currents: Part reference to a tuple of amps, one per sample.
+    :type currents: dict
+    """
+
+    def __init__(self, time_seconds, voltages, currents):
+        self.time = time_seconds
+        self.voltages = voltages
+        self.currents = currents
+
+
+# Five periods of the slowest sine, otherwise 10 ms. Two hundred samples.
+DEFAULT_TRANSIENT_STOP = 0.01
+TRANSIENT_SAMPLES = 200
+LED_LIT_AMPS = 0.001
 
 
 def ngspice_is_installed():
@@ -91,6 +119,196 @@ def run_op(netlist):
 
     with _LOCK:
         return _run_op(netlist)
+
+
+def default_transient_stop(components):
+    """
+    Return the run length for a circuit: five periods of its slowest
+    sine, or 10 ms when there is no AC source.
+
+    :param components: Placed parts.
+    :rtype: float
+    """
+    lowest = None
+
+    for component in components:
+        if getattr(component, "kind", None) != "ac_source":
+            continue
+
+        frequency = component.parameter_values["frequency"]
+
+        if frequency > 0 and (lowest is None or frequency < lowest):
+            lowest = frequency
+
+    if lowest is None:
+        return DEFAULT_TRANSIENT_STOP
+
+    return 5.0 / lowest
+
+
+def transient_step(stop):
+    """
+    Return a step that gives ``TRANSIENT_SAMPLES`` points across ``stop``.
+
+    :param stop: Run length in seconds.
+    :type stop: float
+    :rtype: float
+    :raises SimulationError: If ``stop`` is not a positive finite number.
+    """
+    if not _positive_number(stop):
+        raise SimulationError(
+            "The run time must be a positive number, such as 10m."
+        )
+
+    return stop / TRANSIENT_SAMPLES
+
+
+def run_tran(netlist, step, stop, use_initial_conditions=False,
+             cancel_event=None):
+    """
+    Run a transient on one SPICE netlist.
+
+    ``use_initial_conditions`` starts capacitors at 0 V instead of the
+    DC operating point. That is how a DC source becomes a step.
+
+    :param netlist: Text from build_netlist.
+    :type netlist: str
+    :param step: Maximum time step, in seconds.
+    :type step: float
+    :param stop: Run length, in seconds.
+    :type stop: float
+    :param use_initial_conditions: True to skip the operating point.
+    :type use_initial_conditions: bool
+    :param cancel_event: Set this to stop the run.
+    :type cancel_event: threading.Event or None
+    :rtype: Transient
+    :raises SimulationError: ngspice is missing, the times are not
+        usable, the run was stopped, or the circuit did not solve.
+    """
+    if not isinstance(netlist, str) or not netlist.strip():
+        raise SimulationError(
+            "The netlist text is empty, so it was not run."
+        )
+
+    if not _has_ground(netlist):
+        raise SimulationError("Add a ground part.")
+
+    if not _positive_number(step) or not _positive_number(stop) or step >= stop:
+        raise SimulationError(
+            "The time step and the run time must be positive numbers, "
+            "and the step must be shorter than the run."
+        )
+
+    if not isinstance(use_initial_conditions, bool):
+        raise SimulationError("The transient option must be true or false.")
+
+    with _LOCK:
+        return _run_tran(
+            netlist, step, stop, use_initial_conditions, cancel_event
+        )
+
+
+def sample_at(time_seconds, values, when):
+    """
+    Return the linearly interpolated sample at ``when`` seconds.
+
+    :param time_seconds: Sample times.
+    :param values: Sample values, one per time.
+    :param when: Time to read, in seconds.
+    :rtype: float
+    :raises SimulationError: If ``when`` is outside the run.
+    """
+    if len(time_seconds) != len(values) or not time_seconds:
+        raise SimulationError("The transient samples are not usable.")
+
+    if when < time_seconds[0] or when > time_seconds[-1]:
+        raise SimulationError("That time is outside the transient run.")
+
+    for index, instant in enumerate(time_seconds):
+        if instant == when:
+            return values[index]
+
+        if instant > when:
+            earlier = time_seconds[index - 1]
+            span = instant - earlier
+
+            if span == 0:
+                return values[index - 1]
+
+            fraction = (when - earlier) / span
+
+            return (
+                values[index - 1]
+                + fraction * (values[index] - values[index - 1])
+            )
+
+    return values[-1]
+
+
+def probe_series(probe, transient, name_by_point):
+    """
+    Return ``(time, values)`` for one probe, or None if this run has
+    no sample for it.
+
+    A differential probe is the first point minus the second. A current
+    probe is the part current. Any other probe is the node voltage.
+
+    :param probe: Probe to read.
+    :param transient: Result from ``run_tran``.
+    :param name_by_point: Grid point to SPICE node name.
+    :rtype: tuple or None
+    """
+    if probe.method == "current":
+        values = transient.currents.get(probe.component_reference)
+
+        if values is None:
+            return None
+
+        return transient.time, values
+
+    if probe.method == "differential":
+        first = _voltage_for_point(
+            transient, name_by_point, probe.identifier
+        )
+        second = _voltage_for_point(
+            transient, name_by_point, probe.second_identifier
+        )
+
+        if first is None or second is None:
+            return None
+
+        return transient.time, tuple(
+            left - right for left, right in zip(first, second)
+        )
+
+    values = _voltage_for_point(transient, name_by_point, probe.identifier)
+
+    if values is None:
+        return None
+
+    return transient.time, values
+
+
+def lit_led_references(components, transient):
+    """
+    Return LED references whose current exceeds 1 mA at any sample.
+
+    :param components: Placed parts.
+    :param transient: Result from ``run_tran``.
+    :rtype: list
+    """
+    lit = []
+
+    for component in components:
+        if getattr(component, "kind", None) != "led":
+            continue
+
+        series = transient.currents.get(component.reference)
+
+        if series and max(abs(value) for value in series) > LED_LIT_AMPS:
+            lit.append(component.reference)
+
+    return lit
 
 
 def _run_op(netlist):
@@ -145,6 +363,150 @@ def _with_operating_point(netlist):
     lines.append(".op")
     lines.append(".end")
     return "\n".join(lines) + "\n"
+
+
+def _run_tran(netlist, step, stop, use_initial_conditions, cancel_event):
+    from PySpice.Spice.NgSpice.Shared import (
+        NgSpiceCircuitError,
+        NgSpiceCommandError,
+    )
+
+    shared = _shared_library()
+    prepared = _with_transient(
+        netlist, step, stop, use_initial_conditions
+    )
+
+    try:
+        shared.destroy()
+    except NgSpiceCommandError:
+        shared.clear_output()
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise SimulationError("Stopped.")
+
+    try:
+        shared.load_circuit(prepared)
+        shared.run()
+    except (NgSpiceCommandError, NgSpiceCircuitError, NameError):
+        _raise_plain_failure(shared)
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise SimulationError("Stopped.")
+
+    plot_name = shared.last_plot
+
+    if not plot_name or plot_name == "const":
+        _raise_plain_failure(shared)
+
+    plot = shared.plot(None, plot_name)
+
+    return _read_transient(plot, netlist)
+
+
+def _with_transient(netlist, step, stop, use_initial_conditions):
+    lines = [line for line in netlist.splitlines() if line.strip()]
+
+    if lines and lines[-1].strip().lower() == ".end":
+        lines.pop()
+
+    command = (
+        f".tran {format_spice_number(step)} {format_spice_number(stop)}"
+    )
+
+    if use_initial_conditions:
+        command += " uic"
+
+    lines.append(".options savecurrents")
+    lines.append(command)
+    lines.append(".end")
+
+    return "\n".join(lines) + "\n"
+
+
+def _positive_number(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
+def _voltage_for_point(transient, name_by_point, identifier):
+    if not identifier:
+        return None
+
+    node = name_by_point.get(identifier)
+
+    if node is None:
+        return None
+
+    return transient.voltages.get(node)
+
+
+def _series(vector):
+    return tuple(float(value) for value in vector._data)
+
+
+def _read_transient(plot, netlist):
+    spellings = _spellings(netlist)
+    part_names = {
+        name.lower(): _restore(name, spellings)
+        for name in _top_level_parts(netlist)
+    }
+    time_seconds = None
+    voltages = {}
+    branch_currents = {}
+    device_currents = {}
+
+    for name, vector in plot.items():
+        if name.lower() == "time":
+            time_seconds = _series(vector)
+            continue
+
+        if vector.is_voltage_node:
+            node = name[2:-1] if name.lower().startswith("v(") else name
+            voltages[_restore(node, spellings)] = _series(vector)
+            continue
+
+        if name.endswith("#branch"):
+            reference = name[:-len("#branch")]
+            original = part_names.get(reference.lower())
+
+            if original is not None:
+                branch_currents[original] = _series(vector)
+
+            continue
+
+        match = _DEVICE_CURRENT.match(name)
+
+        if match is None:
+            continue
+
+        original = part_names.get(match.group(1).lower())
+
+        if original is not None:
+            device_currents[original] = _series(vector)
+
+    if not time_seconds:
+        raise SimulationError("The transient did not return a time axis.")
+
+    count = len(time_seconds)
+    voltages = {
+        name: values for name, values in voltages.items()
+        if len(values) == count
+    }
+    voltages["0"] = tuple(0.0 for _ in time_seconds)
+    currents = {
+        name: values for name, values in device_currents.items()
+        if len(values) == count
+    }
+    currents.update({
+        name: values for name, values in branch_currents.items()
+        if len(values) == count
+    })
+
+    return Transient(time_seconds, voltages, currents)
 
 
 def _library_path():

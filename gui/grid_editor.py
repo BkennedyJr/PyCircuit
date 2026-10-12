@@ -65,6 +65,9 @@ SCENE_MARGIN = 20
 # In Wire mode a press or release counts as "on" a grid point within this
 # distance of its centre (a third of a step: generous, never ambiguous).
 WIRE_SNAP_DISTANCE = 20
+# A probe release this close to a grid point reads that point. Half a
+# step would be ambiguous; this still reaches a probe body dropped on a dot.
+PROBE_SNAP_DISTANCE = 28
 # The rubber-band line draws above everything while a wire is drawn.
 WIRE_PREVIEW_Z_VALUE = 3
 # Zoom factors: 1.0 shows a grid step as GRID_POINT_SPACING pixels. One
@@ -307,6 +310,7 @@ class ConnectionGridScene(QGraphicsScene):
         self.probe_collection = None
         self.probe_items = []
         self.probe_readouts = {}
+        self._lit_led_references = set()
         # Probe mode places a probe on a click. While this reference is
         # set, the next grid click is the minus point of that differential
         # probe instead of a new probe.
@@ -491,11 +495,39 @@ class ConnectionGridScene(QGraphicsScene):
                 ] = component_item
 
         self.layout_component_labels()
+        self.apply_led_lights()
         self.update_wire_nets()
         self.rebuild_junction_items()
         self.update_scene_extent()
         # A part added, removed or moved can free or block the ghost's spot.
         self.update_pending_item(report=False)
+
+    def set_led_lights(self, lit_references):
+        """
+        Remember which LEDs are lit and draw them that way.
+
+        A later rebuild keeps the same LEDs lit.
+
+        :param lit_references: LED references whose current is above 1 mA.
+        :type lit_references: iterable
+        :returns: None
+        """
+        self._lit_led_references = set(lit_references)
+        self.apply_led_lights()
+
+    def apply_led_lights(self):
+        """
+        Light the remembered LEDs. Other LEDs go dark.
+
+        :returns: None
+        """
+        lit = self._lit_led_references
+
+        for reference, item in self.component_items_by_reference.items():
+            if item.component.kind != "led":
+                continue
+
+            item.set_lit(reference in lit)
 
     def refresh_component(self, reference):
         """
@@ -753,9 +785,11 @@ class ConnectionGridScene(QGraphicsScene):
 
     def finish_probe_drag(self, probe_item, scene_position):
         """
-        Snap a dragged flag to the point or part under the cursor.
+        Leave a dragged probe where it was released.
 
-        A miss puts the flag back where it was.
+        Releasing it on a grid point makes it read that point. A current
+        probe released on a part reads that part. A release on empty grid
+        keeps the old reading, and the arrow still points at it.
 
         :param probe_item: Flag that was dragged.
         :type probe_item: gui.probe_item.ProbeItem
@@ -764,36 +798,114 @@ class ConnectionGridScene(QGraphicsScene):
         :returns: None
         """
         probe = probe_item.probe
+        which = "second" if probe_item.role == "second" else "primary"
+        moved = False
+        refused = None
 
         try:
-            if probe.method == "current" and probe_item.role == "primary":
-                component = self._component_for_probe_drop(scene_position)
-
-                if component is None:
-                    raise ComponentError("Drop the current probe on a part.")
-
-                self.probe_collection.move_current(probe.reference, component)
-            else:
-                identifier = self.find_grid_point_near(scene_position)
-
-                if identifier is None:
-                    raise ComponentError("Drop the probe on a grid point.")
-
-                which = "second" if probe_item.role == "second" else "primary"
-                self.probe_collection.move_point(
-                    probe.reference,
-                    identifier,
-                    self.connection_grid,
-                    which
-                )
+            moved = self._retarget_probe(probe, which, scene_position)
         except ComponentError as error:
+            refused = str(error)
+
+        anchor = self._probe_anchor_scene(probe, which)
+
+        if anchor is None:
             self.rebuild_probe_items()
-            self.probe_refused.emit(str(error))
             return
 
+        previous = probe.offset_for(which)
+        delta = probe_item.pos() - anchor
+        probe.set_flag_offset(delta.x(), delta.y(), which)
         self.rebuild_probe_items()
         self.select_probe(probe.reference)
-        self.probe_moved.emit(probe.reference)
+
+        if moved or probe.offset_for(which) != previous:
+            self.probe_moved.emit(probe.reference)
+
+        if refused is not None:
+            self.probe_refused.emit(refused)
+
+    def reset_probe_position(self, reference):
+        """
+        Put one probe's flags back beside the points they read.
+
+        :param reference: Probe reference, such as ``P1``.
+        :type reference: str
+        :returns: None
+        """
+        if self.probe_collection is None:
+            return
+
+        self.probe_collection.get(reference).reset_flag_position()
+        self.rebuild_probe_items()
+        self.select_probe(reference)
+
+    def _retarget_probe(self, probe, which, scene_position):
+        """
+        Point a probe at the point or part under the cursor, if there is one.
+
+        :returns: True when the reading changed.
+        :rtype: bool
+        :raises ComponentError: If the new point or part is not allowed.
+            The probe is left on its old reading.
+        """
+        if self.probe_collection is None:
+            return False
+
+        if probe.method == "current":
+            if which != "primary":
+                return False
+
+            component = self._component_for_probe_drop(scene_position)
+
+            if (
+                component is None
+                or component.reference == probe.component_reference
+            ):
+                return False
+
+            self.probe_collection.move_current(probe.reference, component)
+            return True
+
+        identifier = self.find_grid_point_near(
+            scene_position, PROBE_SNAP_DISTANCE
+        )
+
+        if identifier is None:
+            return False
+
+        current = (
+            probe.second_identifier if which == "second" else probe.identifier
+        )
+
+        if identifier == current:
+            return False
+
+        self.probe_collection.move_point(
+            probe.reference,
+            identifier,
+            self.connection_grid,
+            which,
+        )
+        return True
+
+    def _probe_anchor_scene(self, probe, role):
+        """
+        Return the scene position of the point a flag reads, or None.
+
+        :rtype: QPointF or None
+        """
+        if probe.method == "current":
+            point = self._current_probe_anchor(probe)
+        elif role == "second":
+            point = self._identifier_point(probe.second_identifier)
+        else:
+            point = self._identifier_point(probe.identifier)
+
+        if point is None:
+            return None
+
+        return grid_point_to_scene_position(*point)
 
     def select_probe(self, reference):
         """
@@ -828,7 +940,10 @@ class ConnectionGridScene(QGraphicsScene):
                 self.probe_readouts.get(probe.reference, ())
             )
 
-        probe_item.setPos(grid_point_to_scene_position(*point))
+        anchor = grid_point_to_scene_position(*point)
+        offset = probe.offset_for(role)
+        probe_item.anchor_position = anchor
+        probe_item.setPos(anchor + QPointF(offset[0], offset[1]))
         self.addItem(probe_item)
         self.probe_items.append(probe_item)
 
@@ -1025,16 +1140,21 @@ class ConnectionGridScene(QGraphicsScene):
         self.select_probe(probe.reference)
         self.probe_added.emit(probe.reference)
 
-    def find_grid_point_near(self, scene_position):
+    def find_grid_point_near(self, scene_position, snap_distance=None):
         """
-        Return the identifier of the grid point within WIRE_SNAP_DISTANCE.
+        Return the identifier of the grid point within the snap distance.
 
         :param scene_position: Position in scene coordinates.
         :type scene_position: QPointF
+        :param snap_distance: How close counts. Wires use
+            ``WIRE_SNAP_DISTANCE``.
         :returns: Identifier such as "NODE_R02_C03", or None when no grid
             point of the current grid is that close.
         :rtype: str or None
         """
+        if snap_distance is None:
+            snap_distance = WIRE_SNAP_DISTANCE
+
         row_number, column_number = scene_position_to_grid_point(
             scene_position
         )
@@ -1045,7 +1165,7 @@ class ConnectionGridScene(QGraphicsScene):
 
         center = grid_point_to_scene_position(row_number, column_number)
 
-        if QLineF(center, scene_position).length() > WIRE_SNAP_DISTANCE:
+        if QLineF(center, scene_position).length() > snap_distance:
             return None
 
         return self.connection_grid.build_connection_point_identifier(
