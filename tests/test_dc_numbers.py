@@ -127,8 +127,14 @@ def test_simulate_menu_is_before_help(qt_application):
             for action in window.menuBar().actions()
             if action.text() == "&Simulate"
         )
-        assert [action.text() for action in simulate.actions()] == [
-            "DC Operating Point"
+        assert [
+            action.text()
+            for action in simulate.actions()
+            if not action.isSeparator()
+        ] == [
+            "DC Operating Point",
+            "Snapshot",
+            "Continuous",
         ]
     finally:
         close_window(window)

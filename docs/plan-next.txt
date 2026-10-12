@@ -69,7 +69,10 @@ which of those to do, and what comes after them.
    Change a resistor, a source, a pot position or a switch and the
    DC numbers and the plots update. No extra Run button for that.
    Moving or deleting a part still clears them. A second edit while
-   a run is going replaces that run.
+   a run is going replaces that run. Simulate > Continuous is the
+   usual choice. Simulate > Snapshot keeps one reading, and a new
+   value clears it. The same choice is on the oscilloscope, Bode,
+   and FFT.
 
 9. Real op-amp limits
    Output swing and gain-bandwidth on the op-amp models, checked

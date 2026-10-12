@@ -12,6 +12,7 @@ from PyQt5.QtCore import QSize, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDockWidget,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QSizePolicy,
@@ -21,6 +22,7 @@ from PyQt5.QtWidgets import (
 
 from core.cursors import format_cursor_text, value_at
 from gui.plot_cursors import CursorBox
+from gui.update_mode import update_mode_combo
 
 
 class FftPlot(pg.PlotWidget):
@@ -72,6 +74,10 @@ class FftDock(QDockWidget):
 
         controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(0, 0, 0, 0)
+        mode_form = QFormLayout()
+        self.update_mode_combo = update_mode_combo()
+        mode_form.addRow("Update:", self.update_mode_combo)
+        controls_layout.addLayout(mode_form)
         controls_layout.addLayout(self.channel_layout)
         controls_layout.addWidget(self.note_label)
         self.cursors = CursorBox((self.plot,), controls_layout)
