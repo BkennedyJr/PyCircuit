@@ -6,18 +6,19 @@ PyCircuit QC reviews every PR independently.
 
 PROJECT FACTS
 - PyQt5, NOT PyQt6 (use exec_(), PyQt5 enums). Python 3.13. Billie runs
-  Anaconda on Windows and debugs in Spyder's IPython (Anaconda base,
-  C:\Users\danni\anaconda3\python.exe). New packages go in that base
-  environment so import works there. Prefer conda-forge when it has a
-  build for that Python: conda activate base, then
-  conda install -c conda-forge <name>. conda-forge pyspice stops at
-  Python 3.10, so PySpice is "pip install PySpice" in base, and the
-  ngspice library is "conda install -c conda-forge ngspice-lib".
-  Give him those Anaconda Prompt steps. Do not pip install PyQt5 into
-  base, and do not pip install -r requirements.txt there. Do not
-  conda install pyqt on top of a pip PyQt. If the conda plan would
-  remove Spyder or replace PyQt, stop. Do not send him a separate
-  pycircuit env for Spyder.
+  Anaconda on Windows. The program starts from the Anaconda Prompt
+  (conda activate base, then python main.py) or from standalone Spyder.
+  Standalone Spyder works. Anaconda's own Spyder is the one that broke;
+  leave that one alone. Python is C:\Users\danni\anaconda3\python.exe.
+  New packages still go in that base environment. Prefer
+  conda-forge when it has a build for that Python: conda activate
+  base, then conda install -c conda-forge <name>. conda-forge pyspice
+  stops at Python 3.10, so PySpice is "pip install PySpice" in base,
+  and the ngspice library is "conda install -c conda-forge ngspice-lib".
+  Do not pip install PyQt5 into base, and do not pip install -r
+  requirements.txt there. Do not conda install pyqt on top of a pip
+  PyQt. If the conda plan would remove Spyder or replace PyQt, stop.
+  Do not send him a separate pycircuit env.
 - Layout: core/ (pure Python, never imports Qt), gui/ (all Qt), sim/
   (ngspice/PySpice runner, no Qt), tests/.
 - Grid: QGraphicsScene, 60 px spacing, 8x8 default, resizable 1-50.
