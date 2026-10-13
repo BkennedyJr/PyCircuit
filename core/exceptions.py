@@ -40,4 +40,14 @@ class ComponentError(CircuitWorkbenchError):
 class SimulationError(CircuitWorkbenchError):
     """
     Raised when a netlist cannot be written or a simulation cannot run.
+
+    :param message: Human-readable explanation of the failure.
+    :type message: str
+    :param points: Grid-point identifiers of the node named in the
+        message. Empty when the failure does not name a node.
+    :type points: tuple
     """
+
+    def __init__(self, message, points=()):
+        super().__init__(message)
+        self.points = tuple(points)

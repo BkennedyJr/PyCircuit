@@ -65,9 +65,6 @@ SCENE_MARGIN = 20
 # In Wire mode a press or release counts as "on" a grid point within this
 # distance of its centre (a third of a step: generous, never ambiguous).
 WIRE_SNAP_DISTANCE = 20
-# A probe release this close to a grid point reads that point. Half a
-# step would be ambiguous; this still reaches a probe body dropped on a dot.
-PROBE_SNAP_DISTANCE = 28
 # The rubber-band line draws above everything while a wire is drawn.
 WIRE_PREVIEW_Z_VALUE = 3
 # Zoom factors: 1.0 shows a grid step as GRID_POINT_SPACING pixels. One
@@ -185,6 +182,10 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         self.dc_voltage_item.setPos(12, 6)
         self.dc_voltage_item.setAcceptedMouseButtons(Qt.NoButton)
         self.dc_voltage_item.setVisible(False)
+        # A named node the netlist refused. Separate from selection and
+        # from the cyan ring drawn while an arrow is being aimed.
+        self.problem = False
+        self.aim_candidate = False
         self.refresh_from_point()
 
     def refresh_from_point(self):
@@ -206,6 +207,9 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         if self._dc_voltage_text:
             lines.append(f"DC: {self._dc_voltage_text}")
 
+        if self.problem:
+            lines.append("This node needs another connection.")
+
         self.setToolTip("\n".join(lines))
         self.net_label_item.setText(connection_point.net_label)
         self.net_label_item.setVisible(bool(connection_point.net_label))
@@ -223,6 +227,53 @@ class ConnectionPointItem(QGraphicsEllipseItem):
         self.dc_voltage_item.setText(text)
         self.dc_voltage_item.setVisible(bool(text))
         self.refresh_from_point()
+
+    def set_problem(self, is_problem):
+        """
+        Draw or clear the ring for a node the netlist refused.
+
+        :param is_problem: True to mark this point.
+        :type is_problem: bool
+        :returns: None
+        """
+        is_problem = bool(is_problem)
+
+        if is_problem == self.problem:
+            return
+
+        self.prepareGeometryChange()
+        self.problem = is_problem
+        self.refresh_from_point()
+
+    def set_aim_candidate(self, is_candidate):
+        """
+        Draw or clear the ring for the point an arrow drag would choose.
+
+        :param is_candidate: True while the arrow is aimed at this point.
+        :type is_candidate: bool
+        :returns: None
+        """
+        is_candidate = bool(is_candidate)
+
+        if is_candidate == self.aim_candidate:
+            return
+
+        self.prepareGeometryChange()
+        self.aim_candidate = is_candidate
+        self.update()
+
+    def boundingRect(self):
+        """
+        Return the dot, plus room for a problem or aim ring.
+
+        :rtype: QRectF
+        """
+        rect = super().boundingRect()
+
+        if self.problem or self.aim_candidate:
+            return rect.adjusted(-12, -12, 12, 12)
+
+        return rect
 
     def paint(self, painter, option, widget=None):
         """
@@ -256,6 +307,20 @@ class ConnectionPointItem(QGraphicsEllipseItem):
             painter.setBrush(QColor("#4f9ee3"))
 
         painter.drawEllipse(self.rect())
+
+        # The ring sits outside the dot so the blue fill, a green
+        # pickoff, and a yellow selection stay readable.
+        if self.problem:
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor("#ff5a36"), 3))
+            painter.drawEllipse(self.rect().adjusted(-6, -6, 6, 6))
+
+        if self.aim_candidate:
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor("#5ce1e6"), 3))
+            gap = 11 if self.problem else 6
+            painter.drawEllipse(self.rect().adjusted(-gap, -gap, gap, gap))
+
         painter.restore()
 
 
@@ -334,6 +399,10 @@ class ConnectionGridScene(QGraphicsScene):
         # (not in component_items_by_reference).
         self.pending_placement = None
         self.pending_item = None
+        # Grid points of a node the netlist refused, and the one point
+        # the arrow drag is currently aimed at.
+        self._problem_identifiers = ()
+        self._aim_candidate_identifier = None
 
         # Report selection changes to the main window so it can update the
         # selected-node panel and signal-pickoff controls.
@@ -351,8 +420,11 @@ class ConnectionGridScene(QGraphicsScene):
         :type connection_grid: core.connection_grid.ConnectionGrid
         :returns: None
         """
-        # A new grid (resize, new or opened project) drops a waiting part.
+        # A new grid (resize, new or opened project) drops a waiting part
+        # and any node the previous circuit had marked.
         self.clear_pending_placement()
+        self._problem_identifiers = ()
+        self._aim_candidate_identifier = None
         self.connection_grid = connection_grid
         self.rebuild_connection_point_items()
 
@@ -783,34 +855,49 @@ class ConnectionGridScene(QGraphicsScene):
                     slots
                 )
 
-    def finish_probe_drag(self, probe_item, scene_position):
+    def finish_probe_drag(self, probe_item, scene_position, aiming=False):
         """
-        Leave a dragged probe where it was released.
+        Leave a dragged probe flag where it was released.
 
-        Releasing it on a grid point makes it read that point. A current
-        probe released on a part reads that part. A release on empty grid
-        keeps the old reading, and the arrow still points at it.
+        Dragging the flag only moves the picture. The arrow still points
+        at the same point. Dragging the arrow points the probe at the
+        nearest grid point, or at a part for a current probe. A release
+        off the grid keeps the old reading.
 
         :param probe_item: Flag that was dragged.
         :type probe_item: gui.probe_item.ProbeItem
         :param scene_position: Cursor position when the button was released.
         :type scene_position: QPointF
+        :param aiming: True when the drag grabbed the arrow head.
+        :type aiming: bool
         :returns: None
         """
+        self.clear_aim_candidate()
         probe = probe_item.probe
         which = "second" if probe_item.role == "second" else "primary"
         moved = False
         refused = None
 
-        try:
-            moved = self._retarget_probe(probe, which, scene_position)
-        except ComponentError as error:
-            refused = str(error)
+        if aiming:
+            try:
+                moved = self._retarget_probe(
+                    probe, which, scene_position, GRID_POINT_SPACING
+                )
+            except ComponentError as error:
+                refused = str(error)
+            else:
+                if not moved and not self._aim_landed(
+                        probe, scene_position, GRID_POINT_SPACING):
+                    refused = self._aim_miss_message(probe, which)
 
         anchor = self._probe_anchor_scene(probe, which)
 
         if anchor is None:
             self.rebuild_probe_items()
+
+            if refused is not None:
+                self.probe_refused.emit(refused)
+
             return
 
         previous = probe.offset_for(which)
@@ -840,9 +927,192 @@ class ConnectionGridScene(QGraphicsScene):
         self.rebuild_probe_items()
         self.select_probe(reference)
 
-    def _retarget_probe(self, probe, which, scene_position):
+    def move_probe_to_point(self, reference, identifier, which="primary"):
+        """
+        Point a probe at a typed grid point and leave the flag where it is.
+
+        :param reference: Probe reference, such as ``P1``.
+        :type reference: str
+        :param identifier: Grid point, such as ``NODE_R04_C03``.
+        :type identifier: str
+        :param which: ``"primary"`` or ``"second"``.
+        :type which: str
+        :returns: True when the point changed.
+        :rtype: bool
+        :raises ComponentError: If the point is not allowed.
+        """
+        probe = self.probe_collection.get(reference)
+        role = "second" if which == "second" else "primary"
+        current = (
+            probe.second_identifier if role == "second" else probe.identifier
+        )
+        item = self._probe_item_for(reference, role)
+        old_position = None if item is None else QPointF(item.pos())
+        changed = identifier != current
+
+        if changed:
+            self.probe_collection.move_point(
+                reference, identifier, self.connection_grid, which
+            )
+
+        anchor = self._probe_anchor_scene(probe, role)
+
+        if old_position is not None and anchor is not None:
+            delta = old_position - anchor
+            probe.set_flag_offset(delta.x(), delta.y(), role)
+
+        self.rebuild_probe_items()
+        self.select_probe(reference)
+
+        if changed:
+            self.probe_moved.emit(reference)
+
+        return changed
+
+    def preview_probe_aim(self, probe_item, scene_position):
+        """
+        Mark the grid point an arrow drag would choose.
+
+        A current probe measures a part, so it does not mark a point.
+
+        :returns: None
+        """
+        probe = probe_item.probe
+        identifier = None
+
+        if probe.method != "current":
+            identifier = self.find_grid_point_near(
+                scene_position, GRID_POINT_SPACING
+            )
+
+        self._set_aim_candidate(identifier)
+
+    def clear_aim_candidate(self):
+        """
+        Remove the ring drawn while an arrow is being aimed.
+
+        :returns: None
+        """
+        self._set_aim_candidate(None)
+
+    def highlight_problem_points(self, identifiers):
+        """
+        Mark the grid points of a node the netlist refused.
+
+        A later call replaces the previous mark. An empty list clears it.
+        This is not the ring drawn while aiming a probe.
+
+        :param identifiers: Point identifiers, such as ``NODE_R04_C02``.
+        :type identifiers: iterable
+        :returns: None
+        """
+        identifiers = tuple(identifiers or ())
+
+        if identifiers == self._problem_identifiers:
+            return
+
+        self.clear_problem_highlight()
+        self._problem_identifiers = identifiers
+
+        for identifier in identifiers:
+            item = self.connection_point_items_by_identifier.get(identifier)
+
+            if item is not None:
+                item.set_problem(True)
+
+    def clear_problem_highlight(self):
+        """
+        Remove the ring from a node the netlist refused.
+
+        :returns: None
+        """
+        identifiers = self._problem_identifiers
+        self._problem_identifiers = ()
+
+        for identifier in identifiers:
+            item = self.connection_point_items_by_identifier.get(identifier)
+
+            if item is not None:
+                item.set_problem(False)
+
+    def _set_aim_candidate(self, identifier):
+        """
+        Move the aim ring to one grid point, or clear it.
+
+        :returns: None
+        """
+        if identifier == self._aim_candidate_identifier:
+            return
+
+        previous = self._aim_candidate_identifier
+        self._aim_candidate_identifier = identifier
+
+        if previous:
+            item = self.connection_point_items_by_identifier.get(previous)
+
+            if item is not None:
+                item.set_aim_candidate(False)
+
+        if identifier:
+            item = self.connection_point_items_by_identifier.get(identifier)
+
+            if item is not None:
+                item.set_aim_candidate(True)
+
+    def _aim_landed(self, probe, scene_position, snap_distance):
+        """
+        Return whether an arrow release is on a point or a part.
+
+        :rtype: bool
+        """
+        if probe.method == "current":
+            return self._component_for_probe_drop(
+                scene_position, snap_distance
+            ) is not None
+
+        return self.find_grid_point_near(
+            scene_position, snap_distance
+        ) is not None
+
+    def _aim_miss_message(self, probe, which):
+        """
+        Return the plain-English line for an arrow released off the grid.
+
+        :rtype: str
+        """
+        if probe.method == "current":
+            name = probe.component_reference or "its part"
+
+            return (
+                f"That is not a part. {probe.reference} still reads {name}."
+            )
+
+        if which == "second":
+            name = probe.second_identifier or "its other point"
+        else:
+            name = probe.identifier or "its point"
+
+        return f"That is off the grid. {probe.reference} still reads {name}."
+
+    def _probe_item_for(self, reference, role):
+        """
+        Return one flag of a probe, or None.
+
+        :rtype: gui.probe_item.ProbeItem or None
+        """
+        for probe_item in self.probe_items:
+            if (probe_item.probe.reference == reference and
+                    probe_item.role == role):
+                return probe_item
+
+        return None
+
+    def _retarget_probe(self, probe, which, scene_position, snap_distance):
         """
         Point a probe at the point or part under the cursor, if there is one.
+
+        The nearest grid point within one grid step wins. A current probe
+        uses the part under the cursor, or the only part on that point.
 
         :returns: True when the reading changed.
         :rtype: bool
@@ -856,7 +1126,9 @@ class ConnectionGridScene(QGraphicsScene):
             if which != "primary":
                 return False
 
-            component = self._component_for_probe_drop(scene_position)
+            component = self._component_for_probe_drop(
+                scene_position, snap_distance
+            )
 
             if (
                 component is None
@@ -868,7 +1140,7 @@ class ConnectionGridScene(QGraphicsScene):
             return True
 
         identifier = self.find_grid_point_near(
-            scene_position, PROBE_SNAP_DISTANCE
+            scene_position, snap_distance
         )
 
         if identifier is None:
@@ -1016,7 +1288,7 @@ class ConnectionGridScene(QGraphicsScene):
 
         return None
 
-    def _component_for_probe_drop(self, scene_position):
+    def _component_for_probe_drop(self, scene_position, snap_distance=None):
         """
         Return the part a current probe was dropped on.
 
@@ -1029,7 +1301,9 @@ class ConnectionGridScene(QGraphicsScene):
         if component is not None:
             return component
 
-        identifier = self.find_grid_point_near(scene_position)
+        identifier = self.find_grid_point_near(
+            scene_position, snap_distance
+        )
 
         if identifier is None or self.component_collection is None:
             return None

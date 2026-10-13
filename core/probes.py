@@ -10,6 +10,7 @@ The numbers come from the s-domain formula. ngspice is not required.
 """
 
 import math
+import re
 
 import sympy
 
@@ -1085,6 +1086,85 @@ def _component_by_reference(components, reference):
             return component
 
     raise ComponentError(f"There is no part {reference}.")
+
+
+_POINT_TEXT_HELP = (
+    "Type a grid point such as NODE_R04_C03, a row and column such as "
+    "4 3 or R4 C3, or a net name such as Vcc."
+)
+_NODE_TEXT = re.compile(r"^NODE_R0*(\d+)_C0*(\d+)$", re.IGNORECASE)
+_COMPACT_POINT_TEXT = re.compile(r"^R(\d+)C(\d+)$", re.IGNORECASE)
+_ROW_COLUMN_TEXT = re.compile(
+    r"^(?:R\s*)?(\d+)\s*[, ]\s*(?:C\s*)?(\d+)$",
+    re.IGNORECASE,
+)
+
+
+def point_for_text(text, connection_grid):
+    """
+    Return the grid point named by text typed in the Probe panel.
+
+    ``NODE_R04_C03`` ignores case. ``4 3``, ``4,3``, ``R4 C3`` and
+    ``R4C3`` are a row and a column. A net name such as ``Vcc`` ignores
+    case; when several points share it, the top-left one is used so the
+    arrow has one place to point.
+
+    :param text: What was typed.
+    :type text: str
+    :param connection_grid: Grid the point must lie on.
+    :type connection_grid: ConnectionGrid
+    :rtype: str
+    :raises ComponentError: If the text is empty, not a point on this
+        grid, or not a net name. The message says what is allowed.
+    """
+    if not isinstance(connection_grid, ConnectionGrid):
+        raise ComponentError(
+            "Expected a connection grid, not "
+            f"{type(connection_grid).__name__}."
+        )
+
+    if not isinstance(text, str) or not text.strip():
+        raise ComponentError(_POINT_TEXT_HELP)
+
+    raw = text.strip()
+    parsed = _row_and_column(raw)
+
+    if parsed is not None:
+        row_number, column_number = parsed
+        identifier = ConnectionGrid.build_connection_point_identifier(
+            row_number, column_number
+        )
+        _require_point(identifier, connection_grid)
+        return identifier
+
+    folded = raw.casefold()
+    matches = sorted(
+        identifier
+        for identifier, label in connection_grid.get_net_labels().items()
+        if label.casefold() == folded
+    )
+
+    if not matches:
+        raise ComponentError(
+            f"'{raw}' is not a point on this grid. {_POINT_TEXT_HELP}"
+        )
+
+    return matches[0]
+
+
+def _row_and_column(text):
+    """
+    Return ``(row, column)`` when text is a point, or None.
+
+    :rtype: tuple or None
+    """
+    for pattern in (_NODE_TEXT, _COMPACT_POINT_TEXT, _ROW_COLUMN_TEXT):
+        match = pattern.fullmatch(text)
+
+        if match is not None:
+            return (int(match.group(1)), int(match.group(2)))
+
+    return None
 
 
 def _require_point(identifier, connection_grid):

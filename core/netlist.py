@@ -504,7 +504,8 @@ def _require_no_floating_nodes(parts, nets, node_of):
                 node = node_of[(component.reference, pin_name)]
                 raise SimulationError(
                     f"Node {node} has only one connection. Each node "
-                    "needs two."
+                    "needs two.",
+                    points=points,
                 )
 
 

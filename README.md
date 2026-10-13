@@ -145,12 +145,14 @@ Using it
   (10 Mohm and 10 pF to ground), Differential (click the other point;
   the reading is the first point minus the second), or Current. A probe
   that is not on a plot shows a box of readings: voltage, current,
-  frequency and phase, on the grid and in the Probe panel. Drag a
-  probe and it stays where you release it. A line and an arrow show
-  the point it is reading. Release it on another point to read that
-  point (a current probe, on another part). Reset position in the
-  Probe panel puts the picture back beside that point. Delete removes
-  the selected probe.
+  frequency and phase, on the grid and in the Probe panel. Drag the
+  flag to move the readings; the point it reads stays the same. Drag
+  the arrow to choose a point (the nearest grid point; a current
+  probe, the part you drop it on). Or type the point in the Probe
+  panel and press Enter: NODE_R04_C03, a row and column such as 4 3
+  or R4 C3, or a net name such as Vcc. A differential probe has a
+  Point and a Minus. Reset position puts the picture back beside
+  that point. Delete removes the selected probe.
 - Type a name such as Vcc in that panel and press Apply (or Enter).
   Every point with the same name is one node, so a DC source wired to
   one of them sets the voltage at the others. Vcc and vcc match.
@@ -185,7 +187,10 @@ Using it
   Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
   loads. The same netlist is what ngspice uses for the DC operating
-  point. Simulate > DC Operating Point draws those voltages on the
+  point. When a node has only one connection, that node is drawn
+  with an orange ring and the message names it. The ring stays
+  after you close the message, and the next edit clears it.
+  Simulate > DC Operating Point draws those voltages on the
   nodes and those currents on the parts. The selected point shows the
   DC voltage next to V(s). Simulate > Continuous is the usual
   choice: change a resistor, a source, a pot position, or a switch
