@@ -183,7 +183,9 @@ Using it
   select several points or parts. View > Fit Grid fits the grid to the
   window.
 - File > Save Project / Open Project stores the grid, parts, wires and
-  probes as a .json file. An older file that only has the grid still
+  probes as a .json file. File > Close Project drops that circuit and
+  leaves a blank 8 x 8 grid. The window stays open. File > Exit closes
+  the program. An older file that only has the grid still
   opens. examples/all-features.json is one sheet with every part.
   examples/all-features.txt says what each number should be. File >
   Examples is separate: a voltage divider (5 V in the middle), an
@@ -252,7 +254,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26).
 
 
 Third-party files
