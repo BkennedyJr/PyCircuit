@@ -346,12 +346,16 @@ def test_two_ac_frequencies_are_listed_separately():
     ]
 
 
-def test_a_plotted_probe_has_no_parameter_lines():
+def test_a_plotted_probe_still_has_its_meter_lines():
+    # The scope trace does not replace the box. The midpoint stays 5 V.
     book, probe, parts = loaded("direct")
 
     probe.has_plot = True
 
-    assert parameter_lines(probe, book, parts) == []
+    assert parameter_lines(probe, book, parts) == [
+        ("Voltage", "5 V"),
+        ("Frequency", "DC"),
+    ]
 
 
 def test_a_bad_probe_load_is_refused():
@@ -478,7 +482,7 @@ def test_clicking_a_part_places_a_current_probe(qt_application):
         close_window(window)
 
 
-def test_a_plotted_probe_hides_the_parameter_box(qt_application):
+def test_a_plotted_probe_keeps_the_grid_box(qt_application):
     window = MainWindow()
 
     try:
@@ -504,7 +508,80 @@ def test_a_plotted_probe_hides_the_parameter_box(qt_application):
         window.refresh_probe_parameters()
 
         assert window.probe_parameter_label.text() == "On a plot."
-        assert window.connection_grid_scene.probe_items[0].readout_lines == ()
+        assert window.connection_grid_scene.probe_items[0].readout_lines == (
+            ("Voltage", "5 V"),
+            ("Frequency", "DC"),
+        )
+    finally:
+        close_window(window)
+
+
+def test_changing_a_pot_updates_boxes_on_plotted_probes(qt_application):
+    # 10 V across a 10k pot. Position 0.5 is 5 V on the wiper.
+    # Position 0.25 is 10 * 0.25 = 2.5 V. Pin 1 stays at 10 V.
+    # A 1 Tohm from the wiper to ground is that pin's second
+    # connection and does not move the reading. A 20k pot at the
+    # same position is still 2.5 V.
+    window = MainWindow()
+
+    try:
+        grid = window.connection_grid
+        parts = window.component_collection
+        parts.components_by_reference["GND1"] = Component(
+            "ground", "GND1", "", 8, 2
+        )
+        parts.components_by_reference["V1"] = Component(
+            "dc_source", "V1", "10", 4, 2
+        )
+        parts.components_by_reference["RV1"] = Component(
+            "potentiometer", "RV1", "10k", 4, 3
+        )
+        parts.components_by_reference["R1"] = Component(
+            "resistor", "R1", "1t", 5, 4
+        )
+        wires = window.wire_collection
+        wires.add_wire(point(5, 2), point(8, 2), grid)
+        wires.add_wire(point(4, 2), point(4, 3), grid)
+        wires.add_wire(point(4, 5), point(8, 5), grid)
+        wires.add_wire(point(8, 2), point(8, 5), grid)
+        wires.add_wire(point(5, 5), point(8, 5), grid)
+        window.connection_grid_scene.rebuild_component_items()
+        window.connection_grid_scene.rebuild_wire_items()
+        window.probe_collection.add_voltage(point(4, 3), grid)
+        window.probe_collection.add_voltage(point(5, 4), grid)
+        window.connection_grid_scene.rebuild_probe_items()
+        window.refresh_probe_parameters()
+        window.probe_collection.set_has_plot("P1", True)
+        window.probe_collection.set_has_plot("P2", True)
+        window.connection_grid_scene.rebuild_probe_items()
+
+        assert flag_for(window, "P2").readout_lines == (
+            ("Voltage", "5 V"),
+            ("Frequency", "DC"),
+        )
+
+        window.handle_component_selection(parts.get_component("RV1"))
+        window.apply_component_value("10k", {"position": "0.25"})
+
+        assert flag_for(window, "P1").readout_lines == (
+            ("Voltage", "10 V"),
+            ("Frequency", "DC"),
+        )
+        assert flag_for(window, "P2").readout_lines == (
+            ("Voltage", "2.5 V"),
+            ("Frequency", "DC"),
+        )
+
+        window.apply_component_value("20k", {"position": "0.25"})
+
+        assert flag_for(window, "P1").readout_lines == (
+            ("Voltage", "10 V"),
+            ("Frequency", "DC"),
+        )
+        assert flag_for(window, "P2").readout_lines == (
+            ("Voltage", "2.5 V"),
+            ("Frequency", "DC"),
+        )
     finally:
         close_window(window)
 

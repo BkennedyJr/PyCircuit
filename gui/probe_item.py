@@ -450,8 +450,8 @@ class ProbeItem(QGraphicsItem):
 
         if self.probe.has_plot:
             lines.append("On a plot.")
-        else:
-            lines.extend(self._readout_strings())
+
+        lines.extend(self._readout_strings())
 
         if self.probe.method == "current":
             lines.append(self.probe.component_reference or "")

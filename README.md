@@ -143,9 +143,11 @@ Using it
   place a probe, or click a part to measure its current. The Probe
   panel sets the method: Direct (no load), 1 Mohm to ground, 10x scope
   (10 Mohm and 10 pF to ground), Differential (click the other point;
-  the reading is the first point minus the second), or Current. A probe
-  that is not on a plot shows a box of readings: voltage, current,
-  frequency and phase, on the grid and in the Probe panel. Drag the
+  the reading is the first point minus the second), or Current. Each
+  probe shows a box of readings beside its flag: voltage, current,
+  frequency and phase. Changing a part updates that box. The Probe
+  panel shows the same readings, or "On a plot." when a trace is
+  drawing that probe. Drag the
   flag to move the readings; the point it reads stays the same. Drag
   the arrow to choose a point (the nearest grid point; a current
   probe, the part you drop it on). Or type the point in the Probe
@@ -184,6 +186,11 @@ Using it
   probes as a .json file. An older file that only has the grid still
   opens. examples/all-features.json is one sheet with every part.
   examples/all-features.txt says what each number should be. File >
+  Examples is separate: a voltage divider (5 V in the middle), an
+  RC low-pass (1k and 159 nF), a unity-gain buffer (a 1 V, 1 kHz
+  sine copied to the output), or an AND gate (both inputs at 5 V,
+  so the output is 5 V). Each one opens as a circuit you can edit,
+  and Save asks for a new file. File >
   Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
   loads. The same netlist is what ngspice uses for the DC operating
@@ -245,7 +252,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24).
 
 
 Third-party files

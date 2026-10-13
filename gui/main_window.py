@@ -67,6 +67,8 @@ from core.probes import shunt_loads
 from core.units import format_dc_reading
 from core.wires import WireCollection
 from core.wires import describe_crossings
+from examples.samples import EXAMPLES
+from examples.samples import build_example
 from gui.bode_widget import BodeDock
 from gui.bode_widget import BodeRunner
 from gui.component_panel_widget import ComponentPanelWidget
@@ -473,6 +475,17 @@ class MainWindow(QMainWindow):
         self.about_action.setToolTip("Show the Circuit Workbench version")
         self.about_action.triggered.connect(self.show_about)
 
+        self.example_actions = []
+
+        for example_id, label, tip, _builder in EXAMPLES:
+            action = QAction(label, self)
+            action.setToolTip(tip)
+            action.triggered.connect(
+                lambda _checked=False, chosen=example_id:
+                self.open_example(chosen)
+            )
+            self.example_actions.append(action)
+
     def create_menu_bar(self):
         """
         Create the programmatic application menu bar.
@@ -482,6 +495,12 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.new_project_action)
         file_menu.addAction(self.open_project_action)
+        examples_menu = file_menu.addMenu("Examples")
+        examples_menu.setToolTip("Open a small circuit you can edit")
+
+        for action in self.example_actions:
+            examples_menu.addAction(action)
+
         file_menu.addSeparator()
         file_menu.addAction(self.save_project_action)
         file_menu.addAction(self.save_project_as_action)
@@ -1831,10 +1850,11 @@ class MainWindow(QMainWindow):
 
     def refresh_probe_parameters(self):
         """
-        Fill every unplotted probe's parameter box from the formula.
+        Fill every probe's parameter box from the formula.
 
-        The selected probe's box is in the Probe dock. Every probe also
-        draws its box on the grid, beside its flag.
+        Every probe draws its box on the grid, beside its flag, including
+        one whose trace is on a plot. The selected probe's box is in the
+        Probe dock, which says "On a plot." instead of the readings.
 
         :returns: None
         """
@@ -2681,6 +2701,52 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(
             "Created a new 8 x 8 grid with 64 connection points.",
+            5000
+        )
+
+    def open_example(self, example_id):
+        """
+        Replace the open circuit with one of the example sheets.
+
+        The example is a normal circuit: it can be edited, and Save
+        asks for a file. It is not the all-features sheet.
+
+        :param example_id: ``divider``, ``rc``, ``buffer`` or ``and``.
+        :type example_id: str
+        :returns: None
+        """
+        if not self.confirm_project_replacement():
+            return
+
+        try:
+            workbook = build_example(example_id)
+        except ComponentError as error:
+            self.show_error_message(
+                "Example Not Opened",
+                str(error),
+                "Choose Voltage divider, RC low-pass, Unity-gain buffer, "
+                "or AND gate from File > Examples."
+            )
+            return
+
+        self.current_project_file_path = None
+        self.is_project_modified = False
+        self.selected_connection_point_identifier = None
+        self.show_workbook(workbook)
+        self.update_window_title()
+        QTimer.singleShot(0, self.connection_grid_view.fit_grid_in_view)
+        label = example_id
+
+        for stored_id, stored_label, _tip, _builder in EXAMPLES:
+            if stored_id == example_id:
+                label = stored_label
+
+        part_count = len(self.component_collection.get_components())
+        wire_count = len(self.wire_collection.get_wires())
+        probe_count = len(self.probe_collection.get_probes())
+        self.statusBar().showMessage(
+            f"Opened {label}: "
+            f"{part_count} parts, {wire_count} wires, {probe_count} probes.",
             5000
         )
 

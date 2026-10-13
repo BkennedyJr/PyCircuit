@@ -1223,8 +1223,8 @@ class ConnectionGridScene(QGraphicsScene):
         """
         Show a parameter box on each probe that has meter lines.
 
-        A probe with no lines (not ready, or drawn on a plot) keeps its
-        flag and hides the box.
+        A probe with no lines (not ready) keeps its flag and hides the box.
+        A probe drawn on a plot still shows the box.
 
         :param lines_by_reference: Probe reference to ``(label, value)``
             pairs.
