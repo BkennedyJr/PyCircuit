@@ -11,7 +11,7 @@ import math
 
 import pytest
 import sympy
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QEvent, QPointF, Qt
 from PyQt5.QtWidgets import QApplication
 
 from core.components import Component
@@ -23,13 +23,14 @@ from core.probes import (
     describe_reading,
     flag_offset_from_saved,
     parameter_lines,
+    point_for_text,
     shunt_loads,
 )
 from core.project_io import load_project_file, save_project_file
 from core.wires import WireCollection
 from gui.grid_editor import grid_point_to_scene_position
 from gui.main_window import MainWindow
-from tests.view_mouse import click, drag
+from tests.view_mouse import click, drag, send_mouse
 
 
 def point(row, column):
@@ -642,7 +643,8 @@ def test_a_dragged_probe_stays_where_it_is_released(qt_application):
         close_window(window)
 
 
-def test_releasing_a_probe_on_another_point_reads_that_point(qt_application):
+def test_dragging_the_flag_onto_another_point_keeps_the_old_point(
+        qt_application):
     window = MainWindow()
 
     try:
@@ -658,14 +660,246 @@ def test_releasing_a_probe_on_another_point_reads_that_point(qt_application):
 
         flag = flag_for(window, probe.reference)
 
-        assert probe.identifier == point(2, 5)
+        assert probe.identifier == point(2, 3)
         assert near(flag.mapToScene(flag._flag_rect().center()), target)
+        assert near(
+            flag.mapToScene(flag.leader_target()),
+            grid_point_to_scene_position(2, 3),
+        )
+    finally:
+        close_window(window)
+
+
+def arrow_tip(flag):
+    return flag.mapToScene(
+        flag._arrow_tip(flag._leader_start(), flag.leader_target())
+    )
+
+
+def test_dragging_the_arrow_reads_that_point(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        show(window)
+        flag = flag_for(window, probe.reference)
+        readings = flag.mapToScene(flag._flag_rect().center())
+        target = grid_point_to_scene_position(2, 5)
+        drag(window.connection_grid_view, arrow_tip(flag), target)
+
+        flag = flag_for(window, probe.reference)
+
+        assert probe.identifier == point(2, 5)
+        assert near(flag.mapToScene(flag._flag_rect().center()), readings)
+        assert near(flag.mapToScene(flag.leader_target()), target)
+    finally:
+        close_window(window)
+
+
+def test_an_arrow_released_off_the_grid_keeps_the_point(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        show(window)
+        flag = flag_for(window, probe.reference)
+        drag(
+            window.connection_grid_view,
+            arrow_tip(flag),
+            QPointF(-400, -400),
+        )
+
+        assert probe.identifier == point(2, 3)
+        assert "off the grid" in window.statusBar().currentMessage()
+        assert point(2, 3) in window.statusBar().currentMessage()
+    finally:
+        close_window(window)
+
+
+def test_aiming_the_arrow_marks_the_point_it_would_choose(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        show(window)
+        flag = flag_for(window, probe.reference)
+        start = arrow_tip(flag)
+        target = grid_point_to_scene_position(2, 5)
+        view = window.connection_grid_view
+        send_mouse(view, QEvent.MouseButtonPress, start)
+        send_mouse(
+            view, QEvent.MouseMove, target, Qt.NoButton, Qt.LeftButton
+        )
+        candidate = (
+            window.connection_grid_scene
+            .connection_point_items_by_identifier[point(2, 5)]
+        )
+        home = (
+            window.connection_grid_scene
+            .connection_point_items_by_identifier[point(2, 3)]
+        )
+
+        assert candidate.aim_candidate is True
+        assert home.aim_candidate is False
+        assert candidate.problem is False
+
+        send_mouse(view, QEvent.MouseButtonRelease, target)
+
+        assert candidate.aim_candidate is False
+        assert probe.identifier == point(2, 5)
+    finally:
+        close_window(window)
+
+
+def test_typing_a_point_moves_the_arrow_and_leaves_the_flag(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        probe.set_flag_offset(40, -12)
+        window.connection_grid_scene.rebuild_probe_items()
+        window.connection_grid_scene.select_probe(probe.reference)
+        show(window)
+        flag = flag_for(window, probe.reference)
+        readings = flag.mapToScene(flag._flag_rect().center())
+        window.probe_point_edit.setText("R2 C5")
+        window.probe_point_edit.returnPressed.emit()
+
+        flag = flag_for(window, probe.reference)
+
+        assert probe.identifier == point(2, 5)
+        assert near(flag.mapToScene(flag._flag_rect().center()), readings)
         assert near(
             flag.mapToScene(flag.leader_target()),
             grid_point_to_scene_position(2, 5),
         )
+        assert window.probe_point_edit.text() == point(2, 5)
     finally:
         close_window(window)
+
+
+def test_a_bad_point_tells_what_is_allowed(qt_application, monkeypatch):
+    window = MainWindow()
+    recorded = []
+    monkeypatch.setattr(
+        window,
+        "show_error_message",
+        lambda title, reason, resolution: recorded.append((title, reason)),
+    )
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        window.connection_grid_scene.select_probe(probe.reference)
+        show(window)
+        window.probe_point_edit.setText("banana")
+        window.probe_point_apply.click()
+
+        assert probe.identifier == point(2, 3)
+        assert recorded[0][0] == "Probe Point Not Changed"
+        assert "NODE_R04_C03" in recorded[0][1]
+        assert "Vcc" in recorded[0][1]
+    finally:
+        close_window(window)
+
+
+def test_typing_the_minus_point_of_a_differential_probe(qt_application):
+    window = MainWindow()
+
+    try:
+        probe = window.probe_collection.add_voltage(
+            point(2, 3), window.connection_grid
+        )
+        window.probe_collection.set_method(probe.reference, "differential")
+        window.probe_collection.set_second_point(
+            probe.reference, point(4, 2), window.connection_grid
+        )
+        window.connection_grid_scene.rebuild_probe_items()
+        window.connection_grid_scene.select_probe(probe.reference)
+        show(window)
+
+        assert window.probe_minus_row.isVisible()
+        window.probe_minus_edit.setText("4, 5")
+        window.probe_minus_edit.returnPressed.emit()
+
+        assert probe.identifier == point(2, 3)
+        assert probe.second_identifier == point(4, 5)
+    finally:
+        close_window(window)
+
+
+def test_a_current_probe_has_no_point_box(qt_application):
+    window = MainWindow()
+
+    try:
+        resistor = Component("resistor", "R1", "1k", 2, 2)
+        window.component_collection.components_by_reference["R1"] = resistor
+        window.component_collection.components_by_reference["R2"] = (
+            Component("resistor", "R2", "1k", 2, 6)
+        )
+        window.connection_grid_scene.rebuild_component_items()
+        probe = window.probe_collection.add_current(resistor)
+        window.connection_grid_scene.rebuild_probe_items()
+        window.connection_grid_scene.select_probe(probe.reference)
+        show(window)
+
+        assert window.probe_point_row.isVisible() is False
+
+        flag = flag_for(window, probe.reference)
+        body = grid_point_to_scene_position(2, 6) + QPointF(30, 0)
+        drag(
+            window.connection_grid_view,
+            flag.mapToScene(flag._flag_rect().center()),
+            body,
+        )
+
+        assert probe.component_reference == "R1"
+
+        flag = flag_for(window, probe.reference)
+        drag(window.connection_grid_view, arrow_tip(flag), body)
+
+        assert probe.component_reference == "R2"
+    finally:
+        close_window(window)
+
+
+def test_a_typed_point_accepts_a_node_a_row_and_a_net_name():
+    grid = ConnectionGrid(8, 8)
+
+    assert point_for_text("node_r04_c03", grid) == point(4, 3)
+    assert point_for_text("4 3", grid) == point(4, 3)
+    assert point_for_text("4,3", grid) == point(4, 3)
+    assert point_for_text("R4 C3", grid) == point(4, 3)
+    assert point_for_text("R4C3", grid) == point(4, 3)
+
+    grid.set_net_label(point(4, 3), "Vcc")
+    grid.set_net_label(point(2, 5), "vcc")
+
+    # Same name, ignoring case, is one node. The arrow uses the
+    # top-left point, which is the first identifier in row-column order.
+    assert point_for_text("VCC", grid) == point(2, 5)
+
+    with pytest.raises(ComponentError, match="NODE_R04_C03"):
+        point_for_text("  ", grid)
+
+    with pytest.raises(ComponentError, match="banana"):
+        point_for_text("banana", grid)
+
+    with pytest.raises(ComponentError, match="NODE_R02_C03"):
+        point_for_text("99 99", grid)
 
 
 def test_probe_mode_turns_wire_mode_off(qt_application):

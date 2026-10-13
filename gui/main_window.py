@@ -62,6 +62,7 @@ from core.probes import PROBE_METHODS
 from core.probes import ProbeCollection
 from core.probes import describe_reading
 from core.probes import parameter_lines
+from core.probes import point_for_text
 from core.probes import shunt_loads
 from core.units import format_dc_reading
 from core.wires import WireCollection
@@ -848,6 +849,47 @@ class MainWindow(QMainWindow):
         )
         self.probe_where_label = QLabel("-")
         self.probe_where_label.setWordWrap(True)
+        self.probe_point_edit = QLineEdit()
+        self.probe_point_edit.setPlaceholderText("NODE_R04_C03, 4 3, or Vcc")
+        self.probe_point_edit.setToolTip(
+            "Point this probe at a grid point or a net name. "
+            "Enter applies it."
+        )
+        self.probe_point_edit.returnPressed.connect(
+            self.apply_primary_probe_point
+        )
+        self.probe_point_edit.setEnabled(False)
+        self.probe_point_apply = ApplyGridButton("Apply")
+        self.probe_point_apply.setToolTip(
+            "Point the probe at this grid point. Enter does this too."
+        )
+        self.probe_point_apply.clicked.connect(
+            self.apply_primary_probe_point
+        )
+        self.probe_point_apply.setEnabled(False)
+        self.probe_point_row = self._probe_point_row_widget(
+            self.probe_point_edit, self.probe_point_apply
+        )
+        self.probe_minus_edit = QLineEdit()
+        self.probe_minus_edit.setPlaceholderText("minus point")
+        self.probe_minus_edit.setToolTip(
+            "Minus point of a differential probe. Enter applies it."
+        )
+        self.probe_minus_edit.returnPressed.connect(
+            self.apply_second_probe_point
+        )
+        self.probe_minus_edit.setEnabled(False)
+        self.probe_minus_apply = ApplyGridButton("Apply")
+        self.probe_minus_apply.setToolTip(
+            "Set the minus point. Enter does this too."
+        )
+        self.probe_minus_apply.clicked.connect(
+            self.apply_second_probe_point
+        )
+        self.probe_minus_apply.setEnabled(False)
+        self.probe_minus_row = self._probe_point_row_widget(
+            self.probe_minus_edit, self.probe_minus_apply
+        )
         self.probe_reading_label = QLabel("-")
         self.probe_reading_label.setWordWrap(True)
         self.probe_reading_label.setTextInteractionFlags(
@@ -872,15 +914,20 @@ class MainWindow(QMainWindow):
         )
         self.probe_note_label = QLabel(
             "Probe Mode (P): click a grid point, or click a part for "
-            "current. Drag a probe to move it. The arrow shows the "
-            "point it reads."
+            "current. Drag the flag to move the readings. Drag the "
+            "arrow to choose the point, or type the point and press Enter."
         )
         self.probe_note_label.setWordWrap(True)
 
         probe_layout.addRow("Probe:", self.probe_name_label)
         probe_layout.addRow("Method:", self.probe_method_combo)
         probe_layout.addRow("Where:", self.probe_where_label)
+        probe_layout.addRow("Point:", self.probe_point_row)
+        probe_layout.addRow("Minus:", self.probe_minus_row)
         probe_layout.addRow("Reading:", self.probe_reading_label)
+        self.probe_form_layout = probe_layout
+        self._set_form_row_visible(self.probe_point_row, False)
+        self._set_form_row_visible(self.probe_minus_row, False)
         probe_layout.addRow(self.reset_probe_position_button)
         probe_layout.addRow(self.probe_parameter_box)
         probe_layout.addRow(self.probe_note_label)
@@ -889,6 +936,33 @@ class MainWindow(QMainWindow):
         self.probe_dock = QDockWidget("Probe", self)
         self.probe_dock.setWidget(probe_widget)
         self.addDockWidget(Qt.RightDockWidgetArea, self.probe_dock)
+
+    def _probe_point_row_widget(self, line_edit, button):
+        """
+        Return a point box and its Apply button on one row.
+
+        :rtype: QWidget
+        """
+        row = QWidget()
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(line_edit)
+        layout.addWidget(button)
+        row.setLayout(layout)
+
+        return row
+
+    def _set_form_row_visible(self, field, visible):
+        """
+        Show or hide one Probe-panel row and its label.
+
+        :returns: None
+        """
+        label = self.probe_form_layout.labelForField(field)
+        field.setVisible(visible)
+
+        if label is not None:
+            label.setVisible(visible)
 
     def create_oscilloscope_dock(self):
         """
@@ -1548,6 +1622,7 @@ class MainWindow(QMainWindow):
             self.probe_reading_label.setText("-")
             self.probe_parameter_label.setText("-")
             self.reset_probe_position_button.setEnabled(False)
+            self._fill_probe_point_fields(None)
             return
 
         self.probe_name_label.setText(probe.reference)
@@ -1558,9 +1633,98 @@ class MainWindow(QMainWindow):
         self.probe_method_combo.blockSignals(False)
         self.probe_method_combo.setEnabled(True)
         self.probe_where_label.setText(self._probe_where_text(probe))
+        self._fill_probe_point_fields(probe)
         self.probe_reading_label.setText(self._probe_reading(probe))
         self.reset_probe_position_button.setEnabled(probe.flag_is_moved())
         self._fill_parameter_box(probe)
+
+    def apply_primary_probe_point(self):
+        """
+        Point the selected probe at the text in the Point box.
+
+        :returns: None
+        """
+        self.apply_probe_point("primary")
+
+    def apply_second_probe_point(self):
+        """
+        Point the minus end of a differential probe at the Minus box.
+
+        :returns: None
+        """
+        self.apply_probe_point("second")
+
+    def apply_probe_point(self, which):
+        """
+        Point the selected probe at the text in one box.
+
+        Enter and Apply both call this. A current probe measures a part,
+        so it has no point box.
+
+        :param which: ``"primary"`` or ``"second"``.
+        :type which: str
+        :returns: None
+        """
+        reference = self.selected_probe_reference
+
+        if reference is None:
+            return
+
+        try:
+            probe = self.probe_collection.get(reference)
+        except ComponentError:
+            return
+
+        if probe.method == "current":
+            return
+
+        if which == "second" and probe.method != "differential":
+            return
+
+        line_edit = (
+            self.probe_minus_edit if which == "second"
+            else self.probe_point_edit
+        )
+
+        try:
+            identifier = point_for_text(
+                line_edit.text(), self.connection_grid
+            )
+            self.connection_grid_scene.move_probe_to_point(
+                reference, identifier, which
+            )
+        except ComponentError as error:
+            self.show_error_message(
+                "Probe Point Not Changed",
+                str(error),
+                "Type a grid point such as NODE_R04_C03, a row and "
+                "column such as 4 3 or R4 C3, or a net name such as Vcc."
+            )
+
+    def _fill_probe_point_fields(self, probe):
+        """
+        Show the point boxes for a voltage probe, and fill them.
+
+        A current probe measures a part, so both boxes are hidden. The
+        minus box is only for a differential probe.
+
+        :param probe: Selected probe, or None.
+        :returns: None
+        """
+        voltage = probe is not None and probe.method != "current"
+        differential = probe is not None and probe.method == "differential"
+        self._set_form_row_visible(self.probe_point_row, voltage)
+        self._set_form_row_visible(self.probe_minus_row, differential)
+        self.probe_point_edit.setEnabled(voltage)
+        self.probe_point_apply.setEnabled(voltage)
+        self.probe_minus_edit.setEnabled(differential)
+        self.probe_minus_apply.setEnabled(differential)
+        self.probe_point_edit.setText(
+            "" if probe is None else (probe.identifier or "")
+        )
+        self.probe_minus_edit.setText(
+            "" if probe is None else (probe.second_identifier or "")
+        )
 
     def reset_selected_probe_position(self):
         """
@@ -1878,6 +2042,7 @@ class MainWindow(QMainWindow):
         :type refresh_results: bool
         :returns: None
         """
+        self.connection_grid_scene.clear_problem_highlight()
         self.is_project_modified = True
         self._node_formula_book = None
 
@@ -2739,9 +2904,9 @@ class MainWindow(QMainWindow):
             write_netlist_file(netlist_file_path, netlist_text)
 
         except SimulationError as error:
-            self.show_error_message(
+            self.report_simulation_error(
                 "Netlist Not Written",
-                str(error),
+                error,
                 "Fix the circuit, then export the netlist again."
             )
             return False
@@ -3139,9 +3304,9 @@ class MainWindow(QMainWindow):
                 self.connection_grid
             )
         except SimulationError as error:
-            self.show_error_message(
+            self.report_simulation_error(
                 "DC Operating Point",
-                str(error),
+                error,
                 "Fix the circuit, then run DC Operating Point again."
             )
             return
@@ -3585,9 +3750,9 @@ class MainWindow(QMainWindow):
                 name_by_point,
             )
         except (SimulationError, ComponentError) as error:
-            self.show_error_message(
+            self.report_simulation_error(
                 "Bode",
-                str(error),
+                error,
                 "Fix the circuit or the frequency settings, then press "
                 "Start again."
             )
@@ -3834,9 +3999,9 @@ class MainWindow(QMainWindow):
                 name_by_point,
             )
         except (SimulationError, ComponentError) as error:
-            self.show_error_message(
+            self.report_simulation_error(
                 "Oscilloscope",
-                str(error),
+                error,
                 "Fix the circuit or the time settings, then press Start "
                 "again."
             )
@@ -4047,6 +4212,26 @@ class MainWindow(QMainWindow):
         :returns: None
         """
         self.create_about_box().exec_()
+
+    def report_simulation_error(self, title, error, resolution):
+        """
+        Mark a named bad node, then show the message.
+
+        The mark stays after the message is closed. The next edit
+        clears it. An error that does not name a node clears any
+        previous mark. This is separate from aiming a probe.
+
+        :param title: Short action-oriented error title.
+        :type title: str
+        :param error: Failure from the netlist or a probe load.
+        :type error: Exception
+        :param resolution: Recommended user action.
+        :type resolution: str
+        :returns: None
+        """
+        points = getattr(error, "points", ())
+        self.connection_grid_scene.highlight_problem_points(points)
+        self.show_error_message(title, str(error), resolution)
 
     def show_error_message(self, title, reason, resolution):
         """

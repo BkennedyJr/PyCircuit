@@ -354,8 +354,10 @@ def test_the_netlist_refuses_a_circuit_that_cannot_be_solved():
     grid, parts, wires = new_circuit()
     place(parts, grid, "dc_source", 4, 2, "5")
 
-    with pytest.raises(SimulationError, match=r"Add a ground part\.$"):
+    with pytest.raises(SimulationError, match=r"Add a ground part\.$") as ground_error:
         build_netlist(parts, wires, grid)
+
+    assert ground_error.value.points == ()
 
     grid, parts, wires = new_circuit()
     place(parts, grid, "ground", 4, 2)
@@ -371,8 +373,12 @@ def test_the_netlist_refuses_a_circuit_that_cannot_be_solved():
 
     with pytest.raises(
             SimulationError,
-            match=r"Node N001 has only one connection\."):
+            match=r"Node N001 has only one connection\.") as floating:
         build_netlist(parts, wires, grid)
+
+    # Plus of the source at row 4, column 2. The minus pin is wired
+    # to ground, so only this point is the one-connection node.
+    assert floating.value.points == (point(4, 2),)
 
     grid, parts, wires = new_circuit()
     place(parts, grid, "ground", 6, 2)
@@ -601,5 +607,57 @@ def test_export_without_ground_reports_the_reason_and_writes_nothing(
         assert window.export_netlist_to_path(path) is False
         assert path.exists() is False
         assert recorded == [("Netlist Not Written", "Add a ground part.")]
+        assert all(
+            item.problem is False
+            for item in (
+                window.connection_grid_scene
+                .connection_point_items_by_identifier.values()
+            )
+        )
     finally:
         close_window(window)
+
+
+def test_a_one_connection_node_stays_marked_after_the_message(
+        qt_application, tmp_path, monkeypatch):
+    window = MainWindow()
+    monkeypatch.setattr(window, "show_error_message", lambda *args: None)
+
+    try:
+        grid = window.connection_grid
+        window.component_collection.add_component(
+            "dc_source", 4, 2, "5", grid
+        )
+        window.component_collection.add_component("ground", 6, 2, "", grid)
+        window.wire_collection.add_wire(point(5, 2), point(6, 2), grid)
+        path = tmp_path / "open.cir"
+
+        assert window.export_netlist_to_path(path) is False
+        scene = window.connection_grid_scene
+        assert scene.connection_point_items_by_identifier[
+            point(4, 2)
+        ].problem is True
+        assert scene.connection_point_items_by_identifier[
+            point(5, 2)
+        ].problem is False
+
+        window.mark_project_modified("Edited the circuit.")
+
+        assert scene.connection_point_items_by_identifier[
+            point(4, 2)
+        ].problem is False
+    finally:
+        close_window(window)
+
+
+def test_a_floating_net_names_every_point_on_it():
+    grid, parts, wires = new_circuit()
+    place(parts, grid, "ground", 6, 2)
+    place(parts, grid, "dc_source", 4, 2, "5")
+    connect(wires, grid, (5, 2), (6, 2))
+    connect(wires, grid, (4, 2), (4, 3))
+
+    with pytest.raises(SimulationError, match=r"Node N001") as error_info:
+        build_netlist(parts, wires, grid)
+
+    assert error_info.value.points == (point(4, 2), point(4, 3))

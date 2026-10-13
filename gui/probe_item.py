@@ -3,11 +3,11 @@ The probe drawn on the grid.
 
 The probe is a small flag with its name, up and to the left of the point
 it reads, so it does not cover the dot or a net name. A line and an
-arrow run from the flag to that point. Dragging the flag leaves it where
-it was released; releasing it on another point makes it read that point.
-A probe that is not on a plot also draws a box of readings (voltage,
-current, frequency, phase) to the left of that flag. A differential
-probe has a second flag on the minus point.
+arrow run from the flag to that point. Dragging the flag moves the
+readings and leaves the point alone. Dragging the arrow chooses a new
+point. A probe that is not on a plot also draws a box of readings
+(voltage, current, frequency, phase) to the left of that flag. A
+differential probe has a second flag on the minus point.
 """
 
 import math
@@ -35,6 +35,8 @@ _BOX_PAD = 4
 _ARROW_CLEARANCE = 12
 _ARROW_LENGTH = 9
 _ARROW_HALF_WIDTH = 3.5
+# The arrow head is the handle that chooses a new point.
+_ARROW_GRAB = 12
 
 
 class ProbeItem(QGraphicsItem):
@@ -54,7 +56,11 @@ class ProbeItem(QGraphicsItem):
         self.slot = slot
         self.readout_lines = ()
         self._dragging = False
+        self._aiming = False
         self._press_scene_position = None
+        # While the arrow is being dragged, the tip follows the cursor.
+        # None means the arrow points at anchor_position.
+        self._aim_scene_position = None
         # Scene position of the point this flag reads. The flag can sit
         # somewhere else; the arrow is drawn back to this point.
         self.anchor_position = QPointF(0, 0)
@@ -97,16 +103,23 @@ class ProbeItem(QGraphicsItem):
         box = self._box_rect()
         rect = flag if box is None else flag.united(box)
         target = self.leader_target()
+        reach = _ARROW_GRAB + 4
         rect = rect.united(
-            QRectF(target.x() - 14, target.y() - 14, 28, 28)
+            QRectF(
+                target.x() - reach,
+                target.y() - reach,
+                reach * 2,
+                reach * 2,
+            )
         )
 
         return rect.adjusted(-2, -2, 2, 2)
 
     def shape(self):
         """
-        Return the flag and its readout, the parts that take a click.
+        Return the flag, its readout, and the arrow head.
 
+        The flag moves the readings. The arrow head chooses the point.
         The leader line is drawn but does not steal clicks from the grid.
 
         :rtype: QPainterPath
@@ -117,6 +130,9 @@ class ProbeItem(QGraphicsItem):
 
         if box is not None:
             path.addRoundedRect(box, 3, 3)
+
+        tip = self._arrow_tip(self._leader_start(), self.leader_target())
+        path.addEllipse(tip, _ARROW_GRAB, _ARROW_GRAB)
 
         return path
 
@@ -168,6 +184,9 @@ class ProbeItem(QGraphicsItem):
 
         :rtype: QPointF
         """
+        if self._aim_scene_position is not None:
+            return self.mapFromScene(self._aim_scene_position)
+
         return self.mapFromScene(self.anchor_position)
 
     def _paint_leader(self, painter):
@@ -219,7 +238,8 @@ class ProbeItem(QGraphicsItem):
         """
         length = math.hypot(target.x() - start.x(), target.y() - start.y())
 
-        if length <= _ARROW_CLEARANCE + 2:
+        # While aiming, the tip stays under the cursor.
+        if self._aim_scene_position is not None or length <= _ARROW_CLEARANCE + 2:
             return target
 
         scale = (length - _ARROW_CLEARANCE) / length
@@ -311,17 +331,22 @@ class ProbeItem(QGraphicsItem):
 
     def mousePressEvent(self, event):
         """
-        Remember where a drag started.
+        Remember where a drag started, and whether it grabbed the arrow.
 
         :returns: None
         """
         self._dragging = False
+        self._aim_scene_position = None
+        self._aiming = self._press_aims(event.pos())
         self._press_scene_position = event.scenePos()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         """
-        Slide the flag with the cursor once the drag has started.
+        Slide the flag, or aim the arrow, once the drag has started.
+
+        Dragging the flag moves the readings. Dragging the arrow leaves
+        the flag where it is and points the tip at the cursor.
 
         :returns: None
         """
@@ -332,7 +357,15 @@ class ProbeItem(QGraphicsItem):
             if delta.manhattanLength() >= QApplication.startDragDistance():
                 self._dragging = True
 
-            if self._dragging:
+            if self._dragging and self._aiming:
+                self.prepareGeometryChange()
+                self._aim_scene_position = event.scenePos()
+                self._press_scene_position = event.scenePos()
+                self.update()
+
+                if self.scene() is not None:
+                    self.scene().preview_probe_aim(self, event.scenePos())
+            elif self._dragging:
                 self.prepareGeometryChange()
                 self.moveBy(delta.x(), delta.y())
                 self._press_scene_position = event.scenePos()
@@ -341,17 +374,43 @@ class ProbeItem(QGraphicsItem):
 
     def mouseReleaseEvent(self, event):
         """
-        Leave the probe where it was released. The scene records that
-        place and, when the release is on a point, what it now reads.
+        Leave the flag where it was released.
+
+        A flag drag does not change the point. An arrow drag does, when
+        the release is on a grid point (or on a part, for current).
 
         :returns: None
         """
+        aiming = self._aiming
+
         if self._dragging and self.scene() is not None:
-            self.scene().finish_probe_drag(self, event.scenePos())
+            self.scene().finish_probe_drag(
+                self, event.scenePos(), aiming=aiming
+            )
 
         self._dragging = False
+        self._aiming = False
+        self._aim_scene_position = None
         self._press_scene_position = None
         super().mouseReleaseEvent(event)
+
+    def _press_aims(self, local_position):
+        """
+        Return whether this press grabbed the arrow rather than the flag.
+
+        :rtype: bool
+        """
+        if self._flag_rect().contains(local_position):
+            return False
+
+        box = self._box_rect()
+
+        if box is not None and box.contains(local_position):
+            return False
+
+        tip = self._arrow_tip(self._leader_start(), self.leader_target())
+
+        return QLineF(local_position, tip).length() <= _ARROW_GRAB
 
     def _flag_text(self):
         """
@@ -385,7 +444,8 @@ class ProbeItem(QGraphicsItem):
         label = PROBE_METHOD_LABELS.get(self.probe.method, self.probe.method)
         lines = [
             f"{self.probe.reference} {label}",
-            "The arrow marks the point this probe reads.",
+            "Drag the flag to move the readings.",
+            "Drag the arrow to choose the point.",
         ]
 
         if self.probe.has_plot:
