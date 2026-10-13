@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
 
 from core.cursors import format_cursor_text, value_at
 from gui.plot_cursors import CursorBox
+from gui.plot_zoom import show_zoom_tip
 from gui.update_mode import update_mode_combo
 
 
@@ -71,6 +72,7 @@ class FftDock(QDockWidget):
         self.plot.addLegend()
         self.plot.setMinimumHeight(120)
         self.plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        show_zoom_tip(self.plot)
 
         controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(0, 0, 0, 0)
