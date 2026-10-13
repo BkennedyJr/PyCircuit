@@ -184,6 +184,11 @@ Using it
   probes as a .json file. An older file that only has the grid still
   opens. examples/all-features.json is one sheet with every part.
   examples/all-features.txt says what each number should be. File >
+  Examples is separate: a voltage divider (5 V in the middle), an
+  RC low-pass (1k and 159 nF), a unity-gain buffer (a 1 V, 1 kHz
+  sine copied to the output), or an AND gate (both inputs at 5 V,
+  so the output is 5 V). Each one opens as a circuit you can edit,
+  and Save asks for a new file. File >
   Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
   loads. The same netlist is what ngspice uses for the DC operating
