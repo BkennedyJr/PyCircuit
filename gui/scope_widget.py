@@ -24,6 +24,7 @@ from core.cursors import format_cursor_text, value_at
 from core.exceptions import ComponentError
 from core.units import format_spice_number, parse_value
 from gui.plot_cursors import CursorBox
+from gui.plot_zoom import ZOOM_TIP, show_zoom_tip
 from gui.update_mode import update_mode_combo
 from sim.runner import default_transient_stop
 
@@ -50,6 +51,10 @@ class OscilloscopeDock(QDockWidget):
     """
     Dock that shows probe traces from the last transient.
 
+    The wheel on the trace zooms both axes. The wheel on the bottom
+    numbers zooms time, and the wheel on the left numbers zooms volts.
+    Typing a division uses that box again.
+
     :param parent: Owning window.
     """
 
@@ -63,6 +68,15 @@ class OscilloscopeDock(QDockWidget):
         self._run_time_automatic = True
         self._time_div_automatic = True
         self._checks = []
+        # A wheel zoom or a drag keeps that view. Typing a division
+        # lets the next trace use the box again.
+        self.x_held = False
+        self.y_held = False
+        self._x_low = None
+        self._x_span = None
+        self._y_low = None
+        self._y_span = None
+        self._cursor_high = 1.0
         self._build()
 
     def _build(self):
@@ -86,7 +100,7 @@ class OscilloscopeDock(QDockWidget):
             "Volts per division, or blank for Auto. "
             "The screen is 10 divisions tall."
         )
-        self.volts_edit.editingFinished.connect(self.channels_changed)
+        self.volts_edit.editingFinished.connect(self._edited_volts)
 
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -119,6 +133,11 @@ class OscilloscopeDock(QDockWidget):
         self.plot.addLegend()
         self.plot.setMinimumHeight(180)
         self.plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        show_zoom_tip(self.plot)
+        self.plot.setToolTip(
+            ZOOM_TIP + " Time per division and volts per division follow."
+        )
+        self.plot.sigRangeChangedManually.connect(self._view_moved)
 
         controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(0, 0, 0, 0)
@@ -145,6 +164,16 @@ class OscilloscopeDock(QDockWidget):
 
     def _edited_time_div(self):
         self._time_div_automatic = False
+        self.x_held = False
+        self.channels_changed.emit()
+
+    def _edited_volts(self):
+        """
+        Use the volts box again. A blank box is Auto.
+
+        :returns: None
+        """
+        self.y_held = False
         self.channels_changed.emit()
 
     def refresh_automatic_times(self, components):
@@ -305,20 +334,95 @@ class OscilloscopeDock(QDockWidget):
             )
 
         window = SCOPE_DIVISIONS * time_per_division
-        self.plot.setXRange(0, window, padding=0)
 
-        if volts_per_division is None:
-            self.plot.enableAutoRange(axis="y")
-        else:
-            half = (SCOPE_DIVISIONS / 2.0) * volts_per_division
-            self.plot.setYRange(-half, half, padding=0)
+        if not self.x_held:
+            self.plot.setXRange(0, window, padding=0)
+            self._cursor_high = window
+
+        if not self.y_held:
+            if volts_per_division is None:
+                self.plot.enableAutoRange(axis="y")
+                self.plot.getViewBox().updateAutoRange()
+            else:
+                half = (SCOPE_DIVISIONS / 2.0) * volts_per_division
+                self.plot.setYRange(-half, half, padding=0)
+
+        self._remember_view()
 
         if traces:
             self.note_label.setText("Each checked probe is a trace.")
         else:
             self.note_label.setText("Check a probe, then press Start.")
 
-        self.cursors.show_series(list(series), series, 0, window)
+        self.cursors.show_series(list(series), series, 0, self._cursor_high)
+
+    def _view_moved(self, _mask):
+        """
+        Keep a wheel zoom or a drag when the trace is drawn again.
+
+        A change in the time span updates time per division. A change
+        in the voltage span updates volts per division. A pan that
+        keeps the same span leaves the boxes as they are.
+
+        :returns: None
+        """
+        x_range, y_range = self.plot.viewRange()
+        x_span = x_range[1] - x_range[0]
+        y_span = y_range[1] - y_range[0]
+        x_moved = (
+            self._x_span is None
+            or not _near(x_range[0], self._x_low, self._x_span)
+            or not _near(x_span, self._x_span, self._x_span)
+        )
+        y_moved = (
+            self._y_span is None
+            or not _near(y_range[0], self._y_low, self._y_span)
+            or not _near(y_span, self._y_span, self._y_span)
+        )
+
+        if x_moved:
+            self.x_held = True
+            self._time_div_automatic = False
+
+            if self._x_span is None or not _near(x_span, self._x_span, x_span):
+                self._set_box(
+                    self.time_div_edit,
+                    format_spice_number(x_span / SCOPE_DIVISIONS),
+                )
+
+        if y_moved:
+            self.y_held = True
+
+            if self._y_span is None or not _near(y_span, self._y_span, y_span):
+                self._set_box(
+                    self.volts_edit,
+                    format_spice_number(y_span / SCOPE_DIVISIONS),
+                )
+
+        self._remember_view()
+
+    def _remember_view(self):
+        """
+        Store the range now on screen.
+
+        :returns: None
+        """
+        x_range, y_range = self.plot.viewRange()
+        self._x_low = x_range[0]
+        self._x_span = x_range[1] - x_range[0]
+        self._y_low = y_range[0]
+        self._y_span = y_range[1] - y_range[0]
+
+    @staticmethod
+    def _set_box(box, text):
+        """
+        Write a division box without treating it as a typed edit.
+
+        :returns: None
+        """
+        box.blockSignals(True)
+        box.setText(text)
+        box.blockSignals(False)
 
     def set_cursors(self, first_seconds, second_seconds):
         """
@@ -419,6 +523,18 @@ def _scope_cursor_text(name, series, first, second):
         "s",
         ((value_at(times, values, first), value_at(times, values, second), ""),),
     )
+
+
+def _near(left, right, scale):
+    """
+    Return whether two view numbers are the same at this scale.
+
+    :returns: True when the difference is only float noise.
+    """
+    if left is None or right is None or scale is None:
+        return False
+
+    return abs(left - right) <= max(1e-15, 1e-6 * abs(scale))
 
 
 def _positive_time(text, label):

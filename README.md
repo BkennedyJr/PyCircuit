@@ -208,7 +208,10 @@ Using it
   trace. Start runs a transient and draws each checked probe. Stop
   drops that run. The run is five periods of the slowest sine, or
   10 ms. Time per division and volts per division set the grid; leave
-  volts blank for Auto.
+  volts blank for Auto. The wheel on the trace zooms both axes. The
+  wheel on the time numbers zooms only time, and the wheel on the
+  volts numbers zooms only volts. The division boxes follow. Type a
+  division to use the box again.
   Moving a probe redraws it from the last run when that point was in
   the run. An LED lights when its current is above 1 mA. In
   Continuous, a new value runs the trace again while this window is
@@ -216,14 +219,19 @@ Using it
 - View > Bode opens the frequency-sweep dock (it can float, and it
   starts as a tab on the oscilloscope). Start sweeps from the start
   frequency to the stop frequency. Magnitude is dB relative to the
-  one AC source, and phase is degrees. A checked probe is a curve.
+  one AC source, and phase is degrees. The wheel on a trace zooms
+  both axes. The wheel on the frequency numbers zooms only frequency,
+  and the wheel on the left numbers zooms only that axis. A checked
+  probe is a curve.
   In Continuous, a new value runs the curves again while this window
   is open. A closed Bode window waits until you open it. Snapshot,
   or moving or deleting a part, clears them.
 - View > FFT opens the spectrum of the oscilloscope waveform (it can
   float, and it starts as a tab on the oscilloscope). The height is
-  the peak of that wave. A 1 V sine that lasts a whole number of
-  cycles is a 1 V line at its frequency. It is calculated when this
+  the peak of that wave. The wheel on the trace zooms both axes. The
+  wheel on the frequency numbers zooms only frequency, and the wheel
+  on the left numbers zooms only the height. A 1 V sine that lasts a
+  whole number of cycles is a 1 V line at its frequency. It is calculated when this
   window is open, from the oscilloscope run. With only the
   oscilloscope open, the spectrum is not calculated. Opening FFT
   draws it from that run. In Continuous, a new value runs it again

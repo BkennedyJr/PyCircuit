@@ -26,6 +26,7 @@ from core.cursors import format_cursor_text, value_at_log_x
 from core.exceptions import ComponentError
 from core.units import parse_value
 from gui.plot_cursors import CursorBox
+from gui.plot_zoom import show_zoom_tip
 from gui.update_mode import update_mode_combo
 
 
@@ -439,6 +440,7 @@ def _styled_plot(label, units):
     plot.setLogMode(x=True, y=False)
     plot.addLegend()
     plot.setMinimumHeight(100)
+    show_zoom_tip(plot)
     return plot
 
 
