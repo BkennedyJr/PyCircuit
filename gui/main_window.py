@@ -1831,10 +1831,11 @@ class MainWindow(QMainWindow):
 
     def refresh_probe_parameters(self):
         """
-        Fill every unplotted probe's parameter box from the formula.
+        Fill every probe's parameter box from the formula.
 
-        The selected probe's box is in the Probe dock. Every probe also
-        draws its box on the grid, beside its flag.
+        Every probe draws its box on the grid, beside its flag, including
+        one whose trace is on a plot. The selected probe's box is in the
+        Probe dock, which says "On a plot." instead of the readings.
 
         :returns: None
         """
