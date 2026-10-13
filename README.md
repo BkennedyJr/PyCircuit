@@ -143,9 +143,11 @@ Using it
   place a probe, or click a part to measure its current. The Probe
   panel sets the method: Direct (no load), 1 Mohm to ground, 10x scope
   (10 Mohm and 10 pF to ground), Differential (click the other point;
-  the reading is the first point minus the second), or Current. A probe
-  that is not on a plot shows a box of readings: voltage, current,
-  frequency and phase, on the grid and in the Probe panel. Drag the
+  the reading is the first point minus the second), or Current. Each
+  probe shows a box of readings beside its flag: voltage, current,
+  frequency and phase. Changing a part updates that box. The Probe
+  panel shows the same readings, or "On a plot." when a trace is
+  drawing that probe. Drag the
   flag to move the readings; the point it reads stays the same. Drag
   the arrow to choose a point (the nearest grid point; a current
   probe, the part you drop it on). Or type the point in the Probe
