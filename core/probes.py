@@ -63,9 +63,10 @@ class Probe:
     also stores the second point once it has been chosen. A current probe
     stores a part reference instead of a point.
 
-    ``has_plot`` is false until a scope trace is drawing this probe. A
-    probe with no plot shows a parameter box (voltage, current, frequency,
-    phase). A probe on a plot does not: the trace is the reading.
+    ``has_plot`` is false until a scope trace is drawing this probe. The
+    flag keeps a parameter box (voltage, current, frequency, phase) either
+    way, and a new part value updates that box. The Probe panel says the
+    probe is on a plot instead of repeating the box.
 
     :param reference: Name such as ``P1``.
     :param method: One of ``PROBE_METHODS``.
@@ -469,7 +470,8 @@ class ProbeCollection:
         """
         Remember whether a scope trace is drawing this probe.
 
-        A probe on a plot has no parameter box.
+        The flag still shows its parameter box. The Probe panel says
+        the probe is on a plot.
 
         :param reference: Probe reference, such as ``P1``.
         :param has_plot: True when a plot shows this probe.
@@ -710,7 +712,7 @@ def describe_reading(probe, formulas, component=None):
 
 def parameter_lines(probe, formulas, components, component=None):
     """
-    Return the meter lines for a probe that is not on a plot.
+    Return the meter lines drawn in a probe's parameter box.
 
     A voltage probe reports voltage. A current probe reports current, and
     the voltage across a two-pin part. Frequency is ``DC`` when the
@@ -718,7 +720,8 @@ def parameter_lines(probe, formulas, components, component=None):
     reading is a sine. Phase is the steady-state angle of that sine.
     Several AC frequencies are listed one by one.
 
-    A probe with ``has_plot`` returns no lines: the plot shows it.
+    A probe on a plot still returns these lines. The grid box uses them.
+    The Probe panel says the probe is on a plot instead.
 
     :param probe: Probe to read.
     :param formulas: Solved formulas for the loaded circuit.
@@ -727,9 +730,6 @@ def parameter_lines(probe, formulas, components, component=None):
     :returns: ``(label, value)`` pairs, such as ``("Voltage", "5 V")``.
     :rtype: list
     """
-    if probe.has_plot:
-        return []
-
     if probe.method == "current":
         if component is None:
             return []
