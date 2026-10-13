@@ -92,9 +92,11 @@ which of those to do, and what comes after them.
     op-amp, the 741 and the amplifier blocks stay as they were.
     V(s) stays the ideal rule.
 
-11. Example circuits
-    A small menu: a divider, an RC, a unity-gain buffer, and one gate.
-    Each one opens as a normal circuit the user can edit.
+11. Example circuits (done)
+    File > Examples opens a divider, an RC low-pass, a unity-gain
+    buffer, or an AND gate. Each one is a normal circuit the user
+    can edit. examples/all-features.json is still the sheet with
+    every part.
 
 12. Undo, and copy and paste
     Undo and redo for place, move, wire, value and delete. Copy a
