@@ -340,6 +340,13 @@ class MainWindow(QMainWindow):
         self.open_project_action = QAction("Open Project...", self)
         self.open_project_action.triggered.connect(self.open_project)
 
+        self.close_project_action = QAction("Close Project", self)
+        self.close_project_action.setShortcut(QKeySequence.Close)
+        self.close_project_action.setToolTip(
+            "Close this circuit and leave a blank grid. The window stays open."
+        )
+        self.close_project_action.triggered.connect(self.close_project)
+
         self.save_project_action = QAction("Save Project", self)
         self.save_project_action.triggered.connect(self.save_current_project)
 
@@ -508,6 +515,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.print_action)
         file_menu.addSeparator()
+        file_menu.addAction(self.close_project_action)
         file_menu.addAction(self.exit_action)
 
         node_menu = self.menuBar().addMenu("&Node")
@@ -2680,28 +2688,48 @@ class MainWindow(QMainWindow):
         if not self.confirm_project_replacement():
             return
 
-        # Reset the in-memory project only after the user addresses unsaved
-        # work through save, discard, or cancellation.
+        self._open_blank_project()
+        self.statusBar().showMessage(
+            "Created a new 8 x 8 grid with 64 connection points.",
+            5000
+        )
+
+    def close_project(self):
+        """
+        Close the open circuit and leave a blank grid. The window stays open.
+
+        :returns: None
+        """
+        if not self.confirm_project_replacement():
+            return
+
+        self._open_blank_project()
+        self.statusBar().showMessage(
+            "Closed the project. The window stays open.",
+            5000
+        )
+
+    def _open_blank_project(self):
+        """
+        Replace the circuit with a default 8x8 grid and no file.
+
+        The window stays open. Unsaved work is handled by the caller.
+
+        :returns: None
+        """
         self.connection_grid = ConnectionGrid(8, 8)
         self.current_project_file_path = None
         self.is_project_modified = False
         self.selected_connection_point_identifier = None
         self.reset_component_collection()
-
         self.connection_grid_scene.set_connection_grid(
             self.connection_grid
         )
         self.grid_configuration_widget.set_grid_configuration(8, 8)
         self.update_window_title()
-
         QTimer.singleShot(
             0,
             self.connection_grid_view.fit_grid_in_view
-        )
-
-        self.statusBar().showMessage(
-            "Created a new 8 x 8 grid with 64 connection points.",
-            5000
         )
 
     def open_example(self, example_id):
@@ -3061,7 +3089,7 @@ class MainWindow(QMainWindow):
             "The current project contains unsaved changes."
         )
         confirmation_message.setInformativeText(
-            "Save the project before opening or creating another project?"
+            "Save the project before replacing it?"
         )
 
         confirmation_message.setStandardButtons(

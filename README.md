@@ -183,7 +183,9 @@ Using it
   select several points or parts. View > Fit Grid fits the grid to the
   window.
 - File > Save Project / Open Project stores the grid, parts, wires and
-  probes as a .json file. An older file that only has the grid still
+  probes as a .json file. File > Close Project drops that circuit and
+  leaves a blank 8 x 8 grid. The window stays open. File > Exit closes
+  the program. An older file that only has the grid still
   opens. examples/all-features.json is one sheet with every part.
   examples/all-features.txt says what each number should be. File >
   Examples is separate: a voltage divider (5 V in the middle), an

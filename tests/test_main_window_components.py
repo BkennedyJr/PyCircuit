@@ -4,6 +4,8 @@ Tests for the Step 9 main-window wiring of the Components dock.
 Error dialogs are replaced with a recorder, so no modal box opens.
 """
 
+from pathlib import Path
+
 import pytest
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QKeyEvent, QKeySequence
@@ -431,6 +433,55 @@ def test_growing_the_grid_keeps_every_part(window):
 
 
 # ----- project reset -----
+
+def test_close_project_leaves_a_blank_grid_and_stays_open(
+        window, monkeypatch, tmp_path):
+    place(window, "NODE_R02_C02", "resistor", "1k")
+    window.apply_grid_configuration(10, 12)
+    window.current_project_file_path = tmp_path / "board.json"
+    window.is_project_modified = True
+    window.update_window_title()
+    monkeypatch.setattr(window, "confirm_project_replacement", lambda: True)
+    window.show()
+    window.close_project()
+
+    menus = {
+        action.text(): action.menu()
+        for action in window.menuBar().actions()
+    }
+    texts = [action.text() for action in menus["&File"].actions()]
+
+    assert window.isVisible()
+    assert texts.index("Close Project") < texts.index("Exit")
+    assert window.close_project_action.shortcut() == QKeySequence(
+        QKeySequence.Close
+    )
+    assert window.current_project_file_path is None
+    assert window.is_project_modified is False
+    assert window.component_collection.get_components() == []
+    assert window.connection_grid.row_count == 8
+    assert window.connection_grid.column_count == 8
+    assert window.windowTitle() == "Circuit Workbench - Untitled"
+    assert window.statusBar().currentMessage() == (
+        "Closed the project. The window stays open."
+    )
+
+
+def test_close_project_can_be_cancelled(window, monkeypatch):
+    place(window, "NODE_R02_C02", "resistor", "1k")
+    kept = Path("kept.json")
+    window.current_project_file_path = kept
+    window.is_project_modified = True
+    monkeypatch.setattr(window, "confirm_project_replacement", lambda: False)
+    window.show()
+    window.close_project()
+
+    assert window.isVisible()
+    assert len(window.component_collection.get_components()) == 1
+    assert window.current_project_file_path == kept
+    assert window.is_project_modified is True
+    assert "Closed the project" not in window.statusBar().currentMessage()
+
 
 def test_new_project_clears_the_parts(window, monkeypatch):
     place(window, "NODE_R02_C02", "resistor", "1k")
