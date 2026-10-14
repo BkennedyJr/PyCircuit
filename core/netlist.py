@@ -26,7 +26,11 @@ from core.components import (
 )
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError, SimulationError
-from core.spice_models import DEVICE_KIND_BY_PART, device_model_line, get_device_model
+from core.spice_models import (
+    DEVICE_KIND_BY_PART,
+    cards_for_parts,
+    get_device_model,
+)
 from core.subcircuit_models import (
     DEFAULT_SUBCIRCUIT_BY_KIND,
     SUBCIRCUIT_MODELS,
@@ -65,16 +69,19 @@ def build_netlist(components, wire_collection, connection_grid=None):
     nets = _build_nets(parts, wire_collection, connection_grid)
     node_of = _name_nodes(parts, nets)
     _require_ground_and_source(parts)
-    model_names = _require_known_models(parts)
+    _require_known_models(parts)
     _require_no_shorts(parts, node_of)
     _require_no_floating_nodes(parts, nets, node_of)
+    model_of, device_lines = cards_for_parts(parts)
 
     lines = ["* PyCircuit SPICE netlist"]
 
     for component in parts:
-        lines.extend(_element_lines(component, node_of))
+        lines.extend(_element_lines(
+            component, node_of, model_of.get(component.reference)
+        ))
 
-    model_text = _model_text(model_names, parts)
+    model_text = _model_text(device_lines, parts)
 
     if model_text:
         lines.append("")
@@ -509,7 +516,7 @@ def _require_no_floating_nodes(parts, nets, node_of):
                 )
 
 
-def _element_lines(component, node_of):
+def _element_lines(component, node_of, model_name=None):
     kind = component.kind
     reference = component.reference
 
@@ -533,27 +540,42 @@ def _element_lines(component, node_of):
     if kind in ("diode", "led"):
         anode = _pin_node(node_of, component, "anode")
         cathode = _pin_node(node_of, component, "cathode")
-        model_name = get_device_model(component.value_text)[0]
+        card = model_name or get_device_model(component.value_text)[0]
 
         return [
-            f"{element_name(reference, 'D')} {anode} {cathode} {model_name}"
+            f"{element_name(reference, 'D')} {anode} {cathode} {card}"
         ]
 
     if kind == "npn":
-        return [_bjt_line(component, node_of, "collector", "base", "emitter")]
+        return [_bjt_line(
+            component, node_of, "collector", "base", "emitter", model_name
+        )]
 
     if kind == "pnp":
-        return [_bjt_line(component, node_of, "collector", "base", "emitter")]
+        return [_bjt_line(
+            component, node_of, "collector", "base", "emitter", model_name
+        )]
 
     if kind in ("nmos", "pmos"):
         drain = _pin_node(node_of, component, "drain")
         gate = _pin_node(node_of, component, "gate")
         source = _pin_node(node_of, component, "source")
-        model_name = get_device_model(component.value_text)[0]
+        card = model_name or get_device_model(component.value_text)[0]
 
         return [
             (f"{element_name(reference, 'M')} {drain} {gate} {source} "
-            f"{source} {model_name}")
+            f"{source} {card}")
+        ]
+
+    if kind in ("njfet", "pjfet"):
+        drain = _pin_node(node_of, component, "drain")
+        gate = _pin_node(node_of, component, "gate")
+        source = _pin_node(node_of, component, "source")
+        card = model_name or get_device_model(component.value_text)[0]
+
+        return [
+            (f"{element_name(reference, 'J')} {drain} {gate} {source} "
+            f"{card}")
         ]
 
     if kind == "dc_source":
@@ -637,8 +659,8 @@ def _two_pin_line(component, node_of, reference, letter):
     )
 
 
-def _bjt_line(component, node_of, collector, base, emitter):
-    model_name = get_device_model(component.value_text)[0]
+def _bjt_line(component, node_of, collector, base, emitter, model_name=None):
+    model_name = model_name or get_device_model(component.value_text)[0]
 
     return (
         f"{element_name(component.reference, 'Q')} "
@@ -801,11 +823,8 @@ def _opamp_spice_suffix(component, limited):
     return " " + " ".join(pieces)
 
 
-def _model_text(device_model_names, parts):
-    chunks = []
-
-    for model_name in device_model_names:
-        chunks.append(device_model_line(model_name))
+def _model_text(device_lines, parts):
+    chunks = list(device_lines)
 
     subcircuit_names = []
 

@@ -397,12 +397,18 @@ def selected_frequency_row_hidden(panel):
 
 def test_frequency_and_color_are_the_panel_settings(panel):
     assert list(panel.parameter_line_edits) == [
-        "frequency", "color", "limits", "gain", "rin", "rout", "gbw",
-        "head_high", "head_low", "state", "position",
+        "frequency", "is", "n", "rs", "cjo", "tt", "bv", "ibv", "color",
+        "bf", "vaf", "cje", "cjc", "tr", "tf", "rb", "re", "rc",
+        "level", "vto", "kp", "tox", "u0", "vt0", "beta", "lambda",
+        "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        "state", "position",
     ]
     assert list(panel.selected_parameter_line_edits) == [
-        "frequency", "color", "limits", "gain", "rin", "rout", "gbw",
-        "head_high", "head_low", "state", "position",
+        "frequency", "is", "n", "rs", "cjo", "tt", "bv", "ibv", "color",
+        "bf", "vaf", "cje", "cjc", "tr", "tf", "rb", "re", "rc",
+        "level", "vto", "kp", "tox", "u0", "vt0", "beta", "lambda",
+        "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        "state", "position",
     ]
     assert panel.parameter_labels["frequency"].text() == "Frequency (Hz):"
     assert panel.parameter_labels["color"].text() == "Color:"

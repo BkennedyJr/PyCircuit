@@ -62,6 +62,8 @@ BODY_RECTS = {
     "pnp": QRectF(-0.55, -0.5, 1.0, 1.0),
     "nmos": QRectF(-0.55, -0.5, 1.0, 1.0),
     "pmos": QRectF(-0.55, -0.5, 1.0, 1.0),
+    "njfet": QRectF(-0.55, -0.5, 1.0, 1.0),
+    "pjfet": QRectF(-0.55, -0.5, 1.0, 1.0),
     "switch": QRectF(-0.24, -0.26, 0.52, 0.42),
     "potentiometer": QRectF(-0.32, -0.16, 0.64, 0.50),
     "transformer": QRectF(-0.42, -0.38, 0.84, 0.76),
@@ -640,6 +642,60 @@ def _mosfet_paths(source_at_top):
     return (stroke_path, fill_path)
 
 
+def _jfet_paths(arrow_points_in):
+    """
+    JFET. The gate arrow meets the channel. It points in for an NJFET
+    and out for a PJFET. Drain is the top pin, source the bottom pin.
+
+    :param arrow_points_in: True when the arrow points into the channel.
+    :type arrow_points_in: bool
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    stroke_path = QPainterPath()
+    fill_path = QPainterPath()
+    channel_x = -0.12
+
+    stroke_path.addEllipse(
+        QPointF(TRANSISTOR_CIRCLE_CENTER_X, 0.0),
+        TRANSISTOR_CIRCLE_RADIUS,
+        TRANSISTOR_CIRCLE_RADIUS
+    )
+    _add_line(stroke_path, channel_x, -0.32, channel_x, 0.32)
+    _add_line(stroke_path, channel_x, -0.32, 0.0, -0.45)
+    _add_line(stroke_path, 0.0, -0.45, 0.0, -1.0)
+    _add_line(stroke_path, channel_x, 0.32, 0.0, 0.45)
+    _add_line(stroke_path, 0.0, 0.45, 0.0, 1.0)
+    _add_line(stroke_path, -1.0, 0.0, -0.55, 0.0)
+
+    if arrow_points_in:
+        _add_arrow(stroke_path, fill_path, -0.55, 0.0, channel_x, 0.0)
+    else:
+        _add_arrow(stroke_path, fill_path, channel_x, 0.0, -0.55, 0.0)
+
+    return (stroke_path, fill_path)
+
+
+def _njfet_paths():
+    """
+    NJFET: arrow pointing into the channel.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _jfet_paths(True)
+
+
+def _pjfet_paths():
+    """
+    PJFET: arrow pointing out of the channel.
+
+    :returns: (stroke_path, fill_path)
+    :rtype: tuple
+    """
+    return _jfet_paths(False)
+
+
 def _nmos_paths():
     """
     NMOS: drain on top, source on the bottom, arrow pointing out.
@@ -1090,6 +1146,8 @@ _SYMBOL_BUILDERS = {
     "pnp": _pnp_paths,
     "nmos": _nmos_paths,
     "pmos": _pmos_paths,
+    "njfet": _njfet_paths,
+    "pjfet": _pjfet_paths,
     "switch": _switch_paths,
     "potentiometer": _potentiometer_paths,
     "transformer": _transformer_paths,

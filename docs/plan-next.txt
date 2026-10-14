@@ -17,7 +17,8 @@ gain-bandwidth pole). Gain, Rin, Rout, GBW and the two headrooms are
 editable; the defaults are that model's numbers. The generic op-amp
 and the 741 stay fixed. The ideal V(s) rule stays next to the simulator
 number. A probe box shows that formula, V(s) or I, when the circuit
-has one.
+has one. A diode, BJT, MOSFET and JFET can have their SPICE card
+numbers typed. The boxes start at that model's numbers.
 
 The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says

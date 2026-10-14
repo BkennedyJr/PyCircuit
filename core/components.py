@@ -3,7 +3,7 @@ Schematic component definitions and placed-component model.
 
 This module defines the standard part set (resistor, capacitors, inductor,
 DC and AC voltage sources, a DC current source, diodes, transistors,
-MOSFETs, a switch, a potentiometer, a transformer, op-amps, a comparator,
+MOSFETs, JFETs, a switch, a potentiometer, a transformer, op-amps, a comparator,
 logic gates, a few small amplifier blocks, a 555 timer, a voltage
 regulator and ground), their connection pins, and the Component class
 that holds one placed part. It contains no PyQt5 imports so the same
@@ -45,10 +45,17 @@ part's covered points: one symbol would be drawn over the other.
 """
 
 import copy
+import math
 import re
 
 from core.connection_grid import MAXIMUM_GRID_DIMENSION, ConnectionGrid
-from core.exceptions import ComponentError
+from core.exceptions import ComponentError, SimulationError
+from core.spice_models import (
+    default_parameter_text,
+    device_parameter_specs,
+    get_device_model,
+    values_match_model,
+)
 from core.units import parse_value
 
 VALID_ROTATIONS = (0, 90, 180, 270)
@@ -185,6 +192,41 @@ def _opamp_parameters(gain, rin, rout, gbw, high, low):
 
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def _device_parameters(model_name, kind):
+    """
+    Build the panel settings for one device model's card.
+
+    The shown default is that model's number. A number the card does
+    not list uses the generic SPICE value, and the netlist leaves it
+    off until it is changed.
+
+    :param model_name: Library model, for example "1N4148".
+    :type model_name: str
+    :param kind: Component kind whose card numbers to offer.
+    :type kind: str
+    :rtype: tuple
+    """
+    parameters = []
+
+    for name, spice_name, label, unit, value_kind, fallback in (
+            device_parameter_specs(kind)):
+        parameters.append({
+            "name": name,
+            "display_name": label,
+            "unit": unit,
+            "value_kind": value_kind,
+            "default_value_text": default_parameter_text(
+                model_name, spice_name, fallback
+            ),
+            "shown_in_panel": True,
+            "shown_in_label": False,
+            "spice_name": spice_name,
+            "fallback_text": fallback,
+        })
+
+    return tuple(parameters)
 
 
 def _integrated(display_name, prefix, pins, default_value, **extra):
@@ -325,6 +367,7 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(1, 0)],
         "value_kind": "model",
         "default_value_text": "1N4148",
+        "parameters": _device_parameters("1N4148", "diode"),
     },
     "led": {
         "display_name": "LED",
@@ -358,6 +401,7 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "value_kind": "model",
         "default_value_text": "2N3904",
+        "parameters": _device_parameters("2N3904", "npn"),
     },
     "pnp": {
         "display_name": "PNP transistor",
@@ -367,6 +411,7 @@ COMPONENT_DEFINITIONS = {
         "covered_half_steps": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "value_kind": "model",
         "default_value_text": "2N3906",
+        "parameters": _device_parameters("2N3906", "pnp"),
     },
     "nmos": {
         "display_name": "NMOS",
@@ -377,6 +422,7 @@ COMPONENT_DEFINITIONS = {
         "value_kind": "model",
         "default_value_text": "2N7000",
         "nonlinear_name": "MOSFET",
+        "parameters": _device_parameters("2N7000", "nmos"),
     },
     "pmos": {
         "display_name": "PMOS",
@@ -387,6 +433,29 @@ COMPONENT_DEFINITIONS = {
         "value_kind": "model",
         "default_value_text": "BS250",
         "nonlinear_name": "MOSFET",
+        "parameters": _device_parameters("BS250", "pmos"),
+    },
+    "njfet": {
+        "display_name": "NJFET",
+        "prefix": "J",
+        "pins": [("gate", -1, 0), ("drain", 0, -1), ("source", 0, 1)],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": list(_MOSFET_COVERED),
+        "value_kind": "model",
+        "default_value_text": "2N3819",
+        "nonlinear_name": "JFET",
+        "parameters": _device_parameters("2N3819", "njfet"),
+    },
+    "pjfet": {
+        "display_name": "PJFET",
+        "prefix": "J",
+        "pins": [("gate", -1, 0), ("source", 0, -1), ("drain", 0, 1)],
+        "body_center_half_steps": (0, 0),
+        "covered_half_steps": list(_MOSFET_COVERED),
+        "value_kind": "model",
+        "default_value_text": "2N5460",
+        "nonlinear_name": "JFET",
+        "parameters": _device_parameters("2N5460", "pjfet"),
     },
     "opamp_generic": _integrated(
         "Op-amp (generic)", "X", _OPAMP_PINS, "OPAMP", formula="ideal_opamp",
@@ -615,6 +684,9 @@ def spice_device_names(kind, reference):
 
     if kind in ("nmos", "pmos"):
         return [element_name(reference, "M")]
+
+    if kind in ("njfet", "pjfet"):
+        return [element_name(reference, "J")]
 
     if kind in ("dc_source", "ac_source"):
         return [element_name(reference, "V")]
@@ -1012,6 +1084,14 @@ def validate_parameter_texts(kind, parameter_texts, current_texts=None):
                 "be zero or greater."
             )
 
+        if parameter["value_kind"] == "whole" and (
+                numeric_value < 1 or
+                numeric_value != math.floor(numeric_value)):
+            raise ComponentError(
+                f"{display_name} {parameter['display_name'].lower()} must "
+                "be a whole number, 1 or greater."
+            )
+
         low = parameter.get("minimum_value")
         high = parameter.get("maximum_value")
 
@@ -1079,6 +1159,45 @@ def follow_choice_model(kind, value_text, old_texts, new_texts):
     return value_text
 
 
+def adopt_device_parameters(kind, old_model, new_model, texts, values):
+    """
+    Switch card numbers when the model name changes and they were not edited.
+
+    A 2N3904 that is renamed 2N2222 while BF is still 300 picks up the
+    2N2222's BF. A number the user typed is kept.
+
+    :param kind: Component kind.
+    :type kind: str
+    :param old_model: Model name before the change.
+    :type old_model: str
+    :param new_model: Model name after the change.
+    :type new_model: str
+    :param texts: Validated setting texts.
+    :type texts: dict
+    :param values: Parsed setting values.
+    :type values: dict
+    :returns: ``(texts, values)`` to store.
+    :rtype: tuple
+    """
+    if (not device_parameter_specs(kind) or
+            old_model.lower() == new_model.lower() or
+            not values_match_model(kind, old_model, values)):
+        return texts, values
+
+    try:
+        get_device_model(new_model)
+    except SimulationError:
+        return texts, values
+
+    fresh = dict(texts)
+
+    for name, spice_name, _label, _unit, _kind, fallback in (
+            device_parameter_specs(kind)):
+        fresh[name] = default_parameter_text(new_model, spice_name, fallback)
+
+    return validate_parameter_texts(kind, fresh)
+
+
 def get_default_parameter_texts(kind):
     """
     Return the default settings texts of a kind.
@@ -1136,6 +1255,10 @@ class Component:
         # LED stays LED_RED); only add_component, given empty text, picks
         # the chosen color's default model.
         texts, values = validate_parameter_texts(kind, parameter_texts)
+        texts, values = adopt_device_parameters(
+            kind, component_definition["default_value_text"], clean_text,
+            texts, values
+        )
 
         # Extra settings such as an AC source's frequency: the text as
         # typed (shown in the label) and the parsed number.
@@ -1270,6 +1393,9 @@ class Component:
         )
         clean_text = follow_choice_model(
             self.kind, clean_text, self.parameter_texts, texts
+        )
+        texts, values = adopt_device_parameters(
+            self.kind, self.value_text, clean_text, texts, values
         )
 
         self.value_text = clean_text

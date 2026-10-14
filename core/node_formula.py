@@ -16,7 +16,7 @@ closed switch is a short and an open switch carries no current. A
 potentiometer splits its resistance by the wiper position (0 is pin 2,
 1 is pin 1). An ideal transformer uses Ns/Np, with both currents into
 the dotted terminals. An ideal regulator holds its output at the set
-voltage and ignores dropout. A diode, LED, transistor, MOSFET,
+voltage and ignores dropout. A diode, LED, transistor, MOSFET, JFET,
 comparator, logic gate or 555 timer has no formula.
 """
 
