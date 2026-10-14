@@ -25,8 +25,8 @@ def menu_by_title(window, title):
 
 
 def test_about_text_is_the_version():
-    assert APP_VERSION == "0.1.26"
-    assert about_text() == "Version 0.1.26"
+    assert APP_VERSION == "0.1.27"
+    assert about_text() == "Version 0.1.27"
 
 
 def test_help_menu_is_last_and_opens_help_and_about(qt_application):
