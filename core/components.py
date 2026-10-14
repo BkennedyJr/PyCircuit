@@ -130,6 +130,8 @@ _SUPPLY_PIN_NAMES = ("V+", "V-", "VCC", "GND")
 SWITCH_STATES = ("open", "closed")
 # Flat keeps the old stand-in. Limited adds output swing and one
 # gain-bandwidth pole. The part value stays LM358 either way.
+# Gain, Rin and Rout are the flat model. GBW and the two headrooms
+# are used when Limits is limited. Each default is that model's number.
 OPAMP_LIMITS = ("flat", "limited")
 _OPAMP_LIMIT_PARAMETERS = (
     {
@@ -143,6 +145,43 @@ _OPAMP_LIMIT_PARAMETERS = (
         "shown_in_label": False,
     },
 )
+
+
+def _opamp_number(name, display_name, unit, default, value_kind="positive"):
+    """
+    One editable SPICE number for a behavioural op-amp.
+
+    :rtype: dict
+    """
+    return {
+        "name": name,
+        "display_name": display_name,
+        "unit": unit,
+        "value_kind": value_kind,
+        "default_value_text": default,
+        "shown_in_panel": True,
+        "shown_in_label": False,
+    }
+
+
+def _opamp_parameters(gain, rin, rout, gbw, high, low):
+    """
+    Limits plus the stand-in numbers for one op-amp kind.
+
+    :rtype: tuple
+    """
+    return _OPAMP_LIMIT_PARAMETERS + (
+        _opamp_number("gain", "Gain", "", gain),
+        _opamp_number("rin", "Rin", "ohm", rin),
+        _opamp_number("rout", "Rout", "ohm", rout),
+        _opamp_number("gbw", "GBW", "Hz", gbw),
+        _opamp_number(
+            "head_high", "High headroom", "V", high, "nonnegative"
+        ),
+        _opamp_number(
+            "head_low", "Low headroom", "V", low, "nonnegative"
+        ),
+    )
 
 # SPICE model names are kept to plain ASCII so later netlists stay valid.
 _MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -360,32 +399,34 @@ COMPONENT_DEFINITIONS = {
     "opamp_lm358": _integrated(
         "Op-amp (LM358)", "X", _OPAMP_PINS, "LM358", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
-        parameters=_OPAMP_LIMIT_PARAMETERS,
+        parameters=_opamp_parameters("100k", "1meg", "50", "1meg", "1.5", "0"),
     ),
     "opamp_tl072": _integrated(
         "Op-amp (TL072)", "X", _OPAMP_PINS, "TL072", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
-        parameters=_OPAMP_LIMIT_PARAMETERS,
+        parameters=_opamp_parameters("200k", "1T", "75", "3meg", "1.5", "1.5"),
     ),
     "opamp_ne5532": _integrated(
         "Op-amp (NE5532)", "X", _OPAMP_PINS, "NE5532", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
-        parameters=_OPAMP_LIMIT_PARAMETERS,
+        parameters=_opamp_parameters(
+            "100k", "300k", "10", "10meg", "2", "2"
+        ),
     ),
     "opamp_tl081": _integrated(
         "Op-amp (TL081)", "X", _OPAMP_PINS, "TL081", formula="ideal_opamp",
         pin_numbers=_SINGLE_OPAMP_PIN_NUMBERS,
-        parameters=_OPAMP_LIMIT_PARAMETERS,
+        parameters=_opamp_parameters("200k", "1T", "75", "3meg", "1.5", "1.5"),
     ),
     "opamp_tl082": _integrated(
         "Op-amp (TL082)", "X", _OPAMP_PINS, "TL082", formula="ideal_opamp",
         pin_numbers=_DUAL_OPAMP_PIN_NUMBERS,
-        parameters=_OPAMP_LIMIT_PARAMETERS,
+        parameters=_opamp_parameters("200k", "1T", "75", "3meg", "1.5", "1.5"),
     ),
     "opamp_lm324": _integrated(
         "Op-amp (LM324)", "X", _OPAMP_PINS, "LM324", formula="ideal_opamp",
         pin_numbers=_LM324_PIN_NUMBERS,
-        parameters=_OPAMP_LIMIT_PARAMETERS,
+        parameters=_opamp_parameters("100k", "1meg", "50", "1meg", "1.5", "0"),
     ),
     "comparator": _integrated(
         "Comparator", "X", _OPAMP_PINS, "COMP", nonlinear_name="comparator"
@@ -962,6 +1003,13 @@ def validate_parameter_texts(kind, parameter_texts, current_texts=None):
             raise ComponentError(
                 f"{display_name} {parameter['display_name'].lower()} must "
                 "be greater than zero."
+            )
+
+        if (parameter["value_kind"] == "nonnegative" and
+                numeric_value < 0):
+            raise ComponentError(
+                f"{display_name} {parameter['display_name'].lower()} must "
+                "be zero or greater."
             )
 
         low = parameter.get("minimum_value")

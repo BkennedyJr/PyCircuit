@@ -84,6 +84,7 @@ def test_direct_probe_does_not_load_the_divider():
     same(book.expression_at(point(2, 3)), 5)
     assert describe_reading(probe, book) == "V(s) = 5 V"
     assert parameter_lines(probe, book, parts) == [
+        ("Formula", "V(s) = 5 V"),
         ("Voltage", "5 V"),
         ("Frequency", "DC"),
     ]
@@ -96,8 +97,10 @@ def test_one_megohm_probe_reads_4_975_volts():
 
     same(book.expression_at(point(2, 3)), sympy.Rational(1000, 201))
     assert describe_reading(probe, book).startswith("V(s) = 4.975")
-    assert parameter_lines(probe, book, _parts)[0][1].startswith("4.975")
-    assert ("Frequency", "DC") in parameter_lines(probe, book, _parts)
+    lines = dict(parameter_lines(probe, book, _parts))
+    assert lines["Formula"].startswith("V(s) = 4.975")
+    assert lines["Voltage"].startswith("4.975")
+    assert lines["Frequency"] == "DC"
 
 
 def test_10x_probe_reads_4_9975_volts_at_dc():
@@ -109,9 +112,11 @@ def test_10x_probe_reads_4_9975_volts_at_dc():
 
     same(expression.subs(laplace, 0), sympy.Rational(10000, 2001))
     assert "At DC: 4.9975" in describe_reading(probe, book)
-    voltage = parameter_lines(probe, book, _parts)[0][1]
-    assert voltage.startswith("4.9975")
-    assert ("Frequency", "DC") in parameter_lines(probe, book, _parts)
+    lines = dict(parameter_lines(probe, book, _parts))
+    assert lines["Formula"].startswith("V(s) = ")
+    assert "s" in lines["Formula"]
+    assert lines["Voltage"].startswith("4.9975")
+    assert lines["Frequency"] == "DC"
 
 
 def test_differential_is_the_midpoint_minus_ground():
@@ -153,6 +158,7 @@ def test_current_through_the_top_resistor_is_half_a_milliamp():
     assert describe_reading(probe, book, parts[2]) == "I = 0.0005 A"
     same(book.current_expression(parts[1]), sympy.Rational(1, 2000))
     assert parameter_lines(probe, book, parts, parts[2]) == [
+        ("Formula", "I = 0.0005 A"),
         ("Current", "0.0005 A"),
         ("Voltage", "5 V"),
         ("Frequency", "DC"),
@@ -179,6 +185,7 @@ def test_a_current_probe_on_a_diode_has_no_formula():
     book = build_node_formulas(parts, WireCollection(), grid)
 
     assert "no s-domain formula" in describe_reading(probe, book, diode)
+    assert parameter_lines(probe, book, parts, diode) == []
 
 
 # ----- collection -----------------------------------------------------------
@@ -288,6 +295,7 @@ def test_an_ac_divider_shows_peak_voltage_and_frequency():
     book = build_node_formulas(parts, divider_wires(grid), grid)
 
     assert parameter_lines(probe, book, parts) == [
+        ("Formula", "V(s) = V1/2"),
         ("Voltage", "5 V peak"),
         ("Frequency", "1 kHz"),
         ("Phase", "0 deg"),
@@ -315,7 +323,12 @@ def test_a_lowpass_probe_shows_the_phase_lag():
     voltage = f"{magnitude:.6f}".rstrip("0").rstrip(".")
     phase = f"{degrees:.2f}".rstrip("0").rstrip(".")
 
-    assert parameter_lines(probe, book, parts) == [
+    lines = parameter_lines(probe, book, parts)
+
+    assert lines[0][0] == "Formula"
+    assert lines[0][1].startswith("V(s) = ")
+    assert "s" in lines[0][1]
+    assert lines[1:] == [
         ("Voltage", f"{voltage} V peak"),
         ("Frequency", "1 kHz"),
         ("Phase", f"{phase} deg"),
@@ -339,6 +352,7 @@ def test_two_ac_frequencies_are_listed_separately():
     book = build_node_formulas(parts, WireCollection(), grid)
 
     assert parameter_lines(probe, book, parts) == [
+        ("Formula", "V(s) = V1 + V2"),
         ("Voltage", "10 V peak at 1 kHz"),
         ("Voltage", "4 V peak at 2 kHz"),
         ("Phase", "0 deg at 1 kHz"),
@@ -353,6 +367,7 @@ def test_a_plotted_probe_still_has_its_meter_lines():
     probe.has_plot = True
 
     assert parameter_lines(probe, book, parts) == [
+        ("Formula", "V(s) = 5 V"),
         ("Voltage", "5 V"),
         ("Frequency", "DC"),
     ]
@@ -400,13 +415,14 @@ def test_probe_mode_places_a_1_megohm_probe(qt_application):
         assert window.probe_reading_label.text() == "V(s) = 5 V"
         assert window.probe_name_label.text() == "P1"
         assert window.probe_parameter_label.text() == (
-            "Voltage: 5 V\nFrequency: DC"
+            "Formula: V(s) = 5 V\nVoltage: 5 V\nFrequency: DC"
         )
         flag = next(
             item for item in window.connection_grid_scene.probe_items
             if item.probe.reference == "P1"
         )
         assert flag.readout_lines == (
+            ("Formula", "V(s) = 5 V"),
             ("Voltage", "5 V"),
             ("Frequency", "DC"),
         )
@@ -419,8 +435,9 @@ def test_probe_mode_places_a_1_megohm_probe(qt_application):
         assert probe.method == "megohm"
         assert window.probe_reading_label.text().startswith("V(s) = 4.975")
         assert window.probe_parameter_label.text().startswith(
-            "Voltage: 4.975"
+            "Formula: V(s) = 4.975"
         )
+        assert "Voltage: 4.975" in window.probe_parameter_label.text()
         assert any(
             item.probe.reference == "P1" and "1M" in item._flag_text()
             for item in window.connection_grid_scene.probe_items
@@ -476,6 +493,7 @@ def test_clicking_a_part_places_a_current_probe(qt_application):
         assert probe.component_reference == "R1"
         assert window.probe_reading_label.text() == "I = 0.01 A"
         assert window.probe_parameter_label.text() == (
+            "Formula: I = 0.01 A\n"
             "Current: 0.01 A\nVoltage: 10 V\nFrequency: DC"
         )
     finally:
@@ -509,6 +527,7 @@ def test_a_plotted_probe_keeps_the_grid_box(qt_application):
 
         assert window.probe_parameter_label.text() == "On a plot."
         assert window.connection_grid_scene.probe_items[0].readout_lines == (
+            ("Formula", "V(s) = 5 V"),
             ("Voltage", "5 V"),
             ("Frequency", "DC"),
         )
@@ -556,6 +575,7 @@ def test_changing_a_pot_updates_boxes_on_plotted_probes(qt_application):
         window.connection_grid_scene.rebuild_probe_items()
 
         assert flag_for(window, "P2").readout_lines == (
+            ("Formula", "V(s) = 5 V"),
             ("Voltage", "5 V"),
             ("Frequency", "DC"),
         )
@@ -564,10 +584,12 @@ def test_changing_a_pot_updates_boxes_on_plotted_probes(qt_application):
         window.apply_component_value("10k", {"position": "0.25"})
 
         assert flag_for(window, "P1").readout_lines == (
+            ("Formula", "V(s) = 10 V"),
             ("Voltage", "10 V"),
             ("Frequency", "DC"),
         )
         assert flag_for(window, "P2").readout_lines == (
+            ("Formula", "V(s) = 2.5 V"),
             ("Voltage", "2.5 V"),
             ("Frequency", "DC"),
         )
@@ -575,10 +597,12 @@ def test_changing_a_pot_updates_boxes_on_plotted_probes(qt_application):
         window.apply_component_value("20k", {"position": "0.25"})
 
         assert flag_for(window, "P1").readout_lines == (
+            ("Formula", "V(s) = 10 V"),
             ("Voltage", "10 V"),
             ("Frequency", "DC"),
         )
         assert flag_for(window, "P2").readout_lines == (
+            ("Formula", "V(s) = 2.5 V"),
             ("Voltage", "2.5 V"),
             ("Frequency", "DC"),
         )

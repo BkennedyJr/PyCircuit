@@ -13,8 +13,11 @@ layout tool.
 
 The behavioural op-amps (LM358, TL072, NE5532, TL081, TL082 and LM324)
 can be a flat-gain stand-in or a limited one (output swing and one
-gain-bandwidth pole). The ideal V(s) rule stays next to the simulator
-number.
+gain-bandwidth pole). Gain, Rin, Rout, GBW and the two headrooms are
+editable; the defaults are that model's numbers. The generic op-amp
+and the 741 stay fixed. The ideal V(s) rule stays next to the simulator
+number. A probe box shows that formula, V(s) or I, when the circuit
+has one.
 
 The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
@@ -87,10 +90,12 @@ which of those to do, and what comes after them.
 10. Real op-amp limits (done)
     The LM358, LM324, TL072, TL081, TL082 and NE5532 have a Limits
     choice. Flat is the old stand-in. Limited holds the output
-    between the rails and rolls the gain off at one pole. A new part,
-    and an old file that has no choice saved, stays Flat. The generic
-    op-amp, the 741 and the amplifier blocks stay as they were.
-    V(s) stays the ideal rule.
+    between the rails and rolls the gain off at one pole. Gain, Rin,
+    Rout, GBW and the two headrooms can be typed; a blank box keeps
+    that model's number. A new part, and an old file that has no
+    choice saved, stays Flat. The generic op-amp, the 741 and the
+    amplifier blocks stay as they were. V(s) stays the ideal rule.
+    A probe's box leads with that formula when there is one.
 
 11. Example circuits (done)
     File > Examples opens a divider, an RC low-pass, a unity-gain

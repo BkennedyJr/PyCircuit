@@ -764,8 +764,41 @@ def _subcircuit_lines(component, node_of):
 
     if model_name in ("INVAMP", "NONINV"):
         line += f" gain={format_spice_number(component.value)}"
+    elif "gain" in component.parameter_values:
+        line += _opamp_spice_suffix(
+            component, component.parameter_texts.get("limits") == "limited"
+        )
 
     return [line]
+
+
+def _opamp_spice_suffix(component, limited):
+    """
+    Return the instance parameters for one behavioural op-amp.
+
+    Flat uses gain, Rin and Rout. Limited also uses the gain-bandwidth
+    and the two headrooms. The 741 and the generic op-amp have none
+    of these settings, so they are left off the line.
+
+    :param limited: True when the part is using its limited model.
+    :type limited: bool
+    :rtype: str
+    """
+    values = component.parameter_values
+    pieces = [
+        f"gain={format_spice_number(values['gain'])}",
+        f"rin={format_spice_number(values['rin'])}",
+        f"rout={format_spice_number(values['rout'])}",
+    ]
+
+    if limited:
+        pieces.extend([
+            f"gbw={format_spice_number(values['gbw'])}",
+            f"head_high={format_spice_number(values['head_high'])}",
+            f"head_low={format_spice_number(values['head_low'])}",
+        ])
+
+    return " " + " ".join(pieces)
 
 
 def _model_text(device_model_names, parts):

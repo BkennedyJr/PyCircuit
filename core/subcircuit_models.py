@@ -47,7 +47,6 @@ amplifier. INVAMP and NONINV take a gain parameter.
 """
 
 import hashlib
-import math
 from pathlib import Path
 
 from core.exceptions import ComponentError
@@ -94,15 +93,19 @@ def _behavioral_opamp(name, gain, rin, rout, blurb):
     """
     A flat-gain op-amp subcircuit. Supplies must be wired by the caller.
 
+    gain, rin and rout are subcircuit parameters so one part can use
+    a different number. The defaults are this model's usual values.
+
     :rtype: str
     """
     return (
         f"* {name}: {blurb} PyCircuit behavioural model, not a vendor netlist.\n"
         f"* Ports: in+ in- V+ V- out.\n"
-        f".subckt {name} inp inn vp vn out\n"
-        f"RIN inp inn {rin}\n"
-        f"EGAIN gain_node 0 inp inn {gain}\n"
-        f"ROUT gain_node out {rout}\n"
+        f".subckt {name} inp inn vp vn out "
+        f"gain={gain} rin={rin} rout={rout}\n"
+        f"RIN inp inn {{rin}}\n"
+        f"EGAIN gain_node 0 inp inn {{gain}}\n"
+        f"ROUT gain_node out {{rout}}\n"
         f".ends {name}\n"
     )
 
@@ -118,25 +121,28 @@ def _limited_opamp(name, gain, rin, rout, gbw_hertz, high, low, blurb):
     :rtype: str
     """
     limited = f"{name}LIM"
-    capacitor = format_spice_number(1.0 / (2.0 * math.pi * gbw_hertz))
     high_text = format_spice_number(high)
     low_text = format_spice_number(low)
     gbw_text = format_spice_number(gbw_hertz)
+    # 2*pi. The pole capacitor is 1/(2*pi*gbw), so the gain is 1 at gbw.
+    two_pi = "6.283185307179586"
 
     return (
         f"* {limited}: {blurb} Not a vendor netlist.\n"
-        f"* Ports: in+ in- V+ V- out. DC gain {gain}. Gain is 1 at "
-        f"{gbw_text} Hz.\n"
+        f"* Ports: in+ in- V+ V- out. DC gain defaults to {gain}. "
+        f"Gain is 1 at {gbw_text} Hz.\n"
         f"* Output is held between V- + {low_text} V and "
         f"V+ - {high_text} V, then Rout.\n"
-        f".subckt {limited} inp inn vp vn out\n"
-        f"RIN inp inn {rin}\n"
+        f".subckt {limited} inp inn vp vn out "
+        f"gain={gain} rin={rin} rout={rout} gbw={gbw_text} "
+        f"head_high={high_text} head_low={low_text}\n"
+        f"RIN inp inn {{rin}}\n"
         f"GFILT 0 filt inp inn 1\n"
-        f"RPOLE filt 0 {gain}\n"
-        f"CPOLE filt 0 {capacitor}\n"
-        f"BCLAMP pre 0 V = min(max(V(filt), V(vn)+{low_text}), "
-        f"V(vp)-{high_text})\n"
-        f"ROUT pre out {rout}\n"
+        f"RPOLE filt 0 {{gain}}\n"
+        f"CPOLE filt 0 {{1/({two_pi}*gbw)}}\n"
+        f"BCLAMP pre 0 V = min(max(V(filt), V(vn)+{{head_low}}), "
+        f"V(vp)-{{head_high}})\n"
+        f"ROUT pre out {{rout}}\n"
         f".ends {limited}\n"
     )
 
