@@ -1156,7 +1156,7 @@ def follow_choice_model(kind, value_text, old_texts, new_texts):
             value_text.upper() == model_by_choice[old_choice].upper()):
         return model_by_choice[new_choice]
 
-        return value_text
+    return value_text
 
 
 def adopt_device_parameters(kind, old_model, new_model, texts, values):
