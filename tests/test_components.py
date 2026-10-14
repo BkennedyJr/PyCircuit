@@ -550,12 +550,24 @@ def test_which_kinds_have_settings():
     expected = {
         "ac_source": ["frequency", "offset", "phase"],
         "led": ["color"],
-        "opamp_lm358": ["limits"],
-        "opamp_tl072": ["limits"],
-        "opamp_ne5532": ["limits"],
-        "opamp_tl081": ["limits"],
-        "opamp_tl082": ["limits"],
-        "opamp_lm324": ["limits"],
+        "opamp_lm358": [
+            "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        ],
+        "opamp_tl072": [
+            "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        ],
+        "opamp_ne5532": [
+            "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        ],
+        "opamp_tl081": [
+            "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        ],
+        "opamp_tl082": [
+            "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        ],
+        "opamp_lm324": [
+            "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
+        ],
         "switch": ["state"],
         "potentiometer": ["position"],
     }

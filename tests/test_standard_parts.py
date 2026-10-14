@@ -132,20 +132,23 @@ def test_new_opamps_copy_one_volt_as_a_follower(kind, value):
 def test_new_models_have_subcircuit_text():
     lm358 = get_subcircuit_text("lm358")
     assert ".subckt LM358 inp inn vp vn out" in lm358
-    assert "EGAIN gain_node 0 inp inn 100k" in lm358
+    assert "EGAIN gain_node 0 inp inn {gain}" in lm358
+    assert "gain=100k" in lm358
 
     for name in ("TL081", "TL082"):
         text = get_subcircuit_text(name)
         assert f".subckt {name} inp inn vp vn out" in text
-        assert "EGAIN gain_node 0 inp inn 200k" in text
-        assert "RIN inp inn 1T" in text
-        assert "ROUT gain_node out 75" in text
+        assert "EGAIN gain_node 0 inp inn {gain}" in text
+        assert "gain=200k" in text
+        assert "rin=1T" in text
+        assert "rout=75" in text
 
     lm324 = get_subcircuit_text("LM324")
     assert ".subckt LM324 inp inn vp vn out" in lm324
-    assert "EGAIN gain_node 0 inp inn 100k" in lm324
-    assert "RIN inp inn 1meg" in lm324
-    assert "ROUT gain_node out 50" in lm324
+    assert "EGAIN gain_node 0 inp inn {gain}" in lm324
+    assert "gain=100k" in lm324
+    assert "rin=1meg" in lm324
+    assert "rout=50" in lm324
 
     and_gate = get_subcircuit_text("AND2")
     assert ".subckt AND2 a b y vcc gnd" in and_gate

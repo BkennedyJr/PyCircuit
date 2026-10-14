@@ -128,13 +128,20 @@ Using it
   non-inverting amplifiers (the gain is the value). Those six op-amps
   have a Limits choice. Flat is the old stand-in: gain only, so the
   output can swing past the rails. Limited holds the output between
-  the rails and rolls the gain off with one pole. The LM358 and LM324
-  are gain 100,000 and 1 MHz; the output can sit on the negative rail
-  and stops 1.5 V below the positive rail. The TL072, TL081 and TL082
-  are gain 200,000 and 3 MHz, 1.5 V inside both rails. The NE5532 is
-  gain 100,000 and 10 MHz, 2 V inside both rails. A new part, and an
-  old file that has no choice saved, stays Flat. V(s) stays the ideal
-  rule next to the simulator number. NMOS and PMOS,
+  the rails and rolls the gain off with one pole. Each of those six
+  also has Gain, Rin, Rout, GBW, and two headrooms. Gain, Rin and
+  Rout are used either way. GBW and the headrooms are used when
+  Limits is limited. High headroom is how far the output stays below
+  V+. Low headroom is how far it stays above V-. Leave a box blank
+  to keep that model's usual number. The LM358 and LM324 start at
+  gain 100,000, Rin 1 megohm, Rout 50 ohm and 1 MHz; the output can
+  sit on the negative rail and stops 1.5 V below the positive rail.
+  The TL072, TL081 and TL082 start at gain 200,000, Rin 1 terohm,
+  Rout 75 ohm and 3 MHz, 1.5 V inside both rails. The NE5532 starts
+  at gain 100,000, Rin 300 kilohm, Rout 10 ohm and 10 MHz, 2 V inside
+  both rails. The generic op-amp and the 741 keep their fixed models.
+  A new part, and an old file that has no choice saved, stays Flat.
+  V(s) stays the ideal rule next to the simulator number. NMOS and PMOS,
   and the 555 timer, have no formula. A switch is open or closed, a
   potentiometer splits its resistance by a position from 0 to 1, a
   transformer uses its turns ratio, and a voltage regulator holds
@@ -144,8 +151,10 @@ Using it
   panel sets the method: Direct (no load), 1 Mohm to ground, 10x scope
   (10 Mohm and 10 pF to ground), Differential (click the other point;
   the reading is the first point minus the second), or Current. Each
-  probe shows a box of readings beside its flag: voltage, current,
-  frequency and phase. Changing a part updates that box. The Probe
+  probe shows a box of readings beside its flag. The first line is
+  the formula, V(s) or I, when the circuit has one. Then voltage,
+  current, frequency and phase. A gate, a 555, or a diode has no
+  formula, so that line is left off. Changing a part updates that box. The Probe
   panel shows the same readings, or "On a plot." when a trace is
   drawing that probe. Drag the
   flag to move the readings; the point it reads stays the same. Drag

@@ -397,14 +397,20 @@ def selected_frequency_row_hidden(panel):
 
 def test_frequency_and_color_are_the_panel_settings(panel):
     assert list(panel.parameter_line_edits) == [
-        "frequency", "color", "limits", "state", "position",
+        "frequency", "color", "limits", "gain", "rin", "rout", "gbw",
+        "head_high", "head_low", "state", "position",
     ]
     assert list(panel.selected_parameter_line_edits) == [
-        "frequency", "color", "limits", "state", "position",
+        "frequency", "color", "limits", "gain", "rin", "rout", "gbw",
+        "head_high", "head_low", "state", "position",
     ]
     assert panel.parameter_labels["frequency"].text() == "Frequency (Hz):"
     assert panel.parameter_labels["color"].text() == "Color:"
     assert panel.parameter_labels["limits"].text() == "Limits:"
+    assert panel.parameter_labels["gain"].text() == "Gain:"
+    assert panel.parameter_labels["rin"].text() == "Rin (ohm):"
+    assert panel.parameter_labels["gbw"].text() == "GBW (Hz):"
+    assert panel.parameter_labels["head_high"].text() == "High headroom (V):"
 
 
 @pytest.mark.parametrize("kind", list(COMPONENT_DEFINITIONS))
@@ -466,6 +472,11 @@ def test_limits_row_shows_only_for_the_six_opamps(panel, kind):
             "flat", "limited",
         ]
         assert combo.currentData() == "flat"
+        assert panel.parameter_labels["gain"].isHidden() is False
+        assert panel.parameter_line_edits["gain"].text()
+    else:
+        assert panel.parameter_labels["gain"].isHidden() is True
+        assert panel.parameter_labels["head_low"].isHidden() is True
 
 
 def test_placing_a_limited_lm358_sends_that_choice(panel):
@@ -475,7 +486,17 @@ def test_placing_a_limited_lm358_sends_that_choice(panel):
 
     panel.place_button.click()
 
-    assert calls == [("opamp_lm358", "LM358", {"limits": "limited"})]
+    assert calls == [(
+        "opamp_lm358", "LM358", {
+            "limits": "limited",
+            "gain": "100k",
+            "rin": "1meg",
+            "rout": "50",
+            "gbw": "1meg",
+            "head_high": "1.5",
+            "head_low": "0",
+        },
+    )]
 
 
 def test_placing_a_dc_source_sends_no_settings(panel):

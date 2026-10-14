@@ -714,11 +714,13 @@ def parameter_lines(probe, formulas, components, component=None):
     """
     Return the meter lines drawn in a probe's parameter box.
 
-    A voltage probe reports voltage. A current probe reports current, and
-    the voltage across a two-pin part. Frequency is ``DC`` when the
-    reading has settled to a number, or the AC source frequency when the
-    reading is a sine. Phase is the steady-state angle of that sine.
-    Several AC frequencies are listed one by one.
+    The first line is the formula, ``V(s)`` or ``I``, when this circuit
+    has one. A voltage probe then reports voltage. A current probe
+    reports current, and the voltage across a two-pin part. Frequency
+    is ``DC`` when the reading has settled to a number, or the AC
+    source frequency when the reading is a sine. Phase is the
+    steady-state angle of that sine. Several AC frequencies are listed
+    one by one. A gate, a diode, or a floating node has no formula line.
 
     A probe on a plot still returns these lines. The grid box uses them.
     The Probe panel says the probe is on a plot instead.
@@ -730,6 +732,8 @@ def parameter_lines(probe, formulas, components, component=None):
     :returns: ``(label, value)`` pairs, such as ``("Voltage", "5 V")``.
     :rtype: list
     """
+    formula = _formula_line(probe, formulas, component)
+
     if probe.method == "current":
         if component is None:
             return []
@@ -749,16 +753,51 @@ def parameter_lines(probe, formulas, components, component=None):
                     sympy.simplify(first - second), components, "Voltage", "V"
                 )
 
-        return current_values + voltage_values + rhythm
+        return _with_formula(
+            formula, current_values + voltage_values + rhythm
+        )
 
     expression = _probe_voltage_expression(probe, formulas)
 
     if expression is None:
-        return []
+        return _with_formula(formula, [])
 
     values, rhythm = _meter_parts(expression, components, "Voltage", "V")
 
-    return values + rhythm
+    return _with_formula(formula, values + rhythm)
+
+
+def _formula_line(probe, formulas, component):
+    """
+    Return the ``("Formula", text)`` line when this probe has math.
+
+    A gate, a diode, or a floating node has no V(s) or I, so those
+    probes get no formula line.
+
+    :rtype: tuple or None
+    """
+    text = describe_reading(probe, formulas, component)
+
+    for piece in text.split("\n"):
+        if piece.startswith(("V(s)", "I =")):
+            return ("Formula", piece)
+
+    return None
+
+
+def _with_formula(formula, lines):
+    """
+    Put the formula ahead of the meter lines.
+
+    :rtype: list
+    """
+    if formula is None:
+        return list(lines)
+
+    if not lines:
+        return [formula]
+
+    return [formula, *lines]
 
 
 def _probe_voltage_expression(probe, formulas):

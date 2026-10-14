@@ -96,7 +96,11 @@ def test_the_divider_is_5_volts_and_half_a_milliamp():
     parts = workbook.component_collection.get_components()
     top = next(part for part in parts if part.reference == "R1")
 
-    assert lines == [("Voltage", "5 V"), ("Frequency", "DC")]
+    assert lines == [
+        ("Formula", "V(s) = 5 V"),
+        ("Voltage", "5 V"),
+        ("Frequency", "DC"),
+    ]
     assert sympy.simplify(
         formulas.current_expression(top) - sympy.Rational(1, 2000)
     ) == 0
@@ -115,7 +119,9 @@ def test_the_buffer_copies_the_1_volt_sine():
     incoming, formulas = lines_at(workbook, point(6, 2))
     outgoing, _same = lines_at(workbook, point(6, 7))
 
-    assert incoming == [
+    assert incoming[0][0] == "Formula"
+    assert incoming[0][1].startswith("V(s) = ")
+    assert incoming[1:] == [
         ("Voltage", "1 V peak"),
         ("Frequency", "1 kHz"),
         ("Phase", "0 deg"),
@@ -175,6 +181,7 @@ def test_examples_open_from_the_file_menu_and_can_be_edited(qt_application):
         assert window.current_project_file_path is None
         assert window.is_project_modified is False
         assert flag_lines(window, "P1") == (
+            ("Formula", "V(s) = 5 V"),
             ("Voltage", "5 V"),
             ("Frequency", "DC"),
         )
@@ -189,6 +196,7 @@ def test_examples_open_from_the_file_menu_and_can_be_edited(qt_application):
         window.apply_component_value("30k")
 
         assert flag_lines(window, "P1") == (
+            ("Formula", "V(s) = 7.5 V"),
             ("Voltage", "7.5 V"),
             ("Frequency", "DC"),
         )
@@ -200,7 +208,7 @@ def test_examples_open_from_the_file_menu_and_can_be_edited(qt_application):
         assert window.component_collection.get_component("R2").value_text == (
             "30k"
         )
-        assert flag_lines(window, "P1")[0] == ("Voltage", "7.5 V")
+        assert ("Voltage", "7.5 V") in flag_lines(window, "P1")
     finally:
         close_window(window)
 
