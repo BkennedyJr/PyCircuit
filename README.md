@@ -141,8 +141,16 @@ Using it
   at gain 100,000, Rin 300 kilohm, Rout 10 ohm and 10 MHz, 2 V inside
   both rails. The generic op-amp and the 741 keep their fixed models.
   A new part, and an old file that has no choice saved, stays Flat.
-  V(s) stays the ideal rule next to the simulator number. NMOS and PMOS,
-  and the 555 timer, have no formula. A switch is open or closed, a
+  V(s) stays the ideal rule next to the simulator number. A diode,
+  NPN, PNP, NMOS, PMOS, NJFET and PJFET have boxes for the usual
+  SPICE card numbers. The boxes start at that model's numbers, so a
+  1N4148 stays a 1N4148 until you type a new one. Leave a box blank
+  to put that model's number back. The diode has IS, N, RS, CJO, TT,
+  BV and IBV. The transistor has BF, VAF, CJE, CJC, TR, TF, RB, RE
+  and RC. The MOSFET has Level, VTO, KP, TOX and U0. Level 1 is the
+  simple model, and level 8 is BSIM3 in ngspice. The JFET has VTO,
+  BETA, LAMBDA and IS. NMOS, PMOS, the JFETs and the 555 timer
+  have no formula. A switch is open or closed, a
   potentiometer splits its resistance by a position from 0 to 1, a
   transformer uses its turns ratio, and a voltage regulator holds
   its output at the voltage you type (it ignores dropout).

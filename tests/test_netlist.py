@@ -457,6 +457,8 @@ def test_every_placeable_kind_has_a_spice_line():
         "pnp": "Q1 n2 n0 n1 2N3906",
         "nmos": "M1 n1 n0 n2 n2 2N7000",
         "pmos": "M1 n2 n0 n1 n1 BS250",
+        "njfet": "J1 n1 n0 n2 2N3819",
+        "pjfet": "J1 n2 n0 n1 2N5460",
         "current_source": "I1 n1 n0 DC 1m",
         "switch": "RS1 n0 n1 1g",
         "opamp_generic": "X1 n0 n1 n3 n4 n2 OPAMP",

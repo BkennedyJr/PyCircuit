@@ -24,6 +24,7 @@ from gui.component_symbols import (
 ALL_KINDS = list(COMPONENT_DEFINITIONS)
 KINDS_WITH_FILL = [
     "current_source", "diode", "led", "npn", "pnp", "nmos", "pmos",
+    "njfet", "pjfet",
     "potentiometer", "transformer", "voltage_regulator",
     "gate_nand", "gate_nor", "gate_not",
 ]

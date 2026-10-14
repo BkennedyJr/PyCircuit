@@ -29,7 +29,7 @@ IN is the one AC source: 1 V peak, 1 kHz, no offset.
 V(s)
 ----
 
-This sheet has a diode, an LED, transistors, MOSFETs, a comparator,
+This sheet has a diode, an LED, transistors, MOSFETs, JFETs, a comparator,
 logic gates and a 555, so there is no single s-domain formula. The DC
 numbers from Simulate > DC Operating Point still show. A sheet with
 only the resistors, capacitors and sources would show V(s).

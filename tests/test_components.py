@@ -119,6 +119,18 @@ def test_plan_definitions_are_exact():
             "model",
             "BS250",
         ),
+        "njfet": (
+            "J",
+            [("gate", -1, 0), ("drain", 0, -1), ("source", 0, 1)],
+            "model",
+            "2N3819",
+        ),
+        "pjfet": (
+            "J",
+            [("gate", -1, 0), ("source", 0, -1), ("drain", 0, 1)],
+            "model",
+            "2N5460",
+        ),
         "ground": ("GND", [("gnd", 0, 0)], "none", ""),
         "opamp_generic": ("X", OPAMP_PINS, "model", "OPAMP"),
         "opamp_741": ("X", OPAMP_PINS, "model", "LM741"),
@@ -186,7 +198,8 @@ def test_body_centres_are_exact():
         "diode": (1, 0), "led": (1, 0),
         "dc_source": (0, 1), "ac_source": (0, 1), "current_source": (0, 1),
         "npn": (0, 0), "pnp": (0, 0),
-        "nmos": (0, 0), "pmos": (0, 0), "ground": (0, 0),
+        "nmos": (0, 0), "pmos": (0, 0),
+        "njfet": (0, 0), "pjfet": (0, 0), "ground": (0, 0),
         "opamp_generic": (0, 0), "opamp_741": (0, 0),
         "opamp_lm358": (0, 0), "opamp_tl072": (0, 0),
         "opamp_ne5532": (0, 0),
@@ -549,6 +562,13 @@ def test_bad_rotation_raises_in_constructor_and_setter():
 def test_which_kinds_have_settings():
     expected = {
         "ac_source": ["frequency", "offset", "phase"],
+        "diode": ["is", "n", "rs", "cjo", "tt", "bv", "ibv"],
+        "npn": ["bf", "vaf", "cje", "cjc", "tr", "tf", "rb", "re", "rc"],
+        "pnp": ["bf", "vaf", "cje", "cjc", "tr", "tf", "rb", "re", "rc"],
+        "nmos": ["level", "vto", "kp", "tox", "u0"],
+        "pmos": ["level", "vto", "kp", "tox", "u0"],
+        "njfet": ["vt0", "beta", "lambda", "is"],
+        "pjfet": ["vt0", "beta", "lambda", "is"],
         "led": ["color"],
         "opamp_lm358": [
             "limits", "gain", "rin", "rout", "gbw", "head_high", "head_low",
@@ -767,6 +787,8 @@ def test_covered_half_steps_are_exact():
         "pnp": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "nmos": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "pmos": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "njfet": [(0, 0), (-1, 0), (0, -1), (0, 1)],
+        "pjfet": [(0, 0), (-1, 0), (0, -1), (0, 1)],
         "ground": [(0, 1)],
         # Inside the triangle (left x = -0.6, apex 0.75, half height 1.2):
         # anchor, half points to out / V+ / V- / left, beside each input.

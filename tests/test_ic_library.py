@@ -24,7 +24,7 @@ def test_every_part_is_either_a_type_list_part_or_one_library_device():
     ]
     assert set(part_kinds()) & packaged == set()
     assert len(library_kinds()) == 18
-    assert len(part_kinds()) == 20
+    assert len(part_kinds()) == 22
 
 
 def test_families_group_like_devices():

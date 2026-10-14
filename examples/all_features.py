@@ -238,6 +238,19 @@ def build_all_features():
     pmos_load = place("resistor", 29, 23, "1k")
     tag(pmos_load, "2", "Vss")
 
+    njfet = place("njfet", 32, 16, "2N3819")
+    tag(njfet, "source", "Vss")
+    tag(njfet, "gate", "Vcc")
+    njfet_load = place("resistor", 31, 16, "1k")
+    tag(njfet_load, "2", "Vcc")
+
+    pjfet = place("pjfet", 32, 22, "2N5460")
+    tag(pjfet, "source", "Vcc")
+    tag(pjfet, "gate", "Vss")
+    link(pin(pjfet, "drain"), point(33, 23))
+    pjfet_load = place("resistor", 33, 23, "1k")
+    tag(pjfet_load, "2", "Vss")
+
     timer = place("timer_555", 36, 4, "NE555")
     supply(timer)
 

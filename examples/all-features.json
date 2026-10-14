@@ -57,7 +57,15 @@
     {
       "column": 13,
       "kind": "diode",
-      "parameters": {},
+      "parameters": {
+        "bv": "100",
+        "cjo": "4p",
+        "ibv": "1m",
+        "is": "2.52n",
+        "n": "1.752",
+        "rs": "568m",
+        "tt": "20n"
+      },
       "reference": "D1",
       "rotation": 0,
       "row": 24,
@@ -93,6 +101,34 @@
       "value": "1m"
     },
     {
+      "column": 16,
+      "kind": "njfet",
+      "parameters": {
+        "beta": "1.3m",
+        "is": "10f",
+        "lambda": "2.5m",
+        "vt0": "-3"
+      },
+      "reference": "J1",
+      "rotation": 0,
+      "row": 32,
+      "value": "2N3819"
+    },
+    {
+      "column": 22,
+      "kind": "pjfet",
+      "parameters": {
+        "beta": "1.5m",
+        "is": "10f",
+        "lambda": "5m",
+        "vt0": "-2"
+      },
+      "reference": "J2",
+      "rotation": 0,
+      "row": 32,
+      "value": "2N5460"
+    },
+    {
       "column": 2,
       "kind": "inductor",
       "parameters": {},
@@ -104,7 +140,13 @@
     {
       "column": 16,
       "kind": "nmos",
-      "parameters": {},
+      "parameters": {
+        "kp": "170m",
+        "level": "1",
+        "tox": "100n",
+        "u0": "600",
+        "vto": "2.1"
+      },
       "reference": "M1",
       "rotation": 0,
       "row": 28,
@@ -113,7 +155,13 @@
     {
       "column": 22,
       "kind": "pmos",
-      "parameters": {},
+      "parameters": {
+        "kp": "50m",
+        "level": "1",
+        "tox": "100n",
+        "u0": "600",
+        "vto": "-2.5"
+      },
       "reference": "M2",
       "rotation": 0,
       "row": 28,
@@ -131,7 +179,17 @@
     {
       "column": 4,
       "kind": "npn",
-      "parameters": {},
+      "parameters": {
+        "bf": "300",
+        "cjc": "3.5p",
+        "cje": "4.5p",
+        "rb": "0",
+        "rc": "0",
+        "re": "0",
+        "tf": "400p",
+        "tr": "0",
+        "vaf": "100"
+      },
       "reference": "Q1",
       "rotation": 0,
       "row": 28,
@@ -140,7 +198,17 @@
     {
       "column": 10,
       "kind": "pnp",
-      "parameters": {},
+      "parameters": {
+        "bf": "180",
+        "cjc": "4p",
+        "cje": "10p",
+        "rb": "0",
+        "rc": "0",
+        "re": "0",
+        "tf": "400p",
+        "tr": "0",
+        "vaf": "20"
+      },
       "reference": "Q2",
       "rotation": 0,
       "row": 28,
@@ -372,22 +440,22 @@
       "value": "1k"
     },
     {
-      "column": 2,
+      "column": 16,
       "kind": "resistor",
       "parameters": {},
       "reference": "R26",
       "rotation": 0,
-      "row": 35,
-      "value": "1meg"
+      "row": 31,
+      "value": "1k"
     },
     {
-      "column": 2,
+      "column": 23,
       "kind": "resistor",
       "parameters": {},
       "reference": "R27",
       "rotation": 0,
-      "row": 37,
-      "value": "1meg"
+      "row": 33,
+      "value": "1k"
     },
     {
       "column": 2,
@@ -395,25 +463,25 @@
       "parameters": {},
       "reference": "R28",
       "rotation": 0,
-      "row": 38,
-      "value": "1meg"
-    },
-    {
-      "column": 5,
-      "kind": "resistor",
-      "parameters": {},
-      "reference": "R29",
-      "rotation": 0,
       "row": 35,
       "value": "1meg"
     },
     {
-      "column": 5,
+      "column": 2,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R29",
+      "rotation": 0,
+      "row": 37,
+      "value": "1meg"
+    },
+    {
+      "column": 2,
       "kind": "resistor",
       "parameters": {},
       "reference": "R30",
       "rotation": 0,
-      "row": 37,
+      "row": 38,
       "value": "1meg"
     },
     {
@@ -422,6 +490,24 @@
       "parameters": {},
       "reference": "R31",
       "rotation": 0,
+      "row": 35,
+      "value": "1meg"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R32",
+      "rotation": 0,
+      "row": 37,
+      "value": "1meg"
+    },
+    {
+      "column": 5,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R33",
+      "rotation": 0,
       "row": 38,
       "value": "1meg"
     },
@@ -429,27 +515,9 @@
       "column": 29,
       "kind": "resistor",
       "parameters": {},
-      "reference": "R32",
-      "rotation": 0,
-      "row": 8,
-      "value": "10k"
-    },
-    {
-      "column": 29,
-      "kind": "resistor",
-      "parameters": {},
-      "reference": "R33",
-      "rotation": 0,
-      "row": 12,
-      "value": "10k"
-    },
-    {
-      "column": 29,
-      "kind": "resistor",
-      "parameters": {},
       "reference": "R34",
       "rotation": 0,
-      "row": 16,
+      "row": 8,
       "value": "10k"
     },
     {
@@ -458,7 +526,7 @@
       "parameters": {},
       "reference": "R35",
       "rotation": 0,
-      "row": 20,
+      "row": 12,
       "value": "10k"
     },
     {
@@ -467,7 +535,7 @@
       "parameters": {},
       "reference": "R36",
       "rotation": 0,
-      "row": 24,
+      "row": 16,
       "value": "10k"
     },
     {
@@ -476,7 +544,7 @@
       "parameters": {},
       "reference": "R37",
       "rotation": 0,
-      "row": 28,
+      "row": 20,
       "value": "10k"
     },
     {
@@ -485,25 +553,25 @@
       "parameters": {},
       "reference": "R38",
       "rotation": 0,
-      "row": 32,
+      "row": 24,
       "value": "10k"
     },
     {
-      "column": 23,
+      "column": 29,
       "kind": "resistor",
       "parameters": {},
       "reference": "R39",
       "rotation": 0,
-      "row": 8,
+      "row": 28,
       "value": "10k"
     },
     {
-      "column": 23,
+      "column": 29,
       "kind": "resistor",
       "parameters": {},
       "reference": "R40",
       "rotation": 0,
-      "row": 14,
+      "row": 32,
       "value": "10k"
     },
     {
@@ -512,6 +580,24 @@
       "parameters": {},
       "reference": "R41",
       "rotation": 0,
+      "row": 8,
+      "value": "10k"
+    },
+    {
+      "column": 23,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R42",
+      "rotation": 0,
+      "row": 14,
+      "value": "10k"
+    },
+    {
+      "column": 23,
+      "kind": "resistor",
+      "parameters": {},
+      "reference": "R43",
+      "rotation": 0,
       "row": 20,
       "value": "10k"
     },
@@ -519,7 +605,7 @@
       "column": 40,
       "kind": "resistor",
       "parameters": {},
-      "reference": "R42",
+      "reference": "R44",
       "rotation": 0,
       "row": 26,
       "value": "10k"
@@ -690,7 +776,15 @@
     {
       "column": 34,
       "kind": "opamp_lm358",
-      "parameters": {},
+      "parameters": {
+        "gain": "100k",
+        "gbw": "1meg",
+        "head_high": "1.5",
+        "head_low": "0",
+        "limits": "flat",
+        "rin": "1meg",
+        "rout": "50"
+      },
       "reference": "X11",
       "rotation": 0,
       "row": 20,
@@ -699,7 +793,15 @@
     {
       "column": 34,
       "kind": "opamp_tl072",
-      "parameters": {},
+      "parameters": {
+        "gain": "200k",
+        "gbw": "3meg",
+        "head_high": "1.5",
+        "head_low": "1.5",
+        "limits": "flat",
+        "rin": "1T",
+        "rout": "75"
+      },
       "reference": "X12",
       "rotation": 0,
       "row": 26,
@@ -708,7 +810,15 @@
     {
       "column": 34,
       "kind": "opamp_ne5532",
-      "parameters": {},
+      "parameters": {
+        "gain": "100k",
+        "gbw": "10meg",
+        "head_high": "2",
+        "head_low": "2",
+        "limits": "flat",
+        "rin": "300k",
+        "rout": "10"
+      },
       "reference": "X13",
       "rotation": 0,
       "row": 32,
@@ -717,7 +827,15 @@
     {
       "column": 39,
       "kind": "opamp_tl081",
-      "parameters": {},
+      "parameters": {
+        "gain": "200k",
+        "gbw": "3meg",
+        "head_high": "1.5",
+        "head_low": "1.5",
+        "limits": "flat",
+        "rin": "1T",
+        "rout": "75"
+      },
       "reference": "X14",
       "rotation": 0,
       "row": 8,
@@ -726,7 +844,15 @@
     {
       "column": 39,
       "kind": "opamp_tl082",
-      "parameters": {},
+      "parameters": {
+        "gain": "200k",
+        "gbw": "3meg",
+        "head_high": "1.5",
+        "head_low": "1.5",
+        "limits": "flat",
+        "rin": "1T",
+        "rout": "75"
+      },
       "reference": "X15",
       "rotation": 0,
       "row": 14,
@@ -735,7 +861,15 @@
     {
       "column": 39,
       "kind": "opamp_lm324",
-      "parameters": {},
+      "parameters": {
+        "gain": "100k",
+        "gbw": "1meg",
+        "head_high": "1.5",
+        "head_low": "0",
+        "limits": "flat",
+        "rin": "1meg",
+        "rout": "50"
+      },
       "reference": "X16",
       "rotation": 0,
       "row": 20,
@@ -876,10 +1010,16 @@
       "NODE_R29_C24": "Vss",
       "NODE_R29_C27": "Vss",
       "NODE_R29_C28": "Vss",
+      "NODE_R31_C17": "Vcc",
+      "NODE_R31_C22": "Vcc",
       "NODE_R31_C27": "Vcc",
       "NODE_R31_C28": "Vcc",
       "NODE_R31_C34": "Vcc",
+      "NODE_R32_C15": "Vcc",
+      "NODE_R32_C21": "Vss",
       "NODE_R32_C30": "Vss",
+      "NODE_R33_C16": "Vss",
+      "NODE_R33_C24": "Vss",
       "NODE_R33_C27": "Vss",
       "NODE_R33_C28": "Vss",
       "NODE_R33_C33": "IN",
@@ -1016,146 +1156,152 @@
     },
     {
       "bridged": [],
-      "end": "NODE_R06_C35",
+      "end": "NODE_R33_C23",
       "reference": "W7",
+      "start": "NODE_R33_C22"
+    },
+    {
+      "bridged": [],
+      "end": "NODE_R06_C35",
+      "reference": "W8",
       "start": "NODE_R08_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R06_C33",
-      "reference": "W8",
+      "reference": "W9",
       "start": "NODE_R06_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R07_C33",
-      "reference": "W9",
+      "reference": "W10",
       "start": "NODE_R06_C33"
     },
     {
       "bridged": [],
       "end": "NODE_R12_C35",
-      "reference": "W10",
+      "reference": "W11",
       "start": "NODE_R14_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R12_C33",
-      "reference": "W11",
+      "reference": "W12",
       "start": "NODE_R12_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R13_C33",
-      "reference": "W12",
+      "reference": "W13",
       "start": "NODE_R12_C33"
     },
     {
       "bridged": [],
       "end": "NODE_R18_C35",
-      "reference": "W13",
+      "reference": "W14",
       "start": "NODE_R20_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R18_C33",
-      "reference": "W14",
+      "reference": "W15",
       "start": "NODE_R18_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R19_C33",
-      "reference": "W15",
+      "reference": "W16",
       "start": "NODE_R18_C33"
     },
     {
       "bridged": [],
       "end": "NODE_R24_C35",
-      "reference": "W16",
+      "reference": "W17",
       "start": "NODE_R26_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R24_C33",
-      "reference": "W17",
+      "reference": "W18",
       "start": "NODE_R24_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R25_C33",
-      "reference": "W18",
+      "reference": "W19",
       "start": "NODE_R24_C33"
     },
     {
       "bridged": [],
       "end": "NODE_R30_C35",
-      "reference": "W19",
+      "reference": "W20",
       "start": "NODE_R32_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R30_C33",
-      "reference": "W20",
+      "reference": "W21",
       "start": "NODE_R30_C35"
     },
     {
       "bridged": [],
       "end": "NODE_R31_C33",
-      "reference": "W21",
+      "reference": "W22",
       "start": "NODE_R30_C33"
     },
     {
       "bridged": [],
       "end": "NODE_R06_C40",
-      "reference": "W22",
+      "reference": "W23",
       "start": "NODE_R08_C40"
     },
     {
       "bridged": [],
       "end": "NODE_R06_C38",
-      "reference": "W23",
+      "reference": "W24",
       "start": "NODE_R06_C40"
     },
     {
       "bridged": [],
       "end": "NODE_R07_C38",
-      "reference": "W24",
+      "reference": "W25",
       "start": "NODE_R06_C38"
     },
     {
       "bridged": [],
       "end": "NODE_R12_C40",
-      "reference": "W25",
+      "reference": "W26",
       "start": "NODE_R14_C40"
     },
     {
       "bridged": [],
       "end": "NODE_R12_C38",
-      "reference": "W26",
+      "reference": "W27",
       "start": "NODE_R12_C40"
     },
     {
       "bridged": [],
       "end": "NODE_R13_C38",
-      "reference": "W27",
+      "reference": "W28",
       "start": "NODE_R12_C38"
     },
     {
       "bridged": [],
       "end": "NODE_R18_C40",
-      "reference": "W28",
+      "reference": "W29",
       "start": "NODE_R20_C40"
     },
     {
       "bridged": [],
       "end": "NODE_R18_C38",
-      "reference": "W29",
+      "reference": "W30",
       "start": "NODE_R18_C40"
     },
     {
       "bridged": [],
       "end": "NODE_R19_C38",
-      "reference": "W30",
+      "reference": "W31",
       "start": "NODE_R18_C38"
     }
   ]
