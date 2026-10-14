@@ -4,12 +4,13 @@ All-features circuit
 This is one sheet that uses every part, so you can try the whole bench
 on a circuit that is already known.
 
-Open it from the Anaconda Prompt, after the usual update:
+Open it from a terminal, in the repository folder:
 
-    conda activate base
-    cd C:\Users\danni\OneDrive\Documents\Python Scripts\PyCircuit
     git pull
     python main.py
+
+Anaconda users run those same commands from the Anaconda Prompt
+after "conda activate base".
 
 Then File > Open and choose:
 
