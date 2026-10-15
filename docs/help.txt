@@ -4,3 +4,4 @@ Circuit Workbench Help
 This help will be filled in later.
 
 The version is under Help > About Circuit Workbench.
+Copyright (c) 2026 Billie Kennedy. All rights reserved.

@@ -11,6 +11,17 @@ SPICE netlist (.cir) you can open in LTspice.
 Planned next: real op-amp output swing and gain-bandwidth.
 
 
+Licence
+-------
+
+Copyright (c) 2026 Billie Kennedy. All rights reserved. The full
+statement is LICENSE.txt. This program is not open source. Other
+people are not given the right to copy, change, or share it.
+
+The LM741 model under core/spice_library/ is not part of that
+copyright. It stays under CC BY 4.0. See Third-party files below.
+
+
 Requirements
 ------------
 
@@ -283,8 +294,8 @@ Creative Commons Attribution 4.0 International licence (CC BY 4.0,
 https://creativecommons.org/licenses/by/4.0/). It is bundled unchanged
 (a test checks its SHA-256); the Op-amp (741) part wraps it in the
 five-pin subcircuit LM741. Full attribution is in
-core/spice_library/README.txt. The rest of PyCircuit does not yet carry
-its own licence file.
+core/spice_library/README.txt. Everything else in this program is
+covered by LICENSE.txt.
 
 
 Tests
