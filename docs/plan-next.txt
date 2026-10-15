@@ -31,8 +31,12 @@ into pure Python. The replacement is a Python solver in this project:
 modified nodal analysis for resistors, sources, capacitors and
 inductors, then DC, then AC and Bode, then transient. It lives with
 the simulator code and does not import Qt. Keep V(s) next to its
-numbers. ngspice stays until that solver covers the same runs. Do not
-start the solver until asked. Step 12 stays undone until asked too.
+numbers. ngspice stays until that solver covers the same runs.
+The first piece is sim/dc_solver.py: DC voltages and currents for
+resistors, capacitors (open), inductors (a short), DC sources,
+AC sources (the offset) and current sources. The DC Operating Point
+button still calls ngspice. AC, Bode and transient are not in this
+solver yet. Step 12 stays undone until asked too.
 
 Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
 Bouwknegt). Its frequency sweep is already step 5. A few of its sweep
