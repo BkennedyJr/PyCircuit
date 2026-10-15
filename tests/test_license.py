@@ -8,7 +8,6 @@ from pathlib import Path
 
 from core.version import COPYRIGHT_NOTICE
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LICENSE_PATH = ROOT / "LICENSE.txt"
 

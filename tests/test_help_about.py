@@ -34,7 +34,12 @@ def test_about_text_is_the_version_and_copyright():
     assert COPYRIGHT_NOTICE == (
         "Copyright (c) 2026 Billie Kennedy. All rights reserved."
     )
-    assert about_text() == f"Version {APP_VERSION}\n{COPYRIGHT_NOTICE}"
+    assert about_text() == (
+        f"Version {APP_VERSION}\n"
+        "Copyright (c) 2026 Billie Kennedy.\n"
+        "All rights reserved."
+    )
+    assert COPYRIGHT_NOTICE in about_text().replace("\n", " ")
 
 
 def test_help_menu_is_last_and_opens_help_and_about(qt_application):

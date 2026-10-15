@@ -18,6 +18,13 @@ def about_text():
     """
     Version and copyright lines shown by Help > About.
 
+    The copyright sentence is two lines so the About box does not
+    wrap it through the name.
+
     :rtype: str
     """
-    return f"Version {APP_VERSION}\n{COPYRIGHT_NOTICE}"
+    return (
+        f"Version {APP_VERSION}\n"
+        "Copyright (c) 2026 Billie Kennedy.\n"
+        "All rights reserved."
+    )
