@@ -24,6 +24,33 @@ The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
 which of those to do, and what comes after them.
 
+The bench still calls the ngspice shared library for the DC operating
+point, the oscilloscope, Bode and the FFT. Some machines will not run
+ngspice.exe and will not load that DLL. No pip setting turns ngspice
+into pure Python. The replacement is a Python solver in this project:
+modified nodal analysis for resistors, sources, capacitors and
+inductors, then DC, then AC and Bode, then transient. It lives with
+the simulator code and does not import Qt. Keep V(s) next to its
+numbers. ngspice stays until that solver covers the same runs.
+The first piece is sim/dc_solver.py: DC voltages and currents for
+resistors, capacitors (open), inductors (a short), DC sources,
+AC sources (the offset) and current sources. The DC Operating Point
+button still calls ngspice. AC, Bode and transient are not in this
+solver yet. Step 12 stays undone until asked too.
+
+Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
+Bouwknegt). Its frequency sweep is already step 5. A few of its sweep
+extras are not built yet: a linear frequency axis, one probe divided
+by another, a polar plot, rms, average, minimum, maximum and peak to
+peak on a trace, and keeping the previous trace so a change can be
+compared. Its subcircuits are step 13, written up in
+docs/plan-subcircuits.txt. Do not start them until asked.
+
+Leave these Hicap pieces out. They do not fit this bench: thyristor
+and 12-pulse gate control, a drawn arbitrary wave, diodes replaced by
+a two-value resistor, symbols drawn as pixels, and a limit of 99
+parts.
+
 1. Netlist builder (done)
    File > Export Netlist writes the circuit as a SPICE netlist
    (core/netlist.py, no Qt) to a .cir file. Ground is node 0. Other
@@ -107,3 +134,9 @@ which of those to do, and what comes after them.
 12. Undo, and copy and paste
     Undo and redo for place, move, wire, value and delete. Copy a
     selected chunk of the circuit and paste it somewhere else.
+
+13. Subcircuits made from our circuits
+    A saved circuit can be opened on its own, and placed as one part
+    in another circuit. Ground is the same ground everywhere. No
+    nesting. The plan is docs/plan-subcircuits.txt. Do not start this
+    until asked.

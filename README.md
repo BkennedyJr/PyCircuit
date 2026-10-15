@@ -8,7 +8,8 @@ plots, and save or open the whole circuit as a JSON project file. File >
 Print prints that circuit on one page. File > Export Netlist writes a
 SPICE netlist (.cir) you can open in LTspice.
 
-Planned next: real op-amp output swing and gain-bandwidth.
+Planned next: a Python solver for DC, AC and transient, so those runs
+do not have to load ngspice.dll.
 
 
 Licence
@@ -25,10 +26,15 @@ copyright. It stays under CC BY 4.0. See Third-party files below.
 Requirements
 ------------
 
-- Anaconda. Spyder's IPython uses this Python (base).
-- Python (tested on Python 3.13)
-- PyQt5 and sympy, already in Anaconda
-- PySpice and the ngspice library, installed into that same Python
+- Python 3.13 (this is the version the tests use)
+- The packages in requirements.txt: PyQt5, sympy, PySpice, numpy
+  and pyqtgraph
+- The ngspice shared library, for the DC operating point, the
+  oscilloscope, Bode and the FFT. On Windows that file is
+  ngspice.dll. On Linux it is libngspice.so. A Python solver is
+  planned so those runs can work on a machine that will not load
+  that library. Until then, the window, the netlist and V(s) still
+  work without it.
 
 
 Project layout
@@ -49,72 +55,83 @@ Project layout
         test_units.py                value parser tests
 
 
-Install (Windows, Anaconda Prompt)
-----------------------------------
+Install
+-------
 
-The Anaconda Prompt uses Anaconda base. Install new packages there.
-Spyder uses that same Python when it is running. Do not install them
-only in a separate environment. An older pycircuit environment is not
-this Python.
+From a terminal, in the folder where you want the project:
 
     git clone https://github.com/BkennedyJr/PyCircuit.git
     cd PyCircuit
+    python -m pip install -r requirements.txt
+    python main.py
+
+
+Installing ngspice
+------------------
+
+The DC operating point, the oscilloscope, Bode and the FFT call the
+ngspice shared library through PySpice. ngspice is not a Python
+module, so "import ngspice" fails, and that is expected.
+
+Put the library where the program can find it:
+
+- Linux: install the libngspice package. A usual file is
+  libngspice.so.0 under /usr/lib or /usr/lib/x86_64-linux-gnu.
+- Windows, when conda is allowed: the Anaconda section below
+  installs ngspice.dll into that environment.
+- Any machine: set NGSPICE_LIBRARY_PATH to the full path of
+  ngspice.dll or libngspice.so.
+
+If the machine will not run ngspice or its library, skip this step.
+The program still opens. Simulate reports that ngspice is not
+installed.
+
+
+Install (Anaconda)
+------------------
+
+Anaconda is optional. Use it when that is already your Python.
+Open the Anaconda Prompt and use the base environment, so Spyder
+sees the same packages. Change to the folder where you cloned the
+repository.
+
     conda activate base
     python -c "import sys; print(sys.executable)"
     pip install PySpice
     pip install pyqtgraph
     conda install -c conda-forge ngspice-lib
 
-python.exe should be C:\Users\danni\anaconda3\python.exe before those
-installs. conda-forge has no PySpice build for Python 3.11 or newer
-(its newest Windows build is Python 3.10), so "conda install pyspice"
-cannot succeed here. pip install PySpice puts the module in base. In
-Python the name is PySpice. pyqtgraph draws the oscilloscope. Install
-it with pip. Do not conda install pyqtgraph: that package also
+conda-forge has no PySpice build for Python 3.11 or newer, so
+"conda install pyspice" cannot succeed. pip install PySpice puts
+the module in base. In Python the name is PySpice. pyqtgraph draws
+the oscilloscope. Do not conda install pyqtgraph: that package also
 installs PyQt.
 
-ngspice-lib is the shared library (ngspice.dll). Read the plan conda
-prints. If it would remove Spyder or replace PyQt, stop and do not
-press y.
+Read the plan conda prints. If it would remove Spyder or replace
+PyQt, stop and do not press y.
 
-Anaconda already has PyQt5. Do not pip install PyQt5 into base, and do
-not run "conda install pyqt" on top of a pip copy of PyQt. Do not
+Anaconda already has PyQt5. Do not pip install PyQt5 into base, and
+do not run "conda install pyqt" on top of a pip copy of PyQt. Do not
 "pip install -r requirements.txt" into base: that file also lists
-PyQt5. When conda-forge has a build for this Python, use conda for
-that one package. PySpice is the exception, and it uses pip.
+PyQt5.
 
-In the Anaconda Prompt, with base active:
+With base active, ngspice.dll is in that environment's Library\bin
+folder.
+
+Check the install:
 
     python -c "import PySpice; print(PySpice.__file__)"
 
-That path should be under
-C:\Users\danni\anaconda3\Lib\site-packages\PySpice. The same import
-works in Spyder's IPython once Spyder is using this base Python.
+That path should be under the base environment's site-packages.
+The same import works in Spyder's IPython once Spyder is using
+this base Python.
 
-
-Installing ngspice
-------------------
-
-The DC operating point needs the ngspice shared library. The
-ngspice-lib install above provides ngspice.dll. ngspice is not a
-Python module, so "import ngspice" fails, and that is expected.
-
-With base active, this file should exist:
-
-    C:\Users\danni\anaconda3\Library\bin\ngspice.dll
-
-
-Run
----
-
-From the Anaconda Prompt, in the repository folder:
+Start the program from the Anaconda Prompt, in the repository folder:
 
     conda activate base
     python main.py
 
-That starts the program from the Prompt. Standalone Spyder (not the
-Spyder that comes with Anaconda) also runs it: open main.py and use
-Debug.
+Standalone Spyder also runs it: open main.py and use Debug.
 
 
 Using it
@@ -282,7 +299,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26, then 0.1.27, then 0.1.28, then 0.1.29).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26, then 0.1.27, then 0.1.28, then 0.1.29, then 0.1.30, then 0.1.31, then 0.1.32).
 
 
 Third-party files
@@ -302,8 +319,12 @@ Tests
 -----
 
 pytest is only needed for running the tests, not for running the app, so
-it is not in requirements.txt. Install it once into Anaconda base, then
-run the tests:
+it is not in requirements.txt. From the repository folder:
+
+    python -m pip install pytest
+    python -m pytest -q
+
+Anaconda users install it into base instead:
 
     conda activate base
     conda install -c conda-forge pytest
