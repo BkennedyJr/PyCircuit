@@ -1,0 +1,48 @@
+PyCircuit: subcircuits made from our circuits
+=============================================
+
+A subcircuit is a circuit we already know how to draw, saved as a
+normal project, then used again as one part. The same file opens on
+its own. Nothing we have drawn so far has to change for this.
+
+What you do
+-----------
+
+1. Draw the circuit the usual way, and save it.
+2. Mark the outside pins. Two, four, or six nodes. Ground is not a
+   pin. It is the same ground in every circuit, so an outside pin is
+   not tied to ground inside the block.
+3. Give the block a name. That file is still an ordinary project.
+   Open it later and edit it like any other circuit.
+4. On another circuit, place the block the way any other part is
+   placed. The symbol is a box with those pins. It turns the same
+   way other parts turn.
+5. Copies all read that one file. Change the file, and every copy
+   follows.
+
+The library is a folder of those project files, and a list to pick
+one and place it. It is not a second kind of file.
+
+How it is simulated
+-------------------
+
+In the netlist the block is one subcircuit, the same kind of line an
+op-amp already uses. The inside is the netlist of that file. The
+outside pins are the ports. Ground stays node 0.
+
+A block does not contain another block that the user made. An
+op-amp, a gate, or any other built-in part inside it is fine.
+
+Probes that sit inside the block make traces only when that file is
+open by itself. On the outer circuit, probe the pins of the box.
+
+Not in the first version
+------------------------
+
+One value typed on the box replacing a value inside (Hicap writes @
+in the inner part, and the box name fills it in). That can come
+after the plain block places and simulates.
+
+The frequency sweep is already on the bench. A block is worth placing
+now that a flat circuit can show DC numbers, a scope trace, and a
+Bode plot. Do not start this until asked.
