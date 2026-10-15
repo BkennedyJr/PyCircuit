@@ -12,6 +12,7 @@ becomes the new span divided by 10. Drawing the trace again keeps
 the zoom. Typing a division uses the box for that axis only.
 """
 
+import pyqtgraph as pg
 import pytest
 from PyQt5.QtCore import QPoint, QPointF, Qt
 from PyQt5.QtGui import QWheelEvent
@@ -220,6 +221,85 @@ def test_the_fft_left_numbers_zoom_only_y(qt_application):
         assert _spans(dock.plot) == pytest.approx((zoomed_x, zoomed_y))
     finally:
         _close(dock)
+
+
+class _Drag:
+    """The pieces of a mouse drag that a view box reads."""
+
+    def __init__(self, start, end, finish):
+        self._start = start
+        self._end = end
+        self._finish = finish
+
+    def accept(self):
+        return None
+
+    def pos(self):
+        return self._end
+
+    def lastPos(self):
+        return self._start
+
+    def button(self):
+        return Qt.LeftButton
+
+    def isFinish(self):
+        return self._finish
+
+    def buttonDownPos(self, button=None):
+        return self._start
+
+
+def _box_zoom(plot, x0, y0, x1, y1):
+    view = plot.getViewBox()
+    start = view.mapFromView(QPointF(x0, y0))
+    end = view.mapFromView(QPointF(x1, y1))
+    view.mouseDragEvent(_Drag(start, end, False))
+    view.mouseDragEvent(_Drag(start, end, True))
+
+
+def test_a_dragged_box_zooms_the_scope_to_that_box(qt_application):
+    dock = OscilloscopeDock()
+
+    try:
+        dock.show_traces(_SCOPE, 0.001, 0.2)
+        _show(dock)
+        plot = dock.plot
+        assert plot.getViewBox().state["mouseMode"] == pg.ViewBox.RectMode
+        plot.setXRange(0, 0.01, padding=0)
+        plot.setYRange(0, 1, padding=0)
+        QApplication.processEvents()
+        _box_zoom(plot, 0.002, 0.2, 0.004, 0.6)
+        x_range, y_range = plot.viewRange()
+        assert x_range[0] == pytest.approx(0.002, abs=0.0004)
+        assert x_range[1] == pytest.approx(0.004, abs=0.0004)
+        assert y_range[0] == pytest.approx(0.2, abs=0.08)
+        assert y_range[1] == pytest.approx(0.6, abs=0.08)
+        assert dock.time_per_division_seconds() == pytest.approx(
+            (x_range[1] - x_range[0]) / 10, rel=1e-5
+        )
+        assert dock.volts_per_division() == pytest.approx(
+            (y_range[1] - y_range[0]) / 10, rel=1e-5
+        )
+    finally:
+        _close(dock)
+
+
+def test_bode_and_fft_zoom_by_a_dragged_box(qt_application):
+    bode = BodeDock()
+    fft = FftDock()
+
+    try:
+        assert bode.magnitude.getViewBox().state["mouseMode"] == (
+            pg.ViewBox.RectMode
+        )
+        assert bode.phase.getViewBox().state["mouseMode"] == (
+            pg.ViewBox.RectMode
+        )
+        assert fft.plot.getViewBox().state["mouseMode"] == pg.ViewBox.RectMode
+    finally:
+        _close(bode)
+        _close(fft)
 
 
 def test_plot_tips_say_each_axis_zooms(qt_application):
