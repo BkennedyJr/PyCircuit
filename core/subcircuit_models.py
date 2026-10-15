@@ -51,6 +51,7 @@ from pathlib import Path
 
 from core.exceptions import ComponentError
 from core.units import format_spice_number
+from core.version import PROGRAM_LICENSE
 
 SUBCIRCUIT_PORT_ORDER = ("in+", "in-", "V+", "V-", "out")
 SUPPLY_PINS = ("V+", "V-")
@@ -327,7 +328,7 @@ def _opamp_model(description):
         "supply_pins": SUPPLY_PINS,
         "supply_pins_required": True,
         "source": "PyCircuit (behavioural VCVS model, not a vendor netlist)",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     }
 
 
@@ -343,7 +344,7 @@ def _gate_model(description, ports):
         "supply_pins": ("VCC", "GND"),
         "supply_pins_required": True,
         "source": "PyCircuit (behavioural logic model)",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     }
 
 
@@ -358,7 +359,7 @@ SUBCIRCUIT_MODELS = {
         "supply_pins": SUPPLY_PINS,
         "supply_pins_required": False,
         "source": "PyCircuit (behavioural VCVS model)",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     },
     "LM741": {
         "description": "741 op-amp (Logipipe LM741 model)",
@@ -409,7 +410,7 @@ SUBCIRCUIT_MODELS = {
         "supply_pins": SUPPLY_PINS,
         "supply_pins_required": True,
         "source": "PyCircuit",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     },
     "INVAMP": {
         "description": "Inverting amplifier, gain parameter, default 10",
@@ -417,7 +418,7 @@ SUBCIRCUIT_MODELS = {
         "supply_pins": SUPPLY_PINS,
         "supply_pins_required": True,
         "source": "PyCircuit",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     },
     "NONINV": {
         "description": "Non-inverting amplifier, gain parameter, default 2",
@@ -425,7 +426,7 @@ SUBCIRCUIT_MODELS = {
         "supply_pins": SUPPLY_PINS,
         "supply_pins_required": True,
         "source": "PyCircuit",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     },
     "NE555": {
         "description": (
@@ -437,7 +438,7 @@ SUBCIRCUIT_MODELS = {
         "supply_pins": ("VCC", "GND"),
         "supply_pins_required": True,
         "source": "PyCircuit (divider only, not a vendor 555 model)",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     },
     "REG": {
         "description": "Ideal voltage regulator, voltage parameter, default 5",
@@ -445,7 +446,7 @@ SUBCIRCUIT_MODELS = {
         "supply_pins": (),
         "supply_pins_required": False,
         "source": "PyCircuit",
-        "license": "same as PyCircuit",
+        "license": PROGRAM_LICENSE,
     },
 }
 

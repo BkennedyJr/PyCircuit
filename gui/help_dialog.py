@@ -1,7 +1,8 @@
 """
 Help and About for Circuit Workbench.
 
-Help shows docs/help.txt. About shows the version from core.version.
+Help shows docs/help.txt. About shows the version and the copyright
+line from core.version.
 """
 
 from pathlib import Path

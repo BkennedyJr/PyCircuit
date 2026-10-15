@@ -12,6 +12,17 @@ Planned next: a Python solver for DC, AC and transient, so those runs
 do not have to load ngspice.dll.
 
 
+Licence
+-------
+
+Copyright (c) 2026 Billie Kennedy. All rights reserved. The full
+statement is LICENSE.txt. This program is not open source. Other
+people are not given the right to copy, change, or share it.
+
+The LM741 model under core/spice_library/ is not part of that
+copyright. It stays under CC BY 4.0. See Third-party files below.
+
+
 Requirements
 ------------
 
@@ -288,7 +299,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26, then 0.1.27, then 0.1.28, then 0.1.29, then 0.1.30, then 0.1.31).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26, then 0.1.27, then 0.1.28, then 0.1.29, then 0.1.30, then 0.1.31, then 0.1.32).
 
 
 Third-party files
@@ -300,8 +311,8 @@ Creative Commons Attribution 4.0 International licence (CC BY 4.0,
 https://creativecommons.org/licenses/by/4.0/). It is bundled unchanged
 (a test checks its SHA-256); the Op-amp (741) part wraps it in the
 five-pin subcircuit LM741. Full attribution is in
-core/spice_library/README.txt. The rest of PyCircuit does not yet carry
-its own licence file.
+core/spice_library/README.txt. Everything else in this program is
+covered by LICENSE.txt.
 
 
 Tests

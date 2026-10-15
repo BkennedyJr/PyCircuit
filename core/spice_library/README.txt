@@ -11,3 +11,6 @@ LM741_logipipe.lib
   core/subcircuit_models.py.
   Logipipe's own reference: Fairchild Semiconductor Corporation (2001),
   LM741 Single Operational Amplifier, Rev 1.0.1.
+
+The rest of Circuit Workbench is Copyright (c) 2026 Billie Kennedy.
+All rights reserved. See LICENSE.txt in the project root.

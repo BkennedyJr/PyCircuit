@@ -22,6 +22,7 @@ from core.subcircuit_models import (
     get_subcircuit_text,
     read_lm741_file,
 )
+from core.version import PROGRAM_LICENSE
 
 NODES = {"in+": "0", "in-": "N_R02_C03", "out": "N_R03_C05",
          "V+": "N_R01_C04", "V-": "N_R05_C04"}
@@ -54,6 +55,15 @@ def test_library_and_defaults():
     assert SUBCIRCUIT_PORT_ORDER == ("in+", "in-", "V+", "V-", "out")
     assert SUBCIRCUIT_MODELS["LM741"]["license"].startswith("CC BY 4.0")
     assert "logipipe.com/LM741.txt" in SUBCIRCUIT_MODELS["LM741"]["source"]
+    own_models = {
+        name: model
+        for name, model in SUBCIRCUIT_MODELS.items()
+        if name != "LM741"
+    }
+    assert own_models
+    assert all(
+        model["license"] == PROGRAM_LICENSE for model in own_models.values()
+    )
 
 
 @pytest.mark.parametrize("name, expected", [

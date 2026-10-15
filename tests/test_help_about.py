@@ -5,7 +5,12 @@ Help and About: the menu, the version, and the help file.
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QDialog, QMessageBox
 
-from core.version import APP_NAME, APP_VERSION, about_text
+from core.version import (
+    APP_NAME,
+    APP_VERSION,
+    COPYRIGHT_NOTICE,
+    about_text,
+)
 from gui.help_dialog import HelpDialog, read_help_text
 from gui.main_window import MainWindow
 
@@ -24,9 +29,17 @@ def menu_by_title(window, title):
     )
 
 
-def test_about_text_is_the_version():
-    assert APP_VERSION == "0.1.31"
-    assert about_text() == "Version 0.1.31"
+def test_about_text_is_the_version_and_copyright():
+    assert APP_VERSION == "0.1.32"
+    assert COPYRIGHT_NOTICE == (
+        "Copyright (c) 2026 Billie Kennedy. All rights reserved."
+    )
+    assert about_text() == (
+        f"Version {APP_VERSION}\n"
+        "Copyright (c) 2026 Billie Kennedy.\n"
+        "All rights reserved."
+    )
+    assert COPYRIGHT_NOTICE in about_text().replace("\n", " ")
 
 
 def test_help_menu_is_last_and_opens_help_and_about(qt_application):
@@ -57,7 +70,8 @@ def test_about_box_shows_the_version(qt_application):
         about_box = window.create_about_box()
         assert about_box.windowTitle() == f"About {APP_NAME}"
         assert about_box.text() == APP_NAME
-        assert about_box.informativeText() == f"Version {APP_VERSION}"
+        assert about_box.informativeText() == about_text()
+        assert "All rights reserved." in about_box.informativeText()
     finally:
         close_window(window)
 

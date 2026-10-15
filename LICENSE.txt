@@ -1,0 +1,20 @@
+Circuit Workbench (PyCircuit)
+Copyright (c) 2026 Billie Kennedy. All rights reserved.
+
+Billie Kennedy owns this program and its source code. All rights are
+reserved. This is not an open-source license. No permission is given
+to use, copy, modify, publish, distribute, sublicense, or sell the
+program or the source.
+
+No right is given unless Billie Kennedy agrees to it in writing.
+
+The file below is not covered by the paragraphs above. It keeps the
+license it was published under.
+
+core/spice_library/LM741_logipipe.lib
+  LM741 op-amp model, Copyright (c) 2018-2020 Logipipe, LLC,
+  https://www.logipipe.com/LM741.txt
+  Creative Commons Attribution 4.0 International (CC BY 4.0),
+  https://creativecommons.org/licenses/by/4.0/
+  Included unchanged. Attribution is also in
+  core/spice_library/README.txt.
