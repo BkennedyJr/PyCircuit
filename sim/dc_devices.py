@@ -364,7 +364,7 @@ class _ChannelDevice:
         self.vs = 0.0
 
     def companions(self):
-        drain_node, source_node, _current, gm, gds, equivalent = (
+        drain_node, source_node, _amps, gm, gds, equivalent = (
             self._linear()
         )
         stamps = []
