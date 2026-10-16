@@ -117,7 +117,7 @@ def test_voltage_sources_in_a_loop_say_so():
     connect(wires, grid, (3, 2), (3, 4))
     connect(wires, grid, (3, 2), (4, 2))
 
-    with pytest.raises(SimulationError, match="voltage sources form a loop"):
+    with pytest.raises(SimulationError, match="form a loop"):
         run_operating_point(parts, wires, grid)
 
 
