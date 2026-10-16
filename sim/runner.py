@@ -18,6 +18,7 @@ import math
 import os
 import re
 import threading
+import time
 from pathlib import Path
 
 import numpy
@@ -73,6 +74,9 @@ class Transient:
 # Five periods of the slowest sine, otherwise 10 ms. Two hundred samples.
 DEFAULT_TRANSIENT_STOP = 0.01
 TRANSIENT_SAMPLES = 200
+# A dock is about a thousand pixels wide. Two points per pixel keep
+# the peaks. The cursors still read the full record.
+DISPLAY_SAMPLES = 2000
 LED_LIT_AMPS = 0.001
 
 
@@ -246,6 +250,74 @@ def sample_at(time_seconds, values, when):
             )
 
     return values[-1]
+
+
+def plotted_columns(*columns, limit=None):
+    """
+    Return columns thinned for drawing. The full columns stay with the caller.
+
+    The second column is the one whose peaks are kept (a voltage, a
+    peak, or decibels). Later columns keep those same positions, so a
+    Bode phase trace stays on the magnitude peaks. A series no longer
+    than the limit is returned unchanged.
+
+    :param limit: Most points to draw. The default is ``DISPLAY_SAMPLES``.
+    :rtype: tuple
+    :raises SimulationError: If the columns are not the same length.
+    """
+    if limit is None:
+        limit = DISPLAY_SAMPLES
+
+    if not columns:
+        return ()
+
+    count = len(columns[0])
+
+    if any(len(column) != count for column in columns):
+        raise SimulationError("The trace samples are not usable.")
+
+    indices = _peak_indices(columns[1] if len(columns) > 1 else columns[0], limit)
+
+    if indices is None:
+        return columns
+
+    return tuple(
+        [column[index] for index in indices]
+        for column in columns
+    )
+
+
+def _peak_indices(values, limit):
+    """
+    Return positions that keep the low and high value in each bucket.
+
+    :rtype: list or None
+    """
+    count = len(values)
+
+    if count <= limit or limit < 2:
+        return None
+
+    samples = numpy.asarray(values, dtype=float)
+    buckets = max(1, limit // 2)
+    chosen = []
+
+    for bucket in range(buckets):
+        start = (bucket * count) // buckets
+        end = ((bucket + 1) * count) // buckets
+
+        if end <= start:
+            continue
+
+        segment = samples[start:end]
+        low = start + int(numpy.argmin(segment))
+        high = start + int(numpy.argmax(segment))
+
+        for index in sorted((low, high)):
+            if not chosen or chosen[-1] != index:
+                chosen.append(index)
+
+    return chosen
 
 
 def probe_series(probe, transient, name_by_point):
@@ -679,7 +751,7 @@ def _run_tran(netlist, step, stop, use_initial_conditions, cancel_event):
 
     try:
         shared.load_circuit(prepared)
-        shared.run()
+        _run_until_finished(shared, cancel_event)
     except (NgSpiceCommandError, NgSpiceCircuitError, NameError):
         _raise_plain_failure(shared)
 
@@ -781,7 +853,7 @@ def _run_ac(netlist, start, stop, points_per_decade, cancel_event):
 
     try:
         shared.load_circuit(prepared)
-        shared.run()
+        _run_until_finished(shared, cancel_event)
     except (NgSpiceCommandError, NgSpiceCircuitError, NameError):
         _raise_plain_failure(shared)
 
@@ -796,6 +868,69 @@ def _run_ac(netlist, start, stop, points_per_decade, cancel_event):
     plot = shared.plot(None, plot_name)
 
     return _read_frequency(plot, netlist)
+
+
+def _run_until_finished(shared, cancel_event):
+    """
+    Run the loaded circuit in the background and wait until it stops.
+
+    Stop is checked while ngspice is working. The run is halted then,
+    so a long transient does not have to finish before the next one.
+
+    :param cancel_event: Set this to halt the run, or None.
+    :type cancel_event: threading.Event or None
+    :returns: None
+    :raises SimulationError: If the run was halted, or it did not stop.
+    """
+    shared._background_started = False
+    shared._is_running = False
+    shared.exec_command("bg_run")
+    started_at = time.monotonic()
+
+    while True:
+        running = bool(shared._is_running)
+        began = bool(shared._background_started)
+
+        if cancel_event is not None and cancel_event.is_set():
+            _halt_background(shared)
+            raise SimulationError("Stopped.")
+
+        if began and not running:
+            return
+
+        failed = bool(shared._error_in_stdout or shared._error_in_stderr)
+
+        if not began and failed:
+            return
+
+        if not began and time.monotonic() - started_at > 1.0:
+            return
+
+        time.sleep(0.02)
+
+
+def _halt_background(shared):
+    """
+    Ask ngspice to stop, and wait until its background thread is idle.
+
+    :returns: None
+    :raises SimulationError: If the run is still going after the wait.
+    """
+    if shared._is_running:
+        try:
+            shared.halt()
+        except NameError:
+            pass
+
+    deadline = time.monotonic() + 5.0
+
+    while shared._is_running and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    if shared._is_running:
+        raise SimulationError(
+            "The run did not stop. Wait a moment, then press Start again."
+        )
 
 
 def _with_ac(netlist, start, stop, points_per_decade):
@@ -1178,6 +1313,16 @@ def _install_quiet_ngspice():
                 if "error" in lowered:
                     self._error_in_stdout = True
             return self.send_char(message, ngspice_id)
+
+        @staticmethod
+        def _background_thread_running(is_running, ngspice_id, user_data):
+            self = ffi.from_handle(user_data)
+            self._is_running = bool(is_running)
+
+            if is_running:
+                self._background_started = True
+
+            return 0
 
     return QuietNgSpice
 

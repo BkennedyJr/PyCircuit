@@ -39,7 +39,7 @@ solves one frequency for those same parts. A capacitor's admittance
 is j*omega*C, an inductor's is 1/(j*omega*L), a DC voltage source
 is a short and a DC current source is an open. The DC Operating
 Point button and Bode still call ngspice. Transient is not in this
-solver yet. Step 12 stays undone until asked too.
+solver yet.
 
 Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
 Bouwknegt). Its frequency sweep is already step 5. A few of its sweep
@@ -78,7 +78,10 @@ parts.
    was in the last run. The first circuit that is right is a unity-gain
    buffer, with the input and the output both on the scope. An LED
    lights when its current is above 1 mA. V(s) stays next to the DC
-   number.
+   number. A long record is drawn from its peaks so the window stays
+   responsive. The cursors still read every sample. Stop halts ngspice
+   while it is running, so a new value can start. Bode uses that same
+   halt. A heavier circuit uses this same path.
 
 5. AC sweep and Bode (done)
    View > Bode. Start and Stop on that dock, tabbed with the
@@ -134,12 +137,16 @@ parts.
     can edit. examples/all-features.json is still the sheet with
     every part.
 
-12. Undo, and copy and paste
-    Undo and redo for place, move, wire, value and delete. Copy a
-    selected chunk of the circuit and paste it somewhere else.
+12. Undo, and copy and paste (done)
+    Edit > Undo and Edit > Redo cover place, move, wire, value and
+    delete. Edit > Copy copies the selected parts and the wires
+    between them. Edit > Paste puts that chunk on the selected grid
+    point, with new names. A net label and the grid size stay as
+    they are. Rotate is not an undo step.
 
 13. Subcircuits made from our circuits
     A saved circuit can be opened on its own, and placed as one part
     in another circuit. Ground is the same ground everywhere. No
     nesting. The plan is docs/plan-subcircuits.txt. Do not start this
-    until asked.
+    until asked. A long run of one of these uses the peak drawing and
+    the Stop already on the oscilloscope and Bode.

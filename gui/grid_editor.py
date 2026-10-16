@@ -394,6 +394,10 @@ class ConnectionGridScene(QGraphicsScene):
         # "connect", "bridge" or "cancel". None means connect, so a scene
         # used without the window keeps the old breadboard behaviour.
         self.crossing_chooser = None
+        # The window remembers the circuit before a move, a drawn wire
+        # or a committed ghost. A refused change calls cancel.
+        self.before_circuit_edit = None
+        self.cancel_circuit_edit = None
 
         # A part waiting to be placed, and the ghost item that shows it
         # (not in component_items_by_reference).
@@ -1580,6 +1584,8 @@ class ConnectionGridScene(QGraphicsScene):
             elif choice != "connect":
                 return
 
+        self.note_circuit_edit()
+
         try:
             wire = self.wire_collection.add_wire(
                 start_identifier,
@@ -1588,6 +1594,7 @@ class ConnectionGridScene(QGraphicsScene):
                 bridged_identifiers
             )
         except ComponentError as error:
+            self.drop_circuit_edit()
             self.wire_refused.emit(str(error))
             return
 
@@ -1932,9 +1939,12 @@ class ConnectionGridScene(QGraphicsScene):
         if self.pending_placement is None:
             return None
 
+        self.note_circuit_edit()
+
         try:
             component = self.pending_placement.commit()
         except ComponentError as error:
+            self.drop_circuit_edit()
             self.update_pending_item()
             self.pending_placement_refused.emit(str(error))
             return None
@@ -1980,6 +1990,28 @@ class ConnectionGridScene(QGraphicsScene):
                 pending_item.scene() is self):
             self.removeItem(pending_item)
 
+    def note_circuit_edit(self):
+        """
+        Ask the window to remember the circuit before a change.
+
+        A move, a drawn wire and a committed ghost change the model
+        before the window hears about them. None when a scene is used
+        without the window.
+
+        :returns: None
+        """
+        if self.before_circuit_edit is not None:
+            self.before_circuit_edit()
+
+    def drop_circuit_edit(self):
+        """
+        Drop a remembered circuit when the change was refused.
+
+        :returns: None
+        """
+        if self.cancel_circuit_edit is not None:
+            self.cancel_circuit_edit()
+
     def handle_component_drop(self, reference, anchor_position):
         """
         Finish a part drag: snap to the nearest grid point, or put it back.
@@ -2008,6 +2040,8 @@ class ConnectionGridScene(QGraphicsScene):
             self.refresh_component(reference)
             return
 
+        self.note_circuit_edit()
+
         try:
             self.component_collection.move_component(
                 reference,
@@ -2018,6 +2052,7 @@ class ConnectionGridScene(QGraphicsScene):
         except ComponentError as error:
             # refresh_component puts the item back at the model position.
             self.refresh_component(reference)
+            self.drop_circuit_edit()
             self.component_move_refused.emit(reference, str(error))
             return
 
