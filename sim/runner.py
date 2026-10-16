@@ -2,12 +2,11 @@
 DC operating point, transient, and frequency sweep. The spectrum is
 the FFT of a transient waveform.
 
-``run_operating_point`` solves resistors, capacitors, inductors and
-sources in Python. Any other part still uses ngspice. ``run_op``,
+``run_operating_point`` solves every part in Python. ``run_op``,
 ``run_tran`` and ``run_ac`` take the netlist text from
 ``core.netlist.build_netlist``. Ground is node 0. ngspice hands node
 names back in lowercase; they are mapped to the spelling in the netlist
-(Vcc stays Vcc).
+(Vcc stays Vcc). The oscilloscope, Bode and the FFT still call ngspice.
 
 Current is in amps. For a resistor it is from the first pin toward the
 second. For a voltage source it is into the positive pin, so a source
@@ -100,36 +99,27 @@ def run_operating_point(components, wire_collection, connection_grid=None):
     """
     Solve the DC operating point and return it like an ngspice result.
 
-    Resistors, capacitors, inductors and sources are solved in Python.
-    A capacitor is an open, an inductor is a short, and an AC source
-    uses its offset. Any other part still runs in ngspice when that
-    library is installed. With no ngspice, that part is refused in
-    plain text.
+    Every part is solved in Python. A capacitor is an open, an inductor
+    is a short, and an AC source uses its offset. The oscilloscope,
+    Bode and the FFT still call ngspice.
 
     Voltages use the netlist's node names. A voltage source's current
     is into its positive pin, so a source that is powering the circuit
-    has a negative current. That matches ngspice.
+    has a negative current. A regulator's output current uses that
+    same sign. That matches ngspice.
 
     :param components: Placed parts, or a ComponentCollection.
     :param wire_collection: Wires of the same circuit.
     :param connection_grid: Grid whose net labels name nodes.
     :rtype: OperatingPoint
-    :raises SimulationError: The same messages as ``build_netlist``, a
-        part this solver does not cover, or a circuit that did not solve.
+    :raises SimulationError: The same messages as ``build_netlist``,
+        or a circuit that did not solve.
     """
-    from sim.dc_solver import dc_circuit_is_covered, solve_dc
+    from sim.dc_solver import solve_dc
 
     netlist = build_netlist(components, wire_collection, connection_grid)
-    covered = (
-        connection_grid is not None
-        and dc_circuit_is_covered(components)
-    )
 
-    if not covered:
-        if connection_grid is not None and not ngspice_is_installed():
-            parts = _placed_parts(components)
-            solve_dc(parts, wire_collection, connection_grid)
-
+    if connection_grid is None:
         return run_op(netlist)
 
     parts = _placed_parts(components)
@@ -152,7 +142,8 @@ def _operating_point_from_dc(solution, parts, wire_collection, connection_grid):
     Return an ``OperatingPoint`` from a Python DC solution.
 
     The Python solver's voltage-source current leaves the positive pin.
-    This flips that sign so the schematic matches ngspice.
+    This flips that sign, and a regulator's output current, so the
+    schematic matches ngspice.
 
     :rtype: OperatingPoint
     """
@@ -175,7 +166,7 @@ def _operating_point_from_dc(solution, parts, wire_collection, connection_grid):
     supplying = {
         part.reference
         for part in parts
-        if part.kind in ("dc_source", "ac_source")
+        if part.kind in ("dc_source", "ac_source", "voltage_regulator")
     }
     currents = {}
 

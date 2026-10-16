@@ -30,7 +30,7 @@ def menu_by_title(window, title):
 
 
 def test_about_text_is_the_version_and_copyright():
-    assert APP_VERSION == "0.1.36"
+    assert APP_VERSION == "0.1.37"
     assert COPYRIGHT_NOTICE == (
         "Copyright (c) 2026 Billie Kennedy. All rights reserved."
     )

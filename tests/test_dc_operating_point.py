@@ -142,48 +142,28 @@ def test_a_floating_node_says_each_node_needs_two_connections():
         run_operating_point(parts, wires, grid)
 
 
-def test_a_diode_without_ngspice_says_what_is_covered(monkeypatch):
-    monkeypatch.setattr(runner, "ngspice_is_installed", lambda: False)
+def test_a_diode_is_solved_without_ngspice(monkeypatch):
+    # 5 V, 1k, 1N4148. The scalar Shockley drop is about 0.65 V and
+    # the current about 4.3 mA. The source current is into the
+    # positive pin, so it is negative.
+    def refuse_ngspice(netlist):
+        raise AssertionError(netlist)
+
+    monkeypatch.setattr(runner, "run_op", refuse_ngspice)
     grid, parts, wires = new_circuit()
-    place(parts, grid, "ground", 6, 5)
-    place(parts, grid, "dc_source", 4, 1, "5")
-    place(parts, grid, "resistor", 4, 3, "1k")
-    place(parts, grid, "diode", 4, 4, "1N4148")
-    connect(wires, grid, (4, 1), (4, 3))
-    connect(wires, grid, (5, 1), (6, 1))
-    connect(wires, grid, (6, 1), (6, 5))
-    connect(wires, grid, (4, 5), (6, 5))
-
-    with pytest.raises(SimulationError, match="does not cover a diode"):
-        run_operating_point(parts, wires, grid)
-
-
-def test_a_diode_still_uses_ngspice_when_it_is_installed(monkeypatch):
-    grid, parts, wires = new_circuit()
-    place(parts, grid, "ground", 6, 5)
-    place(parts, grid, "dc_source", 4, 1, "5")
-    place(parts, grid, "resistor", 4, 3, "1k")
-    place(parts, grid, "diode", 4, 4, "1N4148")
-    connect(wires, grid, (4, 1), (4, 3))
-    connect(wires, grid, (5, 1), (6, 1))
-    connect(wires, grid, (6, 1), (6, 5))
-    connect(wires, grid, (4, 5), (6, 5))
-    seen = {}
-
-    def fake_run(netlist):
-        seen["netlist"] = netlist
-        return runner.OperatingPoint(
-            {"N001": 5.0, "N002": 0.7, "0": 0.0},
-            {"R1": 0.0043, "D1": 0.0043, "V1": -0.0043},
-        )
-
-    monkeypatch.setattr(runner, "ngspice_is_installed", lambda: True)
-    monkeypatch.setattr(runner, "run_op", fake_run)
+    place(parts, grid, "ground", 6, 2)
+    place(parts, grid, "dc_source", 4, 2, "5")
+    place(parts, grid, "resistor", 4, 2, "1k")
+    place(parts, grid, "diode", 4, 3, "1N4148")
+    connect(wires, grid, (5, 2), (6, 2))
+    connect(wires, grid, (4, 4), (6, 4))
+    connect(wires, grid, (6, 2), (6, 4))
 
     result = run_operating_point(parts, wires, grid)
 
-    assert "D1" in seen["netlist"]
-    assert result.voltages["N002"] == pytest.approx(0.7)
+    assert result.currents["D1"] == pytest.approx(0.0043, abs=2e-4)
+    assert result.currents["V1"] == pytest.approx(-result.currents["D1"])
+    assert result.voltages["0"] == pytest.approx(0.0)
 
 
 def test_an_ac_source_uses_its_offset():
