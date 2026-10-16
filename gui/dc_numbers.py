@@ -2,8 +2,8 @@
 Background DC operating point. The window draws the result.
 
 The netlist is checked on the GUI thread. The solve runs here so the
-window stays responsive. Resistors, capacitors, inductors and sources
-are solved in Python. Any other part still uses ngspice. core/ does
+window stays responsive. Every part is solved in Python. The
+oscilloscope, Bode and the FFT still use ngspice. core/ does
 not import this module.
 """
 

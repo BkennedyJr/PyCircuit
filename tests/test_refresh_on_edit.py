@@ -200,7 +200,6 @@ def test_a_second_edit_replaces_the_run_still_going(qt_application, monkeypatch)
         close_window(window)
 
 
-@needs_ngspice
 def test_the_pot_and_the_switch_update(qt_application):
     window = MainWindow()
 

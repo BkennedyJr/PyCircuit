@@ -3719,8 +3719,8 @@ class MainWindow(QMainWindow):
         """
         Check the netlist, then solve in a background thread.
 
-        Resistors, capacitors, inductors and sources are solved in
-        Python. Any other part still uses ngspice. Probe loads are
+        Every part is solved in Python. The oscilloscope, Bode and
+        the FFT still use ngspice. Probe loads are
         not included. Moving or deleting a part clears the numbers.
         A new value runs this again when the numbers are already drawn.
 

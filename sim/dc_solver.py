@@ -1,12 +1,14 @@
 """
 DC voltages and currents, without ngspice.
 
-Modified nodal analysis for resistors, capacitors, inductors and
-sources. A capacitor is an open. An inductor is a short. An AC source
-uses its offset, which is what a DC operating point sees. Simulate >
-DC Operating Point uses this for those parts. Anything else still
-goes to ngspice when that library is installed. The oscilloscope,
-Bode and the FFT still call ngspice.
+Modified nodal analysis for every part on the schematic. A capacitor
+is an open. An inductor is a short. An AC source uses its offset.
+Diodes, LEDs and transistors use a Newton companion. Gates and a
+limited op-amp hold an output voltage from the previous step. The
+741 uses the behavioural stand-in (gain 100k, 1 Mohm, 75 ohm), not
+the Logipipe transistor netlist. Simulate > DC Operating Point uses
+this for every part. The oscilloscope, Bode and the FFT still call
+ngspice.
 """
 
 import numpy as np
@@ -18,34 +20,64 @@ from core.components import (
 )
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError, SimulationError
-from core.wires import WireCollection, WireNets
-
-_COVERED = (
-    "resistor",
-    "capacitor",
-    "capacitor_polarized",
-    "inductor",
-    "dc_source",
-    "ac_source",
-    "current_source",
-    "ground",
+from core.spice_models import default_parameter_text
+from core.subcircuit_models import (
+    GENERIC_OPAMP_GAIN,
+    GENERIC_OPAMP_INPUT_RESISTANCE,
+    GENERIC_OPAMP_OUTPUT_RESISTANCE,
 )
+from core.units import parse_value
+from core.wires import WireCollection, WireNets
+from sim.dc_devices import (
+    BjtDevice,
+    ClampDevice,
+    DiodeDevice,
+    JfetDevice,
+    LogicDevice,
+    MosfetDevice,
+)
+
+_COVERED = tuple(COMPONENT_DEFINITIONS)
 
 _NO_GROUND = "Add a ground part before the DC voltages can be found."
 _NO_SOLUTION = (
     "This circuit has no single DC solution. A node may be floating, "
     "or voltage sources may form a loop."
 )
+_SHORT_OHMS = 1e-9
+_OPEN_OHMS = 1e9
+_SUPPLY_BLEED = 1e12
+_ITERATIONS = 80
+_BEHAVIOURAL_OPAMPS = (
+    "opamp_lm358",
+    "opamp_tl072",
+    "opamp_ne5532",
+    "opamp_tl081",
+    "opamp_tl082",
+    "opamp_lm324",
+)
+_LOGIC = {
+    "gate_not": "not",
+    "gate_buffer": "buf",
+    "gate_and": "and",
+    "gate_or": "or",
+    "gate_nand": "nand",
+    "gate_nor": "nor",
+    "gate_xor": "xor",
+}
 
 
 class DcOperatingPoint:
     """
-    Solved DC voltages and the current through each covered part.
+    Solved DC voltages and the current through each part.
 
     A voltage source's current leaves its positive pin. A positive
     current means the source is supplying the circuit. A current
     source's current leaves its out pin. A resistor's or inductor's
     current enters pin 1 and leaves pin 2. A capacitor's current is 0.
+    A diode's current enters the anode. A transistor's current enters
+    the collector or the drain. An op-amp's or gate's current leaves
+    the output pin.
 
     :param voltages: Volts at each grid point on a solved node.
     :type voltages: dict
@@ -130,12 +162,30 @@ def solve_dc(components, wire_collection, connection_grid):
         raise SimulationError(_NO_GROUND)
 
     nets = _nets(parts, wire_collection, connection_grid)
-    stamps = [
-        _stamp(part, nets) for part in parts if part.kind != "ground"
-    ]
-    node_voltages, currents = _solve(stamps)
-    _resistor_currents(stamps, node_voltages, currents)
-    voltages = _point_voltages(nets, parts, stamps, node_voltages)
+    fixed = []
+    devices = []
+
+    for part in parts:
+        stamps, device = _compile(part, nets)
+        fixed.extend(stamps)
+
+        if device is not None:
+            devices.append(device)
+
+    node_voltages, currents = _operating_point(fixed, devices)
+
+    for device in devices:
+        amps = device.solved_current(node_voltages)
+
+        if amps is not None:
+            currents[device.reference] = amps
+
+    currents = {
+        reference: amps
+        for reference, amps in currents.items()
+        if not reference.startswith("@")
+    }
+    voltages = _point_voltages(nets, parts, node_voltages)
 
     return DcOperatingPoint(voltages, currents)
 
@@ -176,11 +226,7 @@ def _require_covered(parts):
             continue
 
         name = COMPONENT_DEFINITIONS[part.kind]["display_name"].lower()
-        raise SimulationError(
-            f"The DC solver does not cover a {name} yet. It covers "
-            "resistors, capacitors, inductors, DC voltage sources, "
-            "AC voltage sources and current sources."
-        )
+        raise SimulationError(f"The DC solver does not cover a {name}.")
 
 
 def _nets(parts, wire_collection, connection_grid):
@@ -221,7 +267,90 @@ def _end_names(kind):
     return ("1", "2")
 
 
-def _stamp(part, nets):
+def _ohms(value):
+    if value <= 0.0:
+        return _SHORT_OHMS
+
+    return float(value)
+
+
+def _card(model_name, spice_name, fallback):
+    return parse_value(
+        default_parameter_text(model_name, spice_name, fallback)
+    )
+
+
+def _compile(part, nets):
+    """
+    Return ``(fixed stamps, nonlinear device or None)``.
+    """
+    kind = part.kind
+    reference = part.reference
+
+    if kind == "ground":
+        return [], None
+
+    if kind in (
+            "resistor", "capacitor", "capacitor_polarized",
+            "inductor", "dc_source", "ac_source", "current_source",
+    ):
+        return [_passive(part, nets)], None
+
+    if kind == "switch":
+        ohms = (
+            _SHORT_OHMS if part.parameter_values["state"] == "closed"
+            else _OPEN_OHMS
+        )
+
+        return [(
+            "R", reference, _node(nets, _pin(part, "1")),
+            _node(nets, _pin(part, "2")), ohms,
+        )], None
+
+    if kind == "potentiometer":
+        return _potentiometer(part, nets), None
+
+    if kind == "transformer":
+        return _transformer(part, nets), None
+
+    if kind == "voltage_regulator":
+        return _regulator(part, nets), None
+
+    if kind == "timer_555":
+        return _timer(part, nets), None
+
+    if kind in ("diode", "led"):
+        return _diode(part, nets)
+
+    if kind in ("npn", "pnp"):
+        return _bjt(part, nets)
+
+    if kind in ("nmos", "pmos"):
+        return _mosfet(part, nets)
+
+    if kind in ("njfet", "pjfet"):
+        return _jfet(part, nets)
+
+    if kind in ("opamp_generic", "opamp_741") or kind in _BEHAVIOURAL_OPAMPS:
+        return _opamp(part, nets)
+
+    if kind == "follower":
+        return _follower(part, nets), None
+
+    if kind == "inverting_amp":
+        return _inverting(part, nets), None
+
+    if kind == "noninverting_amp":
+        return _noninverting(part, nets), None
+
+    if kind in _LOGIC or kind == "comparator":
+        return _logic(part, nets)
+
+    name = COMPONENT_DEFINITIONS[kind]["display_name"].lower()
+    raise SimulationError(f"The DC solver does not cover a {name}.")
+
+
+def _passive(part, nets):
     kind = part.kind
 
     if kind == "resistor":
@@ -264,22 +393,377 @@ def _stamp(part, nets):
     )
 
 
+def _potentiometer(part, nets):
+    resistance = float(part.value)
+    position = float(part.parameter_values["position"])
+    top = _ohms((1.0 - position) * resistance)
+    bottom = _ohms(position * resistance)
+    pin_1 = _node(nets, _pin(part, "1"))
+    pin_2 = _node(nets, _pin(part, "2"))
+    wiper = _node(nets, _pin(part, "wiper"))
+
+    return [
+        ("R", part.reference, pin_1, wiper, top),
+        ("R", f"@{part.reference}.b", wiper, pin_2, bottom),
+    ]
+
+
+def _transformer(part, nets):
+    # V(s1) - V(s2) = n * (V(p1) - V(p2)). The branch current leaves
+    # s1. The F source draws n times that current into p1.
+    turns = float(part.value)
+    p1 = _node(nets, _pin(part, "p1"))
+    p2 = _node(nets, _pin(part, "p2"))
+    s1 = _node(nets, _pin(part, "s1"))
+    s2 = _node(nets, _pin(part, "s2"))
+    reference = part.reference
+
+    return [
+        ("E", reference, s1, s2, p1, p2, turns),
+        ("F", f"@{reference}.f", p2, p1, reference, turns),
+    ]
+
+
+def _regulator(part, nets):
+    pin_in = _node(nets, _pin(part, "in"))
+    ground = _node(nets, _pin(part, "gnd"))
+    pin_out = _node(nets, _pin(part, "out"))
+
+    return [
+        ("V", part.reference, pin_out, ground, float(part.value)),
+        ("R", f"@{part.reference}.rin", pin_in, ground, _SUPPLY_BLEED),
+    ]
+
+
+def _timer(part, nets):
+    vcc = _node(nets, _pin(part, "VCC"))
+    cont = _node(nets, _pin(part, "CONT"))
+    ground = _node(nets, _pin(part, "GND"))
+    third = f"@{part.reference}.third"
+
+    return [
+        ("R", part.reference, vcc, cont, 5e3),
+        ("R", f"@{part.reference}.b", cont, third, 5e3),
+        ("R", f"@{part.reference}.c", third, ground, 5e3),
+    ]
+
+
+def _diode(part, nets):
+    anode = _node(nets, _pin(part, "anode"))
+    cathode = _node(nets, _pin(part, "cathode"))
+
+    if part.kind == "diode":
+        saturation = float(part.parameter_values["is"])
+        emission = float(part.parameter_values["n"])
+        series = float(part.parameter_values["rs"])
+    else:
+        saturation = _card(part.value_text, "Is", "10f")
+        emission = _card(part.value_text, "N", "1")
+        series = _card(part.value_text, "Rs", "0")
+
+    stamps = []
+    junction = anode
+
+    if series > 0.0:
+        junction = f"@{part.reference}.j"
+        stamps.append(("R", f"@{part.reference}.rs", anode, junction, series))
+
+    device = DiodeDevice(
+        part.reference, junction, cathode, saturation, emission
+    )
+
+    return stamps, device
+
+
+def _bjt(part, nets):
+    base = _node(nets, _pin(part, "base"))
+    collector = _node(nets, _pin(part, "collector"))
+    emitter = _node(nets, _pin(part, "emitter"))
+    stamps = []
+    base, collector, emitter = _series_pins(
+        part, base, collector, emitter, stamps
+    )
+    polarity = 1.0 if part.kind == "npn" else -1.0
+    device = BjtDevice(
+        part.reference, base, collector, emitter,
+        _card(part.value_text, "Is", "10f"),
+        float(part.parameter_values["bf"]),
+        float(part.parameter_values["vaf"]),
+        polarity,
+    )
+
+    return stamps, device
+
+
+def _series_pins(part, base, collector, emitter, stamps):
+    """
+    Move RB, RC and RE inside the transistor when the card has them.
+
+    The resistor is appended to ``stamps``. The returned nodes are the
+    ones the junction model should use.
+    """
+    reference = part.reference
+    resistors = (
+        ("rb", base, f"@{reference}.b"),
+        ("rc", collector, f"@{reference}.c"),
+        ("re", emitter, f"@{reference}.e"),
+    )
+    nodes = {"rb": base, "rc": collector, "re": emitter}
+
+    for name, outer, inner in resistors:
+        ohms = float(part.parameter_values[name])
+
+        if ohms <= 0.0:
+            continue
+
+        stamps.append(("R", f"@{reference}.{name}", outer, inner, ohms))
+        nodes[name] = inner
+
+    return nodes["rb"], nodes["rc"], nodes["re"]
+
+
+def _mosfet(part, nets):
+    gate = _node(nets, _pin(part, "gate"))
+    drain = _node(nets, _pin(part, "drain"))
+    source = _node(nets, _pin(part, "source"))
+    model = part.value_text
+    stamps = []
+    drain_ohms = _card(model, "Rd", "0")
+    source_ohms = _card(model, "Rs", "0")
+
+    if drain_ohms > 0.0:
+        inner = f"@{part.reference}.d"
+        stamps.append(("R", f"@{part.reference}.rd", drain, inner, drain_ohms))
+        drain = inner
+
+    if source_ohms > 0.0:
+        inner = f"@{part.reference}.s"
+        stamps.append((
+            "R", f"@{part.reference}.rs", source, inner, source_ohms
+        ))
+        source = inner
+
+    polarity = 1.0 if part.kind == "nmos" else -1.0
+    device = MosfetDevice(
+        part.reference, gate, drain, source,
+        float(part.parameter_values["vto"]),
+        float(part.parameter_values["kp"]),
+        _card(model, "Lambda", "0"),
+        polarity,
+    )
+
+    return stamps, device
+
+
+def _jfet(part, nets):
+    polarity = 1.0 if part.kind == "njfet" else -1.0
+    device = JfetDevice(
+        part.reference,
+        _node(nets, _pin(part, "gate")),
+        _node(nets, _pin(part, "drain")),
+        _node(nets, _pin(part, "source")),
+        float(part.parameter_values["vt0"]),
+        float(part.parameter_values["beta"]),
+        float(part.parameter_values["lambda"]),
+        float(part.parameter_values["is"]),
+        polarity,
+    )
+
+    return [], device
+
+
+def _opamp(part, nets):
+    inp = _node(nets, _pin(part, "in+"))
+    inn = _node(nets, _pin(part, "in-"))
+    out = _node(nets, _pin(part, "out"))
+    vp = _node(nets, _pin(part, "V+"))
+    vn = _node(nets, _pin(part, "V-"))
+
+    if part.kind in ("opamp_generic", "opamp_741"):
+        gain = GENERIC_OPAMP_GAIN
+        rin = GENERIC_OPAMP_INPUT_RESISTANCE
+        rout = GENERIC_OPAMP_OUTPUT_RESISTANCE
+        limited = False
+        tie = True
+        head_high = 0.0
+        head_low = 0.0
+    else:
+        gain = float(part.parameter_values["gain"])
+        rin = float(part.parameter_values["rin"])
+        rout = float(part.parameter_values["rout"])
+        limited = part.parameter_values.get("limits") == "limited"
+        tie = False
+        head_high = float(part.parameter_values["head_high"])
+        head_low = float(part.parameter_values["head_low"])
+
+    return _amplifier(
+        part.reference, inp, inn, out, vp, vn,
+        gain, rin, rout, tie, limited, head_high, head_low,
+    )
+
+
+def _follower(part, nets):
+    inp = _node(nets, _pin(part, "in"))
+    out = _node(nets, _pin(part, "out"))
+    stamps, _device = _amplifier(
+        part.reference, inp, out, out,
+        _node(nets, _pin(part, "V+")),
+        _node(nets, _pin(part, "V-")),
+        GENERIC_OPAMP_GAIN, GENERIC_OPAMP_INPUT_RESISTANCE,
+        GENERIC_OPAMP_OUTPUT_RESISTANCE, True, False, 0.0, 0.0,
+    )
+
+    return stamps
+
+
+def _inverting(part, nets):
+    reference = part.reference
+    inn = f"@{reference}.inn"
+    inp = _node(nets, _pin(part, "in"))
+    out = _node(nets, _pin(part, "out"))
+    stamps = [
+        ("R", f"@{reference}.in", inp, inn, 1e4),
+        ("R", f"@{reference}.fb", out, inn, _ohms(1e4 * float(part.value))),
+    ]
+    inner, _device = _amplifier(
+        reference, "0", inn, out,
+        _node(nets, _pin(part, "V+")),
+        _node(nets, _pin(part, "V-")),
+        GENERIC_OPAMP_GAIN, GENERIC_OPAMP_INPUT_RESISTANCE,
+        GENERIC_OPAMP_OUTPUT_RESISTANCE, True, False, 0.0, 0.0,
+    )
+
+    return stamps + inner
+
+
+def _noninverting(part, nets):
+    reference = part.reference
+    inn = f"@{reference}.inn"
+    out = _node(nets, _pin(part, "out"))
+    stamps = [
+        ("R", f"@{reference}.g", inn, "0", 1e4),
+        (
+            "R", f"@{reference}.fb", out, inn,
+            _ohms(1e4 * (float(part.value) - 1.0)),
+        ),
+    ]
+    inner, _device = _amplifier(
+        reference, _node(nets, _pin(part, "in")), inn, out,
+        _node(nets, _pin(part, "V+")),
+        _node(nets, _pin(part, "V-")),
+        GENERIC_OPAMP_GAIN, GENERIC_OPAMP_INPUT_RESISTANCE,
+        GENERIC_OPAMP_OUTPUT_RESISTANCE, True, False, 0.0, 0.0,
+    )
+
+    return stamps + inner
+
+
+def _amplifier(
+        reference, inp, inn, out, vp, vn,
+        gain, rin, rout, tie, limited, head_high, head_low):
+    stamps = [("R", f"@{reference}.rin", inp, inn, rin)]
+
+    if tie:
+        stamps.append(("R", f"@{reference}.vp", vp, "0", _SUPPLY_BLEED))
+        stamps.append(("R", f"@{reference}.vn", vn, "0", _SUPPLY_BLEED))
+
+    if not limited:
+        gain_node = f"@{reference}.gain"
+        stamps.append(("E", reference, gain_node, "0", inp, inn, gain))
+        stamps.append(("R", f"@{reference}.rout", gain_node, out, rout))
+
+        return stamps, None
+
+    filt = f"@{reference}.filt"
+    pre = f"@{reference}.pre"
+    stamps.append(("G", f"@{reference}.g", filt, "0", inp, inn, 1.0))
+    stamps.append(("R", f"@{reference}.pole", filt, "0", gain))
+    stamps.append(("R", f"@{reference}.rout", pre, out, rout))
+    device = ClampDevice(
+        reference, pre, filt, vp, vn, head_high, head_low
+    )
+
+    return stamps, device
+
+
+def _logic(part, nets):
+    if part.kind == "comparator":
+        output = _node(nets, _pin(part, "out"))
+        nodes = {
+            "inp": _node(nets, _pin(part, "in+")),
+            "inn": _node(nets, _pin(part, "in-")),
+            "vp": _node(nets, _pin(part, "V+")),
+            "vn": _node(nets, _pin(part, "V-")),
+        }
+        logic = "comp"
+    else:
+        output = _node(nets, _pin(part, "Y"))
+        nodes = {
+            "a": _node(nets, _pin(part, "A")),
+            "y": output,
+            "vcc": _node(nets, _pin(part, "VCC")),
+            "gnd": _node(nets, _pin(part, "GND")),
+        }
+        logic = _LOGIC[part.kind]
+
+        if "B" in {
+                name for name, _row, _column in part.get_pin_positions()
+        }:
+            nodes["b"] = _node(nets, _pin(part, "B"))
+
+    return [], LogicDevice(part.reference, logic, output, nodes)
+
+
+def _operating_point(fixed, devices):
+    if not devices:
+        voltages, currents = _solve(fixed)
+        _resistor_currents(fixed, voltages, currents)
+
+        return voltages, currents
+
+    for _iteration in range(_ITERATIONS):
+        companions = []
+
+        for device in devices:
+            companions.extend(device.companions())
+
+        voltages, currents = _solve(fixed + companions)
+
+        if all(device.converged(voltages) for device in devices):
+            _resistor_currents(fixed + companions, voltages, currents)
+
+            return voltages, currents
+
+        for device in devices:
+            device.update(voltages)
+
+    raise SimulationError(_NO_SOLUTION)
+
+
+def _stamp_nodes(stamp):
+    if stamp[0] in ("G", "E"):
+        return stamp[2:6]
+
+    return stamp[2:4]
+
+
 def _solve(stamps):
     """
     Return ``(voltage by node id, current by reference)``.
 
-    The branch current of a voltage source or an inductor leaves the
-    first stamped pin and enters the second.
+    The branch current of a voltage source, a controlled voltage
+    source or an inductor leaves the first stamped pin and enters
+    the second.
     """
     nodes = []
     branches = []
 
     for stamp in stamps:
-        for node in stamp[2:4]:
+        for node in _stamp_nodes(stamp):
             if node != "0" and node not in nodes:
                 nodes.append(node)
 
-        if stamp[0] in ("V", "L"):
+        if stamp[0] in ("V", "L", "E") and stamp[1] not in branches:
             branches.append(stamp[1])
 
     order = nodes + branches
@@ -338,7 +822,30 @@ def _solve(stamps):
             currents[reference] = amps
             continue
 
-        volts = 0.0 if kind == "L" else stamp[4]
+        if kind == "G":
+            _cp, _cm, gain = stamp[4], stamp[5], stamp[6]
+            add(left, stamp[4], -gain)
+            add(left, stamp[5], gain)
+            add(right, stamp[4], gain)
+            add(right, stamp[5], -gain)
+            continue
+
+        if kind == "F":
+            control = stamp[4]
+            gain = stamp[5]
+            column = index[control]
+            row_out = at(left)
+            row_in = at(right)
+
+            if row_out is not None:
+                matrix[row_out, column] -= gain
+
+            if row_in is not None:
+                matrix[row_in, column] += gain
+
+            continue
+
+        volts = 0.0 if kind in ("L", "E") else stamp[4]
         branch = at(reference)
         plus_row = at(left)
         minus_row = at(right)
@@ -351,6 +858,17 @@ def _solve(stamps):
             matrix[minus_row, branch] += 1.0
             matrix[branch, minus_row] -= 1.0
 
+        if kind == "E":
+            gain = stamp[6]
+            control_plus = at(stamp[4])
+            control_minus = at(stamp[5])
+
+            if control_plus is not None:
+                matrix[branch, control_plus] -= gain
+
+            if control_minus is not None:
+                matrix[branch, control_minus] += gain
+
         vector[branch] = volts
 
     if count == 0:
@@ -361,7 +879,17 @@ def _solve(stamps):
     except np.linalg.LinAlgError as error:
         raise SimulationError(_NO_SOLUTION) from error
 
-    if not np.allclose(matrix @ solved, vector, rtol=1e-6, atol=1e-9):
+    if not np.all(np.isfinite(solved)):
+        raise SimulationError(_NO_SOLUTION)
+
+    # A closed switch is 1e-9 ohm. That row's residual is a few
+    # millionths even when the voltage is right, so the check follows
+    # the size of the row.
+    residual = np.abs(matrix @ solved - vector)
+    row_scale = np.sum(np.abs(matrix), axis=1)
+    tolerance = 1e-9 * np.maximum(row_scale, 1.0) + 1e-9
+
+    if np.any(residual > tolerance):
         raise SimulationError(_NO_SOLUTION)
 
     voltages = {"0": 0.0}
@@ -386,7 +914,7 @@ def _resistor_currents(stamps, node_voltages, currents):
         ) / ohms
 
 
-def _point_voltages(nets, parts, stamps, node_voltages):
+def _point_voltages(nets, parts, node_voltages):
     found = {}
 
     for part in parts:
@@ -397,12 +925,11 @@ def _point_voltages(nets, parts, stamps, node_voltages):
             for point in nets.get_points(identifier):
                 found[point] = 0.0
 
-    for stamp in stamps:
-        for node in stamp[2:4]:
-            if node == "0":
-                continue
+    for node, volts in node_voltages.items():
+        if node == "0" or str(node).startswith("@"):
+            continue
 
-            for point in nets.get_points(node):
-                found[point] = node_voltages[node]
+        for point in nets.get_points(node):
+            found[point] = volts
 
     return found

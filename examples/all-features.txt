@@ -38,10 +38,9 @@ only the resistors, capacitors and sources would show V(s).
 DC operating point
 ------------------
 
-Simulate > DC Operating Point. A circuit of only resistors, capacitors,
-inductors and sources is solved without ngspice. This sheet also has
-diodes, transistors and the other parts, so those numbers still come
-from ngspice. These are the checks:
+Simulate > DC Operating Point. Every part on this sheet is solved
+in Python. The oscilloscope, Bode and the FFT still use ngspice.
+These are the checks:
 
 - The three 10k / 10k dividers on V10 read 5 V in the middle.
   Change the bottom resistor of one to 30k and that middle becomes
