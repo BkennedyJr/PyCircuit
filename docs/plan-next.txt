@@ -34,8 +34,11 @@ the simulator code and does not import Qt. Keep V(s) next to its
 numbers. ngspice stays until that solver covers the same runs.
 The first piece is sim/dc_solver.py: DC voltages and currents for
 resistors, capacitors (open), inductors (a short), DC sources,
-AC sources (the offset) and current sources. The DC Operating Point
-button still calls ngspice. AC, Bode and transient are not in this
+AC sources (the offset) and current sources. sim/ac_solver.py
+solves one frequency for those same parts. A capacitor's admittance
+is j*omega*C, an inductor's is 1/(j*omega*L), a DC voltage source
+is a short and a DC current source is an open. The DC Operating
+Point button and Bode still call ngspice. Transient is not in this
 solver yet. Step 12 stays undone until asked too.
 
 Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
