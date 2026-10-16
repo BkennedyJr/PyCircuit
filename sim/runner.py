@@ -1,8 +1,10 @@
 """
-DC operating point, transient, and frequency sweep through the ngspice
-shared library. The spectrum is the FFT of a transient waveform.
+DC operating point, transient, and frequency sweep. The spectrum is
+the FFT of a transient waveform.
 
-``run_op``, ``run_tran`` and ``run_ac`` take the netlist text from
+``run_operating_point`` solves resistors, capacitors, inductors and
+sources in Python. Any other part still uses ngspice. ``run_op``,
+``run_tran`` and ``run_ac`` take the netlist text from
 ``core.netlist.build_netlist``. Ground is node 0. ngspice hands node
 names back in lowercase; they are mapped to the spelling in the netlist
 (Vcc stays Vcc).
@@ -23,8 +25,9 @@ from pathlib import Path
 
 import numpy
 
+from core.components import ComponentCollection
 from core.exceptions import SimulationError
-from core.netlist import build_netlist
+from core.netlist import build_netlist, spice_node_map
 from core.units import format_spice_number
 
 NGSPICE_MISSING = (
@@ -95,16 +98,94 @@ def ngspice_is_installed():
 
 def run_operating_point(components, wire_collection, connection_grid=None):
     """
-    Build the netlist and run its DC operating point.
+    Solve the DC operating point and return it like an ngspice result.
+
+    Resistors, capacitors, inductors and sources are solved in Python.
+    A capacitor is an open, an inductor is a short, and an AC source
+    uses its offset. Any other part still runs in ngspice when that
+    library is installed. With no ngspice, that part is refused in
+    plain text.
+
+    Voltages use the netlist's node names. A voltage source's current
+    is into its positive pin, so a source that is powering the circuit
+    has a negative current. That matches ngspice.
 
     :param components: Placed parts, or a ComponentCollection.
     :param wire_collection: Wires of the same circuit.
     :param connection_grid: Grid whose net labels name nodes.
     :rtype: OperatingPoint
-    :raises SimulationError: The same messages as build_netlist, or a
-        circuit ngspice could not solve.
+    :raises SimulationError: The same messages as ``build_netlist``, a
+        part this solver does not cover, or a circuit that did not solve.
     """
-    return run_op(build_netlist(components, wire_collection, connection_grid))
+    from sim.dc_solver import dc_circuit_is_covered, solve_dc
+
+    netlist = build_netlist(components, wire_collection, connection_grid)
+    covered = (
+        connection_grid is not None
+        and dc_circuit_is_covered(components)
+    )
+
+    if not covered:
+        if connection_grid is not None and not ngspice_is_installed():
+            parts = _placed_parts(components)
+            solve_dc(parts, wire_collection, connection_grid)
+
+        return run_op(netlist)
+
+    parts = _placed_parts(components)
+    solution = solve_dc(parts, wire_collection, connection_grid)
+
+    return _operating_point_from_dc(
+        solution, parts, wire_collection, connection_grid
+    )
+
+
+def _placed_parts(components):
+    if isinstance(components, ComponentCollection):
+        return components.get_components()
+
+    return list(components)
+
+
+def _operating_point_from_dc(solution, parts, wire_collection, connection_grid):
+    """
+    Return an ``OperatingPoint`` from a Python DC solution.
+
+    The Python solver's voltage-source current leaves the positive pin.
+    This flips that sign so the schematic matches ngspice.
+
+    :rtype: OperatingPoint
+    """
+    name_by_point, _draw_at = spice_node_map(
+        parts, wire_collection, connection_grid
+    )
+    voltages = {}
+
+    for identifier, volts in solution.voltages.items():
+        name = name_by_point.get(identifier)
+
+        if name is None:
+            continue
+
+        voltages[name] = float(volts)
+
+    if "0" not in voltages:
+        voltages["0"] = 0.0
+
+    supplying = {
+        part.reference
+        for part in parts
+        if part.kind in ("dc_source", "ac_source")
+    }
+    currents = {}
+
+    for reference, amps in solution.currents.items():
+        if reference in supplying:
+            currents[reference] = -float(amps)
+        else:
+            currents[reference] = float(amps)
+
+    return OperatingPoint(voltages, currents)
 
 
 def run_op(netlist):

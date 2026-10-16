@@ -138,7 +138,6 @@ def test_a_bad_value_leaves_the_numbers_alone(qt_application):
         close_window(window)
 
 
-@needs_ngspice
 def test_the_divider_updates_when_the_resistor_and_source_change(
         qt_application):
     window = MainWindow()
@@ -170,17 +169,17 @@ def test_the_divider_updates_when_the_resistor_and_source_change(
         close_window(window)
 
 
-@needs_ngspice
 def test_a_second_edit_replaces_the_run_still_going(qt_application, monkeypatch):
-    real_run = runner.run_op
+    real_run = runner.run_operating_point
 
-    def paced(netlist):
-        if "30k" in netlist:
-            time.sleep(0.3)
+    def paced(components, wire_collection, connection_grid=None):
+        for part in components.get_components():
+            if part.reference == "R2" and part.value == 30000:
+                time.sleep(0.3)
 
-        return real_run(netlist)
+        return real_run(components, wire_collection, connection_grid)
 
-    monkeypatch.setattr(runner, "run_op", paced)
+    monkeypatch.setattr(runner, "run_operating_point", paced)
     window = MainWindow()
 
     try:

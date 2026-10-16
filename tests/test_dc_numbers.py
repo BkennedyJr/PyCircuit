@@ -19,11 +19,6 @@ from gui.main_window import MainWindow
 from sim import runner
 from sim.runner import OperatingPoint, run_operating_point
 
-needs_ngspice = pytest.mark.skipif(
-    not runner.ngspice_is_installed(),
-    reason="ngspice is not installed",
-)
-
 
 def point(row, column):
     return ConnectionGrid.build_connection_point_identifier(row, column)
@@ -155,7 +150,6 @@ def test_an_empty_circuit_reports_the_missing_ground(qt_application):
         close_window(window)
 
 
-@needs_ngspice
 def test_the_divider_draws_10_v_5_v_and_half_a_milliamp(qt_application):
     window = MainWindow()
 
@@ -248,15 +242,15 @@ def test_the_run_happens_off_the_gui_thread(qt_application, monkeypatch):
     window = MainWindow()
     seen = {}
 
-    def fake_run(netlist):
+    def fake_run(components, wire_collection, connection_grid=None):
         seen["qthread"] = QThread.currentThread()
-        seen["netlist"] = netlist
+        seen["parts"] = components
         return OperatingPoint(
             {"N001": 10.0, "N002": 5.0, "0": 0.0},
             {"R1": 0.0005, "R2": 0.0005, "V1": -0.0005},
         )
 
-    monkeypatch.setattr(runner, "run_op", fake_run)
+    monkeypatch.setattr(runner, "run_operating_point", fake_run)
 
     try:
         build_divider(
@@ -275,7 +269,9 @@ def test_the_run_happens_off_the_gui_thread(qt_application, monkeypatch):
             QTest.qWait(20)
 
         assert seen["qthread"] is not window.thread()
-        assert "R1 N001 N002 10k" in seen["netlist"]
+        assert any(
+            part.reference == "R1" for part in seen["parts"].get_components()
+        )
         assert voltage_text(window, point(4, 4)) == "5 V"
         assert window.dc_operating_point_action.isEnabled()
     finally:
