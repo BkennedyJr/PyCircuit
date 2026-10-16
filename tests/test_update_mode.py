@@ -11,7 +11,6 @@ new reading.
 import pytest
 
 from gui.main_window import MainWindow
-from sim import runner
 from tests.test_bode import point
 from tests.test_refresh_on_edit import (
     build_divider,
@@ -21,11 +20,6 @@ from tests.test_refresh_on_edit import (
     show_on_scene,
     volts_at,
     wait_until_idle,
-)
-
-needs_ngspice = pytest.mark.skipif(
-    not runner.ngspice_is_installed(),
-    reason="ngspice is not installed",
 )
 
 
@@ -79,7 +73,6 @@ def test_continuous_is_the_usual_choice_and_the_plots_follow_it(
         close_window(window)
 
 
-@needs_ngspice
 def test_snapshot_keeps_one_reading_until_the_next_run(qt_application):
     window = MainWindow()
 

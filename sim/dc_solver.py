@@ -3,13 +3,19 @@ DC voltages and currents, without ngspice.
 
 Modified nodal analysis for resistors, capacitors, inductors and
 sources. A capacitor is an open. An inductor is a short. An AC source
-uses its offset, which is what a DC operating point sees. The
-oscilloscope, Bode and the FFT still call ngspice.
+uses its offset, which is what a DC operating point sees. Simulate >
+DC Operating Point uses this for those parts. Anything else still
+goes to ngspice when that library is installed. The oscilloscope,
+Bode and the FFT still call ngspice.
 """
 
 import numpy as np
 
-from core.components import COMPONENT_DEFINITIONS, Component
+from core.components import (
+    COMPONENT_DEFINITIONS,
+    Component,
+    ComponentCollection,
+)
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError, SimulationError
 from core.wires import WireCollection, WireNets
@@ -80,6 +86,24 @@ class DcOperatingPoint:
             )
 
         return self.currents[reference]
+
+
+def dc_circuit_is_covered(components):
+    """
+    True when every part is one ``solve_dc`` can stamp.
+
+    A ComponentCollection is accepted. This does not solve the circuit.
+
+    :param components: Placed parts, or a ComponentCollection.
+    :rtype: bool
+    :raises ComponentError: If an item is not a Component.
+    """
+    if isinstance(components, ComponentCollection):
+        components = components.get_components()
+
+    parts = _parts(components)
+
+    return all(part.kind in _COVERED for part in parts)
 
 
 def solve_dc(components, wire_collection, connection_grid):

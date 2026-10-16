@@ -24,22 +24,23 @@ The details of the netlist, the ngspice run and the scope are already
 written in docs/cursor-prompt-netlist-sim-scope.txt. This file says
 which of those to do, and what comes after them.
 
-The bench still calls the ngspice shared library for the DC operating
-point, the oscilloscope, Bode and the FFT. Some machines will not run
-ngspice.exe and will not load that DLL. No pip setting turns ngspice
-into pure Python. The replacement is a Python solver in this project:
-modified nodal analysis for resistors, sources, capacitors and
-inductors, then DC, then AC and Bode, then transient. It lives with
-the simulator code and does not import Qt. Keep V(s) next to its
-numbers. ngspice stays until that solver covers the same runs.
-The first piece is sim/dc_solver.py: DC voltages and currents for
-resistors, capacitors (open), inductors (a short), DC sources,
-AC sources (the offset) and current sources. sim/ac_solver.py
-solves one frequency for those same parts. A capacitor's admittance
-is j*omega*C, an inductor's is 1/(j*omega*L), a DC voltage source
-is a short and a DC current source is an open. The DC Operating
-Point button and Bode still call ngspice. Transient is not in this
-solver yet.
+The oscilloscope, Bode and the FFT still call the ngspice shared
+library. Some machines will not run ngspice.exe and will not load
+that DLL. No pip setting turns ngspice into pure Python. The
+replacement is a Python solver in this project: modified nodal
+analysis for resistors, sources, capacitors and inductors, then DC,
+then AC and Bode, then transient. It lives with the simulator code
+and does not import Qt. Keep V(s) next to its numbers. ngspice stays
+until that solver covers the same runs.
+sim/dc_solver.py is the DC piece: resistors, capacitors (open),
+inductors (a short), DC sources, AC sources (the offset) and current
+sources. Simulate > DC Operating Point uses it for those parts. A
+part it does not cover still runs in ngspice when ngspice is
+installed. sim/ac_solver.py solves one frequency for those same
+parts. A capacitor's admittance is j*omega*C, an inductor's is
+1/(j*omega*L), a DC voltage source is a short and a DC current
+source is an open. Bode still calls ngspice. Transient is not in
+this solver yet.
 
 Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
 Bouwknegt). Its frequency sweep is already step 5. A few of its sweep
@@ -61,12 +62,13 @@ parts.
    LTspice and check it by hand. There is one exporter.
 
 2. DC operating point (done)
-   sim/runner.py runs that netlist in ngspice and reads the DC voltages
-   and currents. Node names keep their spelling. A missing ground, a
-   floating node, or a voltage-source loop is plain text. No plot yet.
+   sim/dc_solver.py solves resistors, capacitors, inductors and
+   sources without ngspice. Node names keep their spelling. A missing
+   ground, a floating node, or a voltage-source loop is plain text.
+   A part that solver does not cover still uses ngspice. No plot yet.
 
 3. DC numbers on the schematic (done)
-   Simulate > DC Operating Point draws the ngspice voltages on the
+   Simulate > DC Operating Point draws the voltages on the
    nodes and the currents on the parts. The selected point shows that
    voltage next to V(s). A node with no formula still shows the number.
    The run is a background thread. Editing the circuit clears the

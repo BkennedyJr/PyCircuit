@@ -240,8 +240,9 @@ Using it
   and Save asks for a new file. File >
   Print (Ctrl+P) prints the circuit on one page. File >
   Export Netlist writes a .cir file of the same circuit, without probe
-  loads. The same netlist is what ngspice uses for the DC operating
-  point. When a node has only one connection, that node is drawn
+  loads. Simulate > DC Operating Point solves resistors, capacitors,
+  inductors and sources in Python. Any other part still uses that
+  netlist in ngspice. When a node has only one connection, that node is drawn
   with an orange ring and the message names it. The ring stays
   after you close the message, and the next edit clears it.
   Simulate > DC Operating Point draws those voltages on the
@@ -299,7 +300,7 @@ Using it
 - Help > Help (F1) opens the help text. That text is docs/help.txt,
   which will be filled in later. Help > About Circuit Workbench shows
   the version. That number goes up by one on the last digit each time
-  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26, then 0.1.27, then 0.1.28, then 0.1.29, then 0.1.30, then 0.1.31, then 0.1.32, then 0.1.33, then 0.1.34, then 0.1.35).
+  a change is merged (0.1.0, then 0.1.1, then 0.1.2, then 0.1.3, then 0.1.4, then 0.1.5, then 0.1.6, then 0.1.7, then 0.1.8, then 0.1.9, then 0.1.10, then 0.1.11, then 0.1.12, then 0.1.13, then 0.1.14, then 0.1.15, then 0.1.16, then 0.1.17, then 0.1.18, then 0.1.19, then 0.1.20, then 0.1.21, then 0.1.22, then 0.1.23, then 0.1.24, then 0.1.25, then 0.1.26, then 0.1.27, then 0.1.28, then 0.1.29, then 0.1.30, then 0.1.31, then 0.1.32, then 0.1.33, then 0.1.34, then 0.1.35, then 0.1.36).
 
 
 Third-party files

@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
 
         self.dc_operating_point_action = QAction("DC Operating Point", self)
         self.dc_operating_point_action.setToolTip(
-            "Run ngspice and draw the DC voltages and currents"
+            "Draw the DC voltages and currents"
         )
         self.dc_operating_point_action.triggered.connect(
             self.run_dc_operating_point
@@ -3717,12 +3717,12 @@ class MainWindow(QMainWindow):
 
     def run_dc_operating_point(self):
         """
-        Build the netlist, then run it in a background thread.
+        Check the netlist, then solve in a background thread.
 
-        Probe loads are not included. That is the same netlist File >
-        Export Netlist writes. Moving or deleting a part clears the
-        numbers. A new value runs this again when the numbers are
-        already drawn.
+        Resistors, capacitors, inductors and sources are solved in
+        Python. Any other part still uses ngspice. Probe loads are
+        not included. Moving or deleting a part clears the numbers.
+        A new value runs this again when the numbers are already drawn.
 
         :returns: None
         """
@@ -3730,7 +3730,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            netlist = build_netlist(
+            build_netlist(
                 self.component_collection.get_components(),
                 self.wire_collection,
                 self.connection_grid
@@ -3746,7 +3746,11 @@ class MainWindow(QMainWindow):
         self._dc_run_id += 1
         run_id = self._dc_run_id
         thread = QThread(self)
-        runner = DcOperatingPointRunner(netlist)
+        runner = DcOperatingPointRunner(
+            self.component_collection,
+            self.wire_collection,
+            self.connection_grid,
+        )
         runner.moveToThread(thread)
         thread.started.connect(runner.run)
         runner.succeeded.connect(self._on_dc_succeeded)

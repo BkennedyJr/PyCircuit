@@ -51,14 +51,12 @@ def build_divider(grid, parts, wires):
     connect(wires, grid, (6, 2), (6, 5))
 
 
-@needs_ngspice
 def test_a_10k_divider_from_10_v_is_5_v_and_half_a_milliamp():
+    # 10 V / 20k = 0.5 mA. The source current is into the positive pin.
     grid, parts, wires = new_circuit()
     build_divider(grid, parts, wires)
-    netlist = build_netlist(parts, wires, grid)
 
-    result = run_op(netlist)
-    again = run_operating_point(parts, wires, grid)
+    result = run_operating_point(parts, wires, grid)
 
     assert result.voltages["N001"] == pytest.approx(10)
     assert result.voltages["N002"] == pytest.approx(5)
@@ -66,10 +64,19 @@ def test_a_10k_divider_from_10_v_is_5_v_and_half_a_milliamp():
     assert result.currents["R1"] == pytest.approx(0.0005)
     assert result.currents["R2"] == pytest.approx(0.0005)
     assert result.currents["V1"] == pytest.approx(-0.0005)
-    assert again.voltages["N002"] == pytest.approx(5)
 
 
 @needs_ngspice
+def test_ngspice_agrees_on_the_divider():
+    grid, parts, wires = new_circuit()
+    build_divider(grid, parts, wires)
+
+    result = run_op(build_netlist(parts, wires, grid))
+
+    assert result.voltages["N002"] == pytest.approx(5)
+    assert result.currents["V1"] == pytest.approx(-0.0005)
+
+
 def test_a_named_node_keeps_its_spelling():
     grid, parts, wires = new_circuit()
     build_divider(grid, parts, wires)
@@ -82,7 +89,6 @@ def test_a_named_node_keeps_its_spelling():
     assert "n001" not in result.voltages
 
 
-@needs_ngspice
 def test_one_milliamp_into_1k_is_one_volt():
     grid, parts, wires = new_circuit()
     place(parts, grid, "ground", 5, 2)
@@ -102,7 +108,6 @@ def test_one_milliamp_into_1k_is_one_volt():
     assert result.currents["I1"] == pytest.approx(0.001)
 
 
-@needs_ngspice
 def test_voltage_sources_in_a_loop_say_so():
     grid, parts, wires = new_circuit()
     place(parts, grid, "ground", 4, 2)
@@ -135,6 +140,71 @@ def test_a_floating_node_says_each_node_needs_two_connections():
 
     with pytest.raises(SimulationError, match="only one connection"):
         run_operating_point(parts, wires, grid)
+
+
+def test_a_diode_without_ngspice_says_what_is_covered(monkeypatch):
+    monkeypatch.setattr(runner, "ngspice_is_installed", lambda: False)
+    grid, parts, wires = new_circuit()
+    place(parts, grid, "ground", 6, 5)
+    place(parts, grid, "dc_source", 4, 1, "5")
+    place(parts, grid, "resistor", 4, 3, "1k")
+    place(parts, grid, "diode", 4, 4, "1N4148")
+    connect(wires, grid, (4, 1), (4, 3))
+    connect(wires, grid, (5, 1), (6, 1))
+    connect(wires, grid, (6, 1), (6, 5))
+    connect(wires, grid, (4, 5), (6, 5))
+
+    with pytest.raises(SimulationError, match="does not cover a diode"):
+        run_operating_point(parts, wires, grid)
+
+
+def test_a_diode_still_uses_ngspice_when_it_is_installed(monkeypatch):
+    grid, parts, wires = new_circuit()
+    place(parts, grid, "ground", 6, 5)
+    place(parts, grid, "dc_source", 4, 1, "5")
+    place(parts, grid, "resistor", 4, 3, "1k")
+    place(parts, grid, "diode", 4, 4, "1N4148")
+    connect(wires, grid, (4, 1), (4, 3))
+    connect(wires, grid, (5, 1), (6, 1))
+    connect(wires, grid, (6, 1), (6, 5))
+    connect(wires, grid, (4, 5), (6, 5))
+    seen = {}
+
+    def fake_run(netlist):
+        seen["netlist"] = netlist
+        return runner.OperatingPoint(
+            {"N001": 5.0, "N002": 0.7, "0": 0.0},
+            {"R1": 0.0043, "D1": 0.0043, "V1": -0.0043},
+        )
+
+    monkeypatch.setattr(runner, "ngspice_is_installed", lambda: True)
+    monkeypatch.setattr(runner, "run_op", fake_run)
+
+    result = run_operating_point(parts, wires, grid)
+
+    assert "D1" in seen["netlist"]
+    assert result.voltages["N002"] == pytest.approx(0.7)
+
+
+def test_an_ac_source_uses_its_offset():
+    # Offset 2 V across 1k is 2 mA. The 5 V peak is not the DC voltage.
+    # The source current is into the positive pin, so it is -2 mA.
+    grid, parts, wires = new_circuit()
+    place(parts, grid, "ground", 6, 2)
+    parts.add_component(
+        "ac_source", 4, 2, "5", grid, parameter_texts={"offset": "2"}
+    )
+    place(parts, grid, "resistor", 4, 3, "1k")
+    connect(wires, grid, (4, 2), (4, 3))
+    connect(wires, grid, (5, 2), (6, 2))
+    connect(wires, grid, (4, 4), (6, 4))
+    connect(wires, grid, (6, 2), (6, 4))
+
+    result = run_operating_point(parts, wires, grid)
+
+    assert result.voltages["N001"] == pytest.approx(2)
+    assert result.currents["R1"] == pytest.approx(0.002)
+    assert result.currents["V1"] == pytest.approx(-0.002)
 
 
 def test_missing_ngspice_names_the_readme(monkeypatch):
