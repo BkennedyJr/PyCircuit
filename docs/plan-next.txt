@@ -36,7 +36,7 @@ The first piece is sim/dc_solver.py: DC voltages and currents for
 resistors, capacitors (open), inductors (a short), DC sources,
 AC sources (the offset) and current sources. The DC Operating Point
 button still calls ngspice. AC, Bode and transient are not in this
-solver yet. Step 12 stays undone until asked too.
+solver yet.
 
 Hicap is the program this bench is lining up with (Hicaphelp.pdf, K.
 Bouwknegt). Its frequency sweep is already step 5. A few of its sweep
@@ -131,9 +131,12 @@ parts.
     can edit. examples/all-features.json is still the sheet with
     every part.
 
-12. Undo, and copy and paste
-    Undo and redo for place, move, wire, value and delete. Copy a
-    selected chunk of the circuit and paste it somewhere else.
+12. Undo, and copy and paste (done)
+    Edit > Undo and Edit > Redo cover place, move, wire, value and
+    delete. Edit > Copy copies the selected parts and the wires
+    between them. Edit > Paste puts that chunk on the selected grid
+    point, with new names. A net label and the grid size stay as
+    they are. Rotate is not an undo step.
 
 13. Subcircuits made from our circuits
     A saved circuit can be opened on its own, and placed as one part
