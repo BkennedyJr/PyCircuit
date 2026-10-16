@@ -150,6 +150,29 @@ def test_the_scope_reads_a_quarter_cycle(qt_application):
         dock.deleteLater()
 
 
+def test_a_long_trace_keeps_the_spike_and_the_full_cursor(
+    qt_application, monkeypatch
+):
+    monkeypatch.setattr("sim.runner.DISPLAY_SAMPLES", 4)
+    dock = OscilloscopeDock()
+    times = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+    values = (0.0, 10.0, 0.0, 0.0, -5.0, 0.0)
+    dock.show_traces([("P1", "#3ec6ff", times, values)], 1.0, None)
+
+    try:
+        _name, _time, plotted = dock.plotted_series()[0]
+        assert 10.0 in plotted
+        assert -5.0 in plotted
+        assert len(plotted) <= 4
+        assert dock.cursors.series["P1"][1] == values
+        dock.set_cursors(1.0, 4.0)
+        assert "A is 1 s, 10." in dock.cursors.label.text()
+        assert "B is 4 s, -5." in dock.cursors.label.text()
+    finally:
+        dock.close()
+        dock.deleteLater()
+
+
 def test_the_scope_can_read_a_second_trace(qt_application):
     dock = OscilloscopeDock()
     dock.show_traces(

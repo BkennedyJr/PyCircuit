@@ -75,7 +75,10 @@ parts.
    was in the last run. The first circuit that is right is a unity-gain
    buffer, with the input and the output both on the scope. An LED
    lights when its current is above 1 mA. V(s) stays next to the DC
-   number.
+   number. A long record is drawn from its peaks so the window stays
+   responsive. The cursors still read every sample. Stop halts ngspice
+   while it is running, so a new value can start. Bode uses that same
+   halt. A heavier circuit uses this same path.
 
 5. AC sweep and Bode (done)
    View > Bode. Start and Stop on that dock, tabbed with the
@@ -142,4 +145,5 @@ parts.
     A saved circuit can be opened on its own, and placed as one part
     in another circuit. Ground is the same ground everywhere. No
     nesting. The plan is docs/plan-subcircuits.txt. Do not start this
-    until asked.
+    until asked. A long run of one of these uses the peak drawing and
+    the Stop already on the oscilloscope and Bode.
