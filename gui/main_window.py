@@ -44,6 +44,10 @@ from PyQt5.QtWidgets import QToolButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QWidget
 
+from core.circuit_edits import capture_circuit
+from core.circuit_edits import collections_from_snapshot
+from core.circuit_edits import copy_chunk
+from core.circuit_edits import paste_chunk
 from core.components import ComponentCollection
 from core.connection_grid import ConnectionGrid
 from core.exceptions import ComponentError
@@ -167,6 +171,14 @@ class MainWindow(QMainWindow):
         self.probe_collection = ProbeCollection()
         self.selected_probe_reference = None
         self._probe_parameter_lines = {}
+        # Undo remembers parts, wires and probes only. The grid size
+        # and net labels are not in a snapshot. Copy does not record
+        # a step. A new edit clears redo.
+        self._undo_snapshots = []
+        self._redo_snapshots = []
+        self._pending_snapshot = None
+        self._restoring_edit = False
+        self._clipboard = None
         self._dc_thread = None
         self._dc_runner = None
         self._dc_run_id = 0
@@ -310,6 +322,12 @@ class MainWindow(QMainWindow):
                 start, end, crossings
             )
         )
+        self.connection_grid_scene.before_circuit_edit = (
+            self.begin_circuit_edit
+        )
+        self.connection_grid_scene.cancel_circuit_edit = (
+            self.cancel_circuit_edit
+        )
         self.connection_grid_scene.wires_selected.connect(
             self.handle_wire_selection
         )
@@ -417,6 +435,32 @@ class MainWindow(QMainWindow):
         self.delete_component_action.triggered.connect(self.delete_selection)
         self.delete_component_action.setEnabled(False)
 
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut(QKeySequence.Undo)
+        self.undo_action.setToolTip(
+            "Undo the last place, move, wire, value or delete"
+        )
+        self.undo_action.triggered.connect(self.undo_edit)
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcuts(
+            [QKeySequence.Redo, QKeySequence("Ctrl+Y")]
+        )
+        self.redo_action.setToolTip("Redo the change that was just undone")
+        self.redo_action.triggered.connect(self.redo_edit)
+        self.copy_action = QAction("Copy", self)
+        self.copy_action.setShortcut(QKeySequence.Copy)
+        self.copy_action.setToolTip(
+            "Copy the selected parts and the wires between them"
+        )
+        self.copy_action.triggered.connect(self.copy_selection)
+        self.paste_action = QAction("Paste", self)
+        self.paste_action.setShortcut(QKeySequence.Paste)
+        self.paste_action.setToolTip(
+            "Paste the copied parts onto the selected grid point"
+        )
+        self.paste_action.triggered.connect(self.paste_selection)
+        self._update_edit_actions()
+
         # Wire mode: a press-drag from one grid point to another draws a
         # wire. Off, the same press-drag selects as before.
         self.wire_mode_action = QAction("Wire Mode", self)
@@ -517,6 +561,13 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.close_project_action)
         file_menu.addAction(self.exit_action)
+
+        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu.addAction(self.undo_action)
+        edit_menu.addAction(self.redo_action)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self.copy_action)
+        edit_menu.addAction(self.paste_action)
 
         node_menu = self.menuBar().addMenu("&Node")
         node_menu.addAction(self.toggle_pickoff_action)
@@ -1997,6 +2048,7 @@ class MainWindow(QMainWindow):
         :type reference: str
         :returns: None
         """
+        self.finish_circuit_edit()
         wire = self.wire_collection.get_wire(reference)
         self.mark_project_modified(f"Added {wire.describe()}.")
 
@@ -2094,6 +2146,276 @@ class MainWindow(QMainWindow):
 
         if refresh_results:
             self.refresh_shown_results()
+
+    def begin_circuit_edit(self):
+        """
+        Remember the parts, wires and probes before a change.
+
+        Undo and redo do not remember themselves. A second call before
+        the change is kept replaces the remembered circuit.
+
+        :returns: None
+        """
+        if self._restoring_edit:
+            return
+
+        self._pending_snapshot = capture_circuit(
+            self.component_collection,
+            self.wire_collection,
+            self.probe_collection
+        )
+
+    def cancel_circuit_edit(self):
+        """
+        Forget a remembered circuit when the change was refused.
+
+        :returns: None
+        """
+        self._pending_snapshot = None
+
+    def finish_circuit_edit(self):
+        """
+        Keep the remembered circuit as one undo step.
+
+        A new step clears redo. Nothing is kept when no circuit was
+        remembered, or while undo or redo is putting a circuit back.
+
+        :returns: None
+        """
+        if self._restoring_edit or self._pending_snapshot is None:
+            self._pending_snapshot = None
+            return
+
+        self._undo_snapshots.append(self._pending_snapshot)
+        self._pending_snapshot = None
+        self._redo_snapshots.clear()
+        self._update_edit_actions()
+
+    def clear_edit_history(self):
+        """
+        Drop undo and redo. The copy stays, so it can be pasted later.
+
+        :returns: None
+        """
+        self._undo_snapshots.clear()
+        self._redo_snapshots.clear()
+        self._pending_snapshot = None
+        self._update_edit_actions()
+
+    def _update_edit_actions(self):
+        """
+        Enable Undo, Redo and Paste when there is something to do.
+
+        :returns: None
+        """
+        self.undo_action.setEnabled(bool(self._undo_snapshots))
+        self.redo_action.setEnabled(bool(self._redo_snapshots))
+        self.paste_action.setEnabled(self._clipboard is not None)
+
+    def undo_edit(self):
+        """
+        Put back the circuit from before the last recorded change.
+
+        :returns: None
+        """
+        self._step_edit_history(
+            self._undo_snapshots,
+            self._redo_snapshots,
+            "Undid the last change.",
+            "Change Not Undone"
+        )
+
+    def redo_edit(self):
+        """
+        Put back the circuit that was just undone.
+
+        :returns: None
+        """
+        self._step_edit_history(
+            self._redo_snapshots,
+            self._undo_snapshots,
+            "Redid the last change.",
+            "Change Not Redone"
+        )
+
+    def _step_edit_history(self, source, destination, status, title):
+        """
+        Move one snapshot from source onto destination and show it.
+
+        The current circuit is stored on destination first. A snapshot
+        that no longer fits this grid is left on source.
+
+        :param source: Stack to take a snapshot from.
+        :type source: list
+        :param destination: Stack that receives the circuit now showing.
+        :type destination: list
+        :param status: Status-bar text after the circuit is put back.
+        :type status: str
+        :param title: Dialog title when the snapshot does not fit.
+        :type title: str
+        :returns: None
+        """
+        if not source or self._restoring_edit:
+            return
+
+        try:
+            collections = collections_from_snapshot(
+                source[-1], self.connection_grid
+            )
+        except ComponentError as error:
+            self.show_error_message(
+                title,
+                str(error),
+                "The circuit was left as it is."
+            )
+            return
+
+        destination.append(capture_circuit(
+            self.component_collection,
+            self.wire_collection,
+            self.probe_collection
+        ))
+        source.pop()
+        self._show_edit_collections(collections, status)
+
+    def _show_edit_collections(self, collections, status):
+        """
+        Replace the parts, wires and probes, and leave the grid as it is.
+
+        :param collections: ``(components, wires, probes)``.
+        :type collections: tuple
+        :param status: Status-bar text.
+        :type status: str
+        :returns: None
+        """
+        components, wires, probes = collections
+        self._restoring_edit = True
+
+        try:
+            self.component_collection = components
+            self.wire_collection = wires
+            self.probe_collection = probes
+            self.selected_component_reference = None
+            self.selected_wire_references = []
+            self.selected_probe_reference = None
+            self._probe_parameter_lines = {}
+            scene = self.connection_grid_scene
+            scene.set_component_collection(components)
+            scene.set_wire_collection(wires)
+            scene.set_probe_collection(probes)
+            self.show_probe(None)
+            self.update_delete_action()
+            self.mark_project_modified(status)
+        finally:
+            self._restoring_edit = False
+
+        self._update_edit_actions()
+
+    def selected_parts_for_copy(self):
+        """
+        Return the selected parts, in reference order.
+
+        The part in the Components dock counts, the same as Delete.
+
+        :rtype: list
+        """
+        scene = self.connection_grid_scene
+        references = {
+            item.component.reference
+            for item in scene.component_items_by_reference.values()
+            if item.isSelected()
+        }
+        panel_component = self.get_selected_component()
+
+        if panel_component is not None:
+            references.add(panel_component.reference)
+
+        return [
+            self.component_collection.get_component(reference)
+            for reference in sorted(references, key=natural_sort_key)
+        ]
+
+    def copy_selection(self):
+        """
+        Remember the selected parts and the wires between them.
+
+        Copy is not an undo step.
+
+        :returns: None
+        """
+        chunk = copy_chunk(
+            self.selected_parts_for_copy(),
+            self.wire_collection.get_wires()
+        )
+
+        if chunk is None:
+            self.statusBar().showMessage(
+                "Select one or more parts to copy.", 5000
+            )
+            return
+
+        self._clipboard = chunk
+        self._update_edit_actions()
+        count = len(chunk["components"])
+        noun = "part" if count == 1 else "parts"
+        self.statusBar().showMessage(f"Copied {count} {noun}.", 5000)
+
+    def paste_selection(self):
+        """
+        Paste the copied chunk onto the selected grid point.
+
+        The whole chunk is one undo step. A refusal adds nothing.
+
+        :returns: None
+        """
+        if self._clipboard is None:
+            self.statusBar().showMessage(
+                "Copy one or more parts first.", 5000
+            )
+            return
+
+        if self.selected_connection_point_identifier is None:
+            self.show_error_message(
+                "No Connection Point Selected",
+                "Paste puts the copied parts on the selected grid point, "
+                "and no point is selected.",
+                "Click a grid point first, then paste."
+            )
+            return
+
+        connection_point = self.connection_grid.get_connection_point(
+            self.selected_connection_point_identifier
+        )
+        self.begin_circuit_edit()
+
+        try:
+            references = paste_chunk(
+                self._clipboard,
+                connection_point.row_number,
+                connection_point.column_number,
+                self.component_collection,
+                self.wire_collection,
+                self.connection_grid
+            )
+        except ComponentError as error:
+            self.cancel_circuit_edit()
+            self.show_error_message(
+                "Parts Not Pasted",
+                str(error),
+                "Nothing was added. Pick a grid point where the whole "
+                "chunk fits, clear of the parts already there."
+            )
+            return
+
+        scene = self.connection_grid_scene
+        scene.set_component_collection(self.component_collection)
+        scene.set_wire_collection(self.wire_collection)
+
+        if references:
+            self.select_component_by_reference(references[0])
+
+        self.finish_circuit_edit()
+        self.mark_project_modified(f"Pasted {', '.join(references)}.")
 
     def start_pending_placement(self, kind, value_text, parameter_texts=None):
         """
@@ -2222,6 +2544,8 @@ class MainWindow(QMainWindow):
             self.selected_connection_point_identifier
         )
 
+        self.begin_circuit_edit()
+
         try:
             component = self.component_collection.add_component(
                 kind,
@@ -2234,6 +2558,7 @@ class MainWindow(QMainWindow):
             )
 
         except ComponentError as error:
+            self.cancel_circuit_edit()
             self.statusBar().showMessage(f"Part not placed: {error}", 10000)
             self.show_error_message(
                 "Part Not Placed",
@@ -2266,6 +2591,7 @@ class MainWindow(QMainWindow):
         anchor_identifier = ConnectionGrid.build_connection_point_identifier(
             component.row_number, component.column_number
         )
+        self.finish_circuit_edit()
         self.mark_project_modified(
             f"Placed {placed_text} at {anchor_identifier}."
         )
@@ -2366,6 +2692,7 @@ class MainWindow(QMainWindow):
         if component is None:
             return
 
+        self.begin_circuit_edit()
         old_reference = component.reference
         new_reference = (
             self.component_panel_widget.selected_name_line_edit.text().strip()
@@ -2379,6 +2706,7 @@ class MainWindow(QMainWindow):
                     old_reference, new_reference
                 )
             except ComponentError as error:
+                self.cancel_circuit_edit()
                 self.show_error_message(
                     "Part Not Changed",
                     str(error),
@@ -2399,6 +2727,7 @@ class MainWindow(QMainWindow):
                     component.reference, old_reference
                 )
 
+            self.cancel_circuit_edit()
             self.show_error_message(
                 "Part Value Not Changed",
                 str(error),
@@ -2436,6 +2765,7 @@ class MainWindow(QMainWindow):
         self.component_panel_widget.show_component(component)
 
         if not renamed and not value_changed:
+            self.cancel_circuit_edit()
             return
 
         shown = component.label_text().partition(" ")[2]
@@ -2450,6 +2780,7 @@ class MainWindow(QMainWindow):
         else:
             status = f"Set {component.reference} to {shown}."
 
+        self.finish_circuit_edit()
         self.mark_project_modified(
             status,
             refresh_results=value_changed and self._continuous,
@@ -2463,6 +2794,7 @@ class MainWindow(QMainWindow):
         :type reference: str
         :returns: None
         """
+        self.finish_circuit_edit()
         component = self.component_collection.get_component(reference)
 
         # The moved part becomes the panel's part, even when several parts
@@ -2502,10 +2834,12 @@ class MainWindow(QMainWindow):
         if component is None:
             return
 
+        self.begin_circuit_edit()
         self.component_collection.remove_component(component.reference)
 
         # The rebuild clears the selection, which clears the panel.
         self.connection_grid_scene.rebuild_component_items()
+        self.finish_circuit_edit()
         self.mark_project_modified(f"Deleted {component.reference}.")
 
     def delete_selection(self):
@@ -2549,14 +2883,15 @@ class MainWindow(QMainWindow):
         if self.selected_probe_reference in self.probe_collection.probes_by_reference:
             probe_references.add(self.selected_probe_reference)
 
+        if (not component_references and not wire_references and
+                not probe_references):
+            return
+
+        self.begin_circuit_edit()
         probe_references.update(
             self.probe_collection.remove_for_components(component_references)
         )
         probe_references = sorted(probe_references, key=natural_sort_key)
-
-        if (not component_references and not wire_references and
-                not probe_references):
-            return
 
         for reference in wire_references:
             self.wire_collection.remove_wire(reference)
@@ -2581,6 +2916,7 @@ class MainWindow(QMainWindow):
         self.selected_wire_references = []
         self.selected_probe_reference = None
         self.update_delete_action()
+        self.finish_circuit_edit()
         self.mark_project_modified(
             f"Deleted {', '.join(deleted_references)}.",
             keep_scope=not (component_references or wire_references),
@@ -2722,6 +3058,7 @@ class MainWindow(QMainWindow):
         self.is_project_modified = False
         self.selected_connection_point_identifier = None
         self.reset_component_collection()
+        self.clear_edit_history()
         self.connection_grid_scene.set_connection_grid(
             self.connection_grid
         )
@@ -2869,6 +3206,7 @@ class MainWindow(QMainWindow):
         self.show_probe(None)
         self.refresh_selected_node_formula()
         self.refresh_probe_parameters()
+        self.clear_edit_history()
 
     def save_current_project(self):
         """
