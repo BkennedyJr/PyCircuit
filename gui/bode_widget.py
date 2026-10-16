@@ -28,6 +28,7 @@ from core.units import parse_value
 from gui.plot_cursors import CursorBox
 from gui.plot_zoom import show_zoom_tip
 from gui.update_mode import update_mode_combo
+from sim.runner import plotted_columns
 
 
 class BodePlot(pg.PlotWidget):
@@ -251,6 +252,9 @@ class BodeDock(QDockWidget):
         """
         Draw traces. Each trace is ``(name, color, frequency, db, phase)``.
 
+        A long sweep is drawn from its peaks. Phase stays on those
+        same frequencies. The cursors still read every point.
+
         :param traces: Series to draw.
         :returns: None
         """
@@ -272,8 +276,18 @@ class BodeDock(QDockWidget):
                 continue
 
             hertz, db, degrees = zip(*finite)
-            self.magnitude.plot(list(hertz), list(db), pen=pen, name=name)
-            self.phase.plot(list(hertz), list(degrees), pen=pen, name=name)
+            drawn_hertz, drawn_db, drawn_degrees = plotted_columns(
+                hertz, db, degrees
+            )
+            self.magnitude.plot(
+                list(drawn_hertz), list(drawn_db), pen=pen, name=name
+            )
+            self.phase.plot(
+                list(drawn_hertz),
+                list(drawn_degrees),
+                pen=pen,
+                name=name,
+            )
             series[name] = (hertz, db, degrees)
             lowest = min(hertz) if lowest is None else min(lowest, min(hertz))
             highest = max(hertz) if highest is None else max(highest, max(hertz))

@@ -26,7 +26,7 @@ from core.units import format_spice_number, parse_value
 from gui.plot_cursors import CursorBox
 from gui.plot_zoom import ZOOM_TIP, show_zoom_tip
 from gui.update_mode import update_mode_combo
-from sim.runner import default_transient_stop
+from sim.runner import default_transient_stop, plotted_columns
 
 SCOPE_DIVISIONS = 10
 
@@ -308,6 +308,9 @@ class OscilloscopeDock(QDockWidget):
         """
         Draw traces. Each trace is ``(name, color, time, values)``.
 
+        A long record is drawn from its peaks. The cursors still read
+        every sample.
+
         :param traces: Series to draw.
         :param time_per_division: Seconds across one division.
         :param volts_per_division: Volts across one division, or None.
@@ -322,9 +325,12 @@ class OscilloscopeDock(QDockWidget):
         series = {}
 
         for name, color, time_seconds, values in traces:
+            drawn_time, drawn_values = plotted_columns(
+                time_seconds, values
+            )
             self.plot.plot(
-                list(time_seconds),
-                list(values),
+                list(drawn_time),
+                list(drawn_values),
                 pen=pg.mkPen(color, width=2),
                 name=name,
             )
