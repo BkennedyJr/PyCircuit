@@ -9,7 +9,7 @@ COPYRIGHT_NOTICE is the short line. The full statement is LICENSE.txt.
 """
 
 APP_NAME = "Circuit Workbench"
-APP_VERSION = "0.1.32"
+APP_VERSION = "0.1.33"
 COPYRIGHT_NOTICE = "Copyright (c) 2026 Billie Kennedy. All rights reserved."
 PROGRAM_LICENSE = "All rights reserved"
 

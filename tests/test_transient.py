@@ -21,8 +21,10 @@ from core.probes import ProbeCollection, shunt_loads
 from core.wires import WireCollection
 from sim import runner
 from sim.runner import (
+    _run_until_finished,
     default_transient_stop,
     lit_led_references,
+    plotted_columns,
     probe_series,
     run_tran,
     sample_at,
@@ -167,6 +169,131 @@ def test_a_unity_gain_buffer_copies_a_1_v_sine():
     output_peak = max(output_series[1])
     assert input_peak == pytest.approx(1.0, rel=0.01)
     assert output_peak == pytest.approx(input_peak, rel=0.01)
+
+
+def test_drawing_keeps_the_peak_and_the_trough():
+    # Six samples, four drawn points, two buckets of three.
+    # Bucket 0 is 0, 10, 0: keep 0 and 10. Bucket 1 is 0, -5, 0: keep 0 and -5.
+    times = (0, 1, 2, 3, 4, 5)
+    values = (0, 10, 0, 0, -5, 0)
+    phase = (1, 2, 3, 4, 5, 6)
+
+    drawn_time, drawn_values, drawn_phase = plotted_columns(
+        times, values, phase, limit=4
+    )
+
+    assert list(drawn_time) == [0, 1, 3, 4]
+    assert list(drawn_values) == [0, 10, 0, -5]
+    assert list(drawn_phase) == [1, 2, 4, 5]
+
+
+def test_a_short_trace_is_drawn_in_full():
+    times = (0, 1, 2)
+    values = (0, 10, 0)
+
+    assert plotted_columns(times, values, limit=4) == (times, values)
+
+
+def test_unequal_trace_columns_are_refused():
+    with pytest.raises(SimulationError, match="not usable"):
+        plotted_columns((0, 1), (0,))
+
+
+class _Shared:
+    """Stand-in for the ngspice library. No real run."""
+
+    def __init__(self, finish_immediately=False):
+        self.commands = []
+        self._is_running = False
+        self._background_started = False
+        self._error_in_stdout = False
+        self._error_in_stderr = False
+        self.finish_immediately = finish_immediately
+        self.halt_error = None
+
+    def exec_command(self, command):
+        self.commands.append(command)
+        self._background_started = True
+        self._is_running = not self.finish_immediately
+
+    def halt(self):
+        self.commands.append("bg_halt")
+
+        if self.halt_error is not None:
+            self._is_running = False
+            raise self.halt_error
+
+        self._is_running = False
+
+
+def test_stop_halts_a_run_that_has_already_started():
+    shared = _Shared()
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(SimulationError, match="Stopped"):
+        _run_until_finished(shared, cancel)
+
+    assert shared.commands == ["bg_run", "bg_halt"]
+
+
+def test_a_finished_background_run_returns():
+    shared = _Shared(finish_immediately=True)
+
+    _run_until_finished(shared, None)
+
+    assert shared.commands == ["bg_run"]
+
+
+def test_a_halt_that_ngspice_rejects_still_stops():
+    shared = _Shared()
+    shared.halt_error = NameError("ngSpice_Command bg_halt returned 1")
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(SimulationError, match="Stopped"):
+        _run_until_finished(shared, cancel)
+
+    assert shared.commands == ["bg_run", "bg_halt"]
+
+
+def test_a_run_that_ignores_halt_says_to_press_start(monkeypatch):
+    clock = {"now": 0.0}
+
+    def monotonic():
+        clock["now"] += 1.0
+        return clock["now"]
+
+    monkeypatch.setattr("sim.runner.time.monotonic", monotonic)
+    monkeypatch.setattr("sim.runner.time.sleep", lambda _seconds: None)
+    shared = _Shared()
+
+    def ignore_halt():
+        shared.commands.append("bg_halt")
+
+    shared.halt = ignore_halt
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(SimulationError, match="did not stop"):
+        _run_until_finished(shared, cancel)
+
+    assert shared.commands[0] == "bg_run"
+    assert "bg_halt" in shared.commands
+
+
+def test_a_run_that_fails_before_it_starts_returns():
+    shared = _Shared()
+
+    def fail(command):
+        shared.commands.append(command)
+        shared._error_in_stderr = True
+
+    shared.exec_command = fail
+
+    _run_until_finished(shared, None)
+
+    assert shared.commands == ["bg_run"]
 
 
 @needs_ngspice

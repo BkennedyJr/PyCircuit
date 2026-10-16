@@ -24,6 +24,7 @@ from core.cursors import format_cursor_text, value_at
 from gui.plot_cursors import CursorBox
 from gui.plot_zoom import show_zoom_tip
 from gui.update_mode import update_mode_combo
+from sim.runner import plotted_columns
 
 
 class FftPlot(pg.PlotWidget):
@@ -152,6 +153,9 @@ class FftDock(QDockWidget):
         """
         Draw traces. Each trace is ``(name, color, frequency, peak)``.
 
+        A long spectrum is drawn from its peaks. The cursors still
+        read every bin.
+
         :param traces: Series to draw.
         :returns: None
         """
@@ -172,7 +176,13 @@ class FftDock(QDockWidget):
                 continue
 
             hertz, height = zip(*finite)
-            self.plot.plot(list(hertz), list(height), pen=pen, name=name)
+            drawn_hertz, drawn_height = plotted_columns(hertz, height)
+            self.plot.plot(
+                list(drawn_hertz),
+                list(drawn_height),
+                pen=pen,
+                name=name,
+            )
             series[name] = (hertz, height)
             lowest = min(hertz) if lowest is None else min(lowest, min(hertz))
             highest = max(hertz) if highest is None else max(highest, max(hertz))
